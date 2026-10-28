@@ -1,0 +1,40 @@
+; Experimental radio candidate; unsigned, not hardware/installation-validated.
+; Replaces ordinary Wi-Fi networking with a private admin diagnostic/radio device.
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%Provider%
+DriverVer=10/28/2026,0.0.2.0
+CatalogFile=airwindows_mt7922_bringup.cat
+PnpLockdown=1
+[Manufacturer]
+%Provider%=Devices,NTamd64.10.0...26100
+[Devices.NTamd64.10.0...26100]
+%Description%=Install,PCI\VEN_14C3&DEV_0616&SUBSYS_223C14C3&REV_02
+[DestinationDirs]
+DriverFiles=13
+[SourceDisksNames]
+1=%Disk%,,,
+[SourceDisksFiles]
+airwindows_mt7922_bringup.sys=1
+[Install.NT]
+CopyFiles=DriverFiles
+[DriverFiles]
+airwindows_mt7922_bringup.sys
+[Install.NT.Services]
+AddService=airwindows_mt7922_bringup,0x00000002,Service
+[Service]
+DisplayName=%Description%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\airwindows_mt7922_bringup.sys
+[Install.NT.Wdf]
+KmdfService=airwindows_mt7922_bringup,Wdf
+[Wdf]
+KmdfLibraryVersion=1.33
+[Strings]
+Provider="AirWindows Development"
+Description="MT7922 experimental AWDL radio - no Wi-Fi networking"
+Disk="AirWindows MT7922 experimental radio candidate"

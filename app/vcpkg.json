@@ -1,0 +1,17 @@
+{
+  "name": "airwindows",
+  "description": "AirPlay screen mirroring receiver for Windows",
+  "license": "GPL-3.0-or-later",
+  "dependencies": [
+    "openssl",
+    "libplist",
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": [
+        "avcodec",
+        "swresample"
+      ]
+    }
+  ]
+}

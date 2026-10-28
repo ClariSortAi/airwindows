@@ -1,0 +1,48 @@
+#include <windows.h>
+#include "resource.h"
+#include "version.h"
+
+#ifndef IDC_STATIC
+#define IDC_STATIC -1
+#endif
+
+IDI_APP ICON "app.ico"
+
+IDD_RENAME DIALOGEX 0, 0, 244, 72
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "AirPlay name"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Name shown on your iPhone, iPad or Mac:", IDC_STATIC, 8, 8, 228, 10
+    EDITTEXT        IDC_NAME_EDIT, 8, 22, 228, 14, ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK", IDOK, 130, 50, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 186, 50, 50, 14
+END
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, 0
+PRODUCTVERSION APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, 0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "GraniteAI"
+            VALUE "FileDescription", "AirWindows"
+            VALUE "FileVersion", APP_VERSION_STRING
+            VALUE "InternalName", "AirWindows"
+            VALUE "OriginalFilename", "AirWindows.exe"
+            VALUE "ProductName", "AirWindows"
+            VALUE "ProductVersion", APP_VERSION_STRING
+            VALUE "LegalCopyright", "GPL-3.0-or-later. Built on UxPlay, FFmpeg, OpenSSL and libplist."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

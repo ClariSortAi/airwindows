@@ -1,0 +1,19 @@
+{
+  "reference_commit": "74606871b001bdba5e447f84a43bb96124fb495a",
+  "reference_path": "airdrop/",
+  "source_sha256": {
+    "engine.py": "83b32db276343d1f5516566f5e6f8ee36c57e29314791c7bedfc91e8eba4fd2c",
+    "receiver.py": "fb56f43da2812c331ad28fad0d3b5b3bca4be3196e3813cee4ba0a1efbfb2378",
+    "identity.py": "f9ab2b1a43ea564a12faaed75e1218b67e4034a2787462743f5ac463b0c6c289",
+    "mdns.py": "6035bfa38dbff9eb6c6e129eeb0eab01905b1f95777ce9fd75da243304b5f2d6",
+    "netif.py": "434a3b59dfce164a36f94458b4518f46e1d62b38ddcc3bd382dbfefd6cee92e5",
+    "sender.py": "d6265b946b991cb1ca006911a93430ef6773838040c8a1d9aa70b6effe82bb54",
+    "transfer.py": "e0d5d0edd88ec1c8270d8c41fafd582690ab5915c6a6e848c03768b1c4c7f8b2",
+    "redact.py": "62990f356438f75af61b863796563edcf14f5f9551a1f5ae19019243fb557563",
+    "cpio.py": "d53f88f2a3e76159903dd91c13d6dbf7cdbab693ffef5813e398b097fd1d9190",
+    "windows_radio.py": "447dc2c5a8449a37003c698d0b0d956f46734ba7f7722d39bbae2a10245395c1",
+    "airdrop-beacon.ps1": "77aeb7714a47c7c0194074088bedc5f55977c3b5a0b9bd76b80bf870a471d3b2",
+    "loopback_check.py": "92b5fdef3ac1375d402c9e9e6d0f8a24de5a7afda4e21647bfdc6b9c9f31a1fa",
+    "LICENSE": "70149677a070b35fa5cc56d4b7b9269eaa58b5e002dd46ccac1c7eb3dafbaafc"
+  }
+}
