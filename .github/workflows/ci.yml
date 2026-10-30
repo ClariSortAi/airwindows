@@ -42,3 +42,5 @@ jobs:
       - run: ./app/scripts/build.ps1 -Target AirWindowsNative
       - run: ./app/scripts/build.ps1 -Target FrameServerCheck
       - run: ./app/build/Release/bin/FrameServerCheck.exe
+      - run: ./app/scripts/package.ps1 -Release -OutDir ./app/dist/ci
+      - run: python scripts/check-package.py app/dist/ci

@@ -19,5 +19,6 @@ Right-click Button 2 submissions appear in the local control log. They do not es
 - Passed 12 Python frame-metadata checks.
 - Passed frame-pipe checks for fresh pixels, idle, pause/resume, stale packets, timeout, disconnect/reconnect, geometry, invalidation and restart.
 - Checked portable paths, documentation links and exclusion of generated artifacts.
+- Checked the binary/source archive pair, upstream sources, descriptor notice and checksums. Extracted the corrected source archive, ran bootstrap and rebuilt the receiver with the pinned dependency cache.
 
 These results do not qualify the new packaged binary on a phone. GitHub Actions supplies separate evidence of a build from the repository on a hosted Windows runner.
