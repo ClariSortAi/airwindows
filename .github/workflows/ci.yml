@@ -1,7 +1,7 @@
 name: Windows checks
 on:
   push:
-    branches: [main, 'feat/iphone-control-package']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -20,6 +20,7 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: requirements-dev.txt
       - run: python -m pip install -r requirements-dev.txt
       - run: ./scripts/check.ps1
       - run: python -m pytest app/tests/test_frames.py

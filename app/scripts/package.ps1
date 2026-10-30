@@ -85,6 +85,8 @@ try {
     }
     $vcpkgCommit = (git -C (Join-Path $root '.deps\vcpkg') rev-parse HEAD).Trim()
     $uxplayCommit = (git -C $uxplay rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the UxPlay source commit.' }
+    $uxplayCommit | Set-Content -LiteralPath (Join-Path $sourceApp 'third_party\UxPlay\AIRWINDOWS-UPSTREAM-COMMIT.txt') -Encoding ascii
     @("vcpkg: $vcpkgCommit", "UxPlay: $uxplayCommit", 'FFmpeg overlay: app/vcpkg-ports/ffmpeg. OpenSSL/libplist ports: this directory.') |
         Set-Content -LiteralPath (Join-Path $upstreamDir 'README.txt') -Encoding utf8
     Compress-Archive -LiteralPath $top -DestinationPath $sourceZip
