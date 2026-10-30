@@ -57,6 +57,15 @@ int main() {
         for (int plane = 0; plane < 3; ++plane)
             for (int y = 0; y < (plane ? 4 : 8); ++y) memset(frame->data[plane] + y * frame->linesize[plane], 128, plane ? 4 : 8);
         server.Publish(frame, server.Stamp()); Expected(true);
+        server.SetControlState(true,false,true,"0000000000000001","0000000000000002");
+        auto ready=ReadFrame();
+        Require(ready.find("\"control_ready\":true")!=std::string::npos && ready.find("\"control_busy\":false")!=std::string::npos,"control readiness export");
+        Require(ready.find("\"control_peer\":\"0000000000000001\"")!=std::string::npos && ready.find("\"control_epoch\":2")!=std::string::npos,"binding identity export");
+        server.SetControlState(true,true,true,"0000000000000001","0000000000000002");
+        Require(ReadFrame().find("\"control_busy\":true")!=std::string::npos,"busy action export");
+        server.SetControlState(true,false,true,"invalid\"token","0000000000000002");
+        auto invalid=ReadFrame();
+        Require(invalid.find("\"control_ready\":false")!=std::string::npos && invalid.find("\"control_peer\":\"\"")!=std::string::npos,"invalid identity cannot be ready or enter JSON");
         auto old = server.Stamp();
         server.SetPaused(true); Expected(false);
         server.Publish(frame, old); Expected(false);

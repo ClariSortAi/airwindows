@@ -21,7 +21,7 @@ for name in filter(None, paths):
         "README.md", "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "LICENSE.md",
         "docs/CLAUDE-CODE-REVIEW.md",
     }
-    if not scoped or path.suffix.lower() not in {".md", ".txt", ".py", ".ps1", ".cpp", ".h"}:
+    if not scoped or path.suffix.lower() not in {".md", ".txt", ".py", ".ps1", ".cpp", ".h", ".cs", ".json"}:
         continue
     text = path.read_text(encoding="utf-8-sig")
     if re.search(r"(?i)C:[\\/]Users[\\/]|C:[\\/]Dev[\\/]|b31ac1219e25a061|b75de3b6de19880e|JTRMAIN", text):
@@ -41,6 +41,8 @@ for name in (
     ".github/workflows/ci.yml", "CONTRIBUTING.md", "SECURITY.md",
     "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "requirements-agent.txt",
     "app/packaging/Start-AirWindows.cmd",
+    "app/tools/iosctl/Program.cs", "app/tools/iosctl/README.md",
+    "native-ble-prototype/subscriber_selection.h",
 ):
     if not (ROOT / name).is_file():
         errors.append(f"Missing repository input: {name}")

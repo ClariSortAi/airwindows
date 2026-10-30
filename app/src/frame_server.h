@@ -2,6 +2,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <string>
 struct AVFrame;
 
 struct FrameStamp {
@@ -21,6 +22,7 @@ public:
     void SetPaused(bool paused);
     void Invalidate();
     void SetGeometry(int width, int height);
+    void SetControlState(bool ready, bool busy, bool focused, const std::string& peer, const std::string& sender);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

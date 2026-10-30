@@ -29,6 +29,8 @@ with zipfile.ZipFile(binary) as archive:
             raise SystemExit(f"Binary package is missing {suffix}")
     if not any(name.endswith(("/AirWindowsNative.exe", "/AirWindows.exe")) for name in names):
         raise SystemExit("Binary package has no receiver.")
+    if "AirWindows/iosctl.exe" not in names:
+        raise SystemExit("Windows package has no iosctl helper.")
     packaged_files = {
         "Start-AirWindows.cmd": "app/packaging/Start-AirWindows.cmd",
         "README.txt": "app/packaging/README.txt",
@@ -36,6 +38,8 @@ with zipfile.ZipFile(binary) as archive:
             "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "requirements-agent.txt", "app/README.md",
             "app/CLAUDE-CONTROL.md", "app/NATIVE-CONTROL.md", "app/FRAME-INTERFACE.md",
             "app/scripts/observe-phone.py", "app/scripts/airwindows_frames.py",
+            "app/tools/iosctl/README.md", "app/tools/iosctl/preflight.ps1",
+            "app/tools/iosctl/targets.example.json", "app/tools/iosctl/DEMO-TAKE-A-PHOTO.md",
         )},
     }
     for relative, original in packaged_files.items():
@@ -66,11 +70,19 @@ with zipfile.ZipFile(source) as archive:
         "app/scripts/airwindows_frames.py", "native-ble-prototype/native_hid_backend.cpp",
         "native-ble-prototype/native_hid_backend.h", "native-ble-prototype/absolute_buttons.h",
         "native-ble-prototype/discovery_window.h", "native-ble-prototype/battery_level.h",
+        "native-ble-prototype/subscriber_selection.h",
         "native-ble-prototype/LICENSE-iphone-use",
     ):
         entries = [item for item in names if item.endswith("/" + name)]
         if len(entries) != 1 or archive.read(entries[0]) != (root / name).read_bytes():
             raise SystemExit(f"Source package missing or mismatched: {name}")
+    for path in (root / "app/tools/iosctl").iterdir():
+        if path.suffix not in {".cs", ".ps1", ".md", ".json", ".manifest"}:
+            continue
+        name = path.relative_to(root).as_posix()
+        entries = [item for item in names if item.endswith("/" + name)]
+        if len(entries) != 1 or archive.read(entries[0]) != path.read_bytes():
+            raise SystemExit(f"Source package missing or mismatched helper file: {name}")
     for suffix in ("/app/third_party/UxPlay/lib/raop.c", "/app/third_party/UxPlay/AIRWINDOWS-UPSTREAM-COMMIT.txt"):
         if not any(name.endswith(suffix) for name in names):
             raise SystemExit(f"Source package missing {suffix}")

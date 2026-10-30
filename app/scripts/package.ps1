@@ -14,6 +14,8 @@ if (-not $OutDir) { $OutDir = Join-Path $root 'dist' }
 $OutDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutDir)
 $version = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
 if (-not $version) { throw 'Executable has no product version.' }
+$iosctl = Join-Path $root "build\$Config\bin\iosctl.exe"
+if (-not (Test-Path -LiteralPath $iosctl) -or (Get-Item -LiteralPath $iosctl).VersionInfo.ProductVersion -ne $version) { throw 'Build the matching iosctl helper before packaging.' }
 $share = Join-Path $root '.deps\vcpkg_installed\x64-windows-static\share'
 $uxplay = Join-Path $root 'third_party\UxPlay'
 $backend = Join-Path $repo 'native-ble-prototype'
@@ -45,6 +47,7 @@ if ($Release) {
 }
 New-Item -ItemType Directory -Path (Join-Path $appDir 'licenses') -Force | Out-Null
 Copy-Item -LiteralPath $exe -Destination $appDir
+Copy-Item -LiteralPath $iosctl -Destination $appDir
 Copy-Item -LiteralPath (Join-Path $root 'packaging\README.txt') -Destination $appDir
 Copy-Item -LiteralPath (Join-Path $root 'packaging\Start-AirWindows.cmd') -Destination $appDir
 Copy-Item -LiteralPath (Join-Path $repo 'FOR-AGENTS.md') -Destination $appDir
@@ -61,6 +64,11 @@ foreach ($name in @('observe-phone.py','airwindows_frames.py')) {
     Copy-Item -LiteralPath (Join-Path $root "scripts\$name") -Destination (Join-Path $agentApp 'scripts')
 }
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $agentApp
+$helperDocs = Join-Path $agentApp 'tools\iosctl'
+New-Item -ItemType Directory -Path $helperDocs -Force | Out-Null
+foreach ($name in @('README.md','preflight.ps1','targets.example.json','DEMO-TAKE-A-PHOTO.md')) {
+    Copy-Item -LiteralPath (Join-Path $root "tools\iosctl\$name") -Destination $helperDocs
+}
 Copy-Item -LiteralPath (Join-Path $root 'THIRD-PARTY.md') -Destination $agentApp
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $appDir 'LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $root 'THIRD-PARTY.md') -Destination (Join-Path $appDir 'THIRD-PARTY.txt')
@@ -77,13 +85,13 @@ try {
     New-Item -ItemType Directory -Path $sourceApp -Force | Out-Null
     Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Extension -in @('.md','.txt','.json') -or $_.Name -eq 'LICENSE' } |
         Copy-Item -Destination $sourceApp
-    foreach ($dir in @('src','compat','scripts','tests','packaging','vcpkg-ports')) {
+    foreach ($dir in @('src','compat','scripts','tests','packaging','vcpkg-ports','tools')) {
         robocopy (Join-Path $root $dir) (Join-Path $sourceApp $dir) /E /XD __pycache__ .pytest_cache /XF *.pyc /NFL /NDL /NJH /NJS /NP | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "Source copy failed: $dir" }
     }
     $sourceBackend = Join-Path $top 'native-ble-prototype'
     New-Item -ItemType Directory -Path $sourceBackend -Force | Out-Null
-    foreach ($name in @('native_hid_backend.cpp','native_hid_backend.h','absolute_buttons.h','battery_level.h','discovery_window.h','test_discovery_window.cpp','README.md','LICENSE-iphone-use')) {
+    foreach ($name in @('native_hid_backend.cpp','native_hid_backend.h','absolute_buttons.h','battery_level.h','discovery_window.h','subscriber_selection.h','test_discovery_window.cpp','README.md','LICENSE-iphone-use')) {
         Copy-Item -LiteralPath (Join-Path $backend $name) -Destination $sourceBackend
     }
     Copy-Item -LiteralPath (Join-Path $repo 'requirements-dev.txt') -Destination $top

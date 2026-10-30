@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1-rc.1 (2026-10-30)
+
+- Integrates Claude Code's `iosctl` workflow: taps, text, Home, paced drags, paging, screenshot/crop/grid inspection, target maps and preflight.
+- Uses explicit receiver selection and actual frame dimensions. Captures come from the decoded phone pipe, without desktop occlusion or a Python dependency.
+- Adds focus/input-result checks, bounded parsing, button/key cleanup, receiver-specific input serialization and nonzero failures. Removes automatic click/page retries.
+- Exports current control readiness, identity epoch, focus and queue activity with frames so preflight and input completion do not rely on toolbar heuristics.
+- Keeps the selected phone when extra HID subscribers appear, preserves explicit selection, and restricts control writes to the bound peer.
+- Packages the compiled helper, portable demo and example map with matching source. Receiver/helper versions are checked together.
+
+Automated checks cover the helper, subscriber-selection policies and frame metadata. The revised helper and two-phone behavior still need live-device acceptance. Personal maps, recipients and raw phone evidence are excluded.
+
 ## 0.3.0-preview.1 (2026-10-30)
 
 - Native Windows BLE keyboard and absolute mouse control inside the AirPlay picture.

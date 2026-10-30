@@ -8,7 +8,7 @@ struct ControlPeer { std::string token, name; };
 struct NativeControlState {
     std::vector<ControlPeer> peers;
     std::string bound, sender, message = "Bluetooth control disconnected";
-    bool ready = false, focused = false, published = false;
+    bool ready = false, focused = false, published = false, busy = false;
 };
 class NativeControl {
 public:

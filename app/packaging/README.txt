@@ -22,16 +22,16 @@ Buttons. Click Home in AirWindows, then assign the detected Button 2 to
 Home on the phone. Right-click inside the phone picture invokes the same
 assigned action. Right-click in the bars or chrome opens the PC menu.
 
-Run only one receiver. For Claude Code or Codex, start with FOR-AGENTS.md
-in this folder. The frame reader is included in app/scripts; its Python
-dependency is listed in requirements-agent.txt. The agent also needs a
-supported Windows desktop-input tool. No source checkout is required.
+Run only one receiver. For Claude Code or Codex, start with FOR-AGENTS.md.
+The compiled iosctl.exe helper supplies capture, taps, typing, drags, Home
+and preflight. Read app/tools/iosctl/README.md for commands and use input
+only where the agent's environment permits it. Python is optional; the
+older Python reader remains in app/scripts. No source checkout is required.
 
-This is an experimental, unsigned build for Windows x64. Native control
-requires BLE peripheral mode and was tested on Windows 11. Disconnect
-other previously paired phones while using this preview; a second HID
-subscriber can cause repeated reconnects. Paste, wheel input and other
-adapter/iOS combinations still need testing.
+This is an unsigned release candidate for Windows x64. Native control
+requires BLE peripheral mode and has been tested on Windows 11. The helper
+uses .NET Framework 4.8. The revised helper, two-phone behavior, paste,
+wheel input and other adapter/iOS combinations still need live acceptance.
 
 Logs and settings: %LOCALAPPDATA%\AirWindows
 For connection problems, start with --debug and inspect debug.txt.

@@ -70,3 +70,7 @@ if ($Target) { $buildArgs += @('--target', $Target) }
 $buildArgs += @('--', '-k', '0')
 & $cmake @buildArgs
 if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+if (-not $Target -or $Target -in @('AirWindowsNative','AirWindows')) {
+    & (Join-Path $root 'tools\iosctl\build.ps1') -OutDir (Join-Path $build 'bin')
+    if ($LASTEXITCODE -ne 0) { throw 'iosctl build failed.' }
+}

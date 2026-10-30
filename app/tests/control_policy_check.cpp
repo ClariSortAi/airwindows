@@ -1,7 +1,9 @@
 #include "control_queue.h"
 #include "absolute_buttons.h"
+#include "subscriber_selection.h"
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 int main(){
     unsigned checks=0;
     const auto check=[&](bool ok){++checks;if(!ok)throw std::runtime_error("control policy check failed");};
@@ -88,5 +90,15 @@ int main(){
     queue.Focus(true);check(queue.Push({ControlKind::Secondary,16416,16399},9000));
     const auto secondary=queue.Pop(9001);check(secondary&&secondary->kind==ControlKind::Secondary&&secondary->x==16416);
     queue.Focus(false);check(!queue.Valid(*secondary,9002));
+    std::vector<std::string> subscribers{"selected"};
+    const auto selected=[](const auto& peer){return peer=="selected";};
+    check(UniqueSubscriber(subscribers,selected)!=subscribers.end());
+    subscribers.insert(subscribers.begin(),"other");
+    check(*UniqueSubscriber(subscribers,selected)=="selected"); // extra peer never takes over
+    subscribers.push_back("third");check(*UniqueSubscriber(subscribers,selected)=="selected");
+    subscribers.erase(subscribers.begin()+1);check(UniqueSubscriber(subscribers,selected)==subscribers.end()); // loss does not pick a fallback
+    subscribers.push_back("selected");check(*UniqueSubscriber(subscribers,selected)=="selected"); // exact reconnect
+    subscribers.push_back("selected");check(UniqueSubscriber(subscribers,selected)==subscribers.end()); // ambiguous identity
+    subscribers.clear();check(UniqueSubscriber(subscribers,selected)==subscribers.end());
     std::cout<<checks<<" control queue and coordinate checks passed\n";
 }

@@ -11,7 +11,7 @@ You need:
 - Windows 11 x64 and a Bluetooth adapter with **BLE peripheral mode**. MediaTek is the tested adapter; ordinary Bluetooth connectivity alone does not establish peripheral support.
 - An unlocked iPhone with Bluetooth on, near the PC and charged.
 - A network that lets the phone and PC reach each other. Ethernet on the PC and Wi-Fi on the phone work. Guest isolation or a VPN can block discovery.
-- An agent tool that can read images and operate a **native Windows window**: focus, click, drag and type. Browser-only tools cannot operate this window.
+- An agent that can read images and use the bundled **iosctl** helper where local desktop automation is permitted, or a supported native Windows desktop-input tool. Browser-only tools cannot operate this window.
 
 Check the host and any existing receiver:
 
@@ -26,13 +26,13 @@ Get-CimInstance Win32_Process |
 
 Confirm which iPhone the user wants to control. Reuse its receiver when possible; run one receiver at a time. Do not run the separate BLE bench provider alongside AirWindows.
 
-Use your desktop tool's supported interface and follow its restrictions. The phone's controls are pixels, not browser or Windows accessibility elements. Shell access alone does not provide desktop input. If that capability is missing, complete setup with the user's mouse and report **manual control ready; agent input unavailable**.
+Follow your environment's tool restrictions. The phone's controls are pixels, not browser or Windows accessibility elements. The bundled helper supplies desktop input through the existing receiver window; it does not override a restriction on CLI-based input. If neither that route nor a supported desktop tool is available, complete setup with the user's mouse and report **manual control ready; agent input unavailable**.
 
 **Checkpoint:** intended phone, supported PC, reachable network and desktop-input tool identified.
 
 ## 2. Download and unpack
 
-Use the [Windows package](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.0-preview.1/AirWindows-0.3.0-win-x64.zip). It includes the receiver, launcher, frame reader, this runbook and operating guides. No compiler, GitHub account or source checkout is needed.
+Use the [Windows package](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.1/AirWindows-0.3.1-rc.1-win-x64.zip). It includes the receiver, launcher, compiled `iosctl` helper, frame reader, this runbook and operating guides. No compiler, GitHub account or source checkout is needed.
 
 Run this in PowerShell to download the package and check its SHA-256 checksum:
 
@@ -40,13 +40,13 @@ Run this in PowerShell to download the package and check its SHA-256 checksum:
 $ErrorActionPreference = 'Stop'
 $setupRoot = Join-Path $env:USERPROFILE 'AirWindowsSetup'
 $downloadDir = Join-Path $setupRoot 'downloads'
-$installDir = Join-Path $setupRoot '0.3.0-preview.1'
+$installDir = Join-Path $setupRoot '0.3.1-rc.1'
 if (Test-Path -LiteralPath $installDir) {
     throw 'This installation already exists. Reuse it, or choose a new installDir.'
 }
 New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
-$releaseUrl = 'https://github.com/ClariSortAi/airwindows/releases/download/v0.3.0-preview.1'
-$zipName = 'AirWindows-0.3.0-win-x64.zip'
+$releaseUrl = 'https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.1'
+$zipName = 'AirWindows-0.3.1-rc.1-win-x64.zip'
 Invoke-WebRequest "$releaseUrl/$zipName" -OutFile (Join-Path $downloadDir $zipName)
 Invoke-WebRequest "$releaseUrl/SHA256SUMS.txt" -OutFile (Join-Path $downloadDir 'SHA256SUMS.txt')
 $entry = @(Get-Content -LiteralPath (Join-Path $downloadDir 'SHA256SUMS.txt') |
@@ -65,7 +65,7 @@ Get-Item -LiteralPath $receiverExe | Select-Object FullName, Length
 
 Record `$packageRoot` and `$receiverExe` as full paths. Shell calls may start new processes, so recreate these variables when needed. A user who already extracted the ZIP can start here by supplying its `AirWindows` folder.
 
-The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.0-preview.1) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
+The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.1) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
 
 **Checkpoint:** the verified package is extracted and its executable path is known.
 
@@ -114,7 +114,7 @@ Get-Content -LiteralPath "$env:LOCALAPPDATA\AirWindows\debug.txt" -Tail 100 |
 
 Readiness requires matching Bluetooth and AirPlay identities. An old `Ready=1` log entry or the phone's Connected label is insufficient. Do not copy device fingerprints or force saved identity settings.
 
-If another previously paired phone reconnects, have the user disconnect that specific phone while using AirWindows. A second HID subscriber can cause repeated reconnects in this preview. Preserve unrelated pairings.
+Select the intended phone explicitly if several subscribers appear. The receiver keeps notifications addressed to that selected device and remembers it for reconnection. If the connection is unstable, inspect the current binding and subscriptions; disconnect an unrelated subscriber only as a diagnostic. Preserve unrelated pairings.
 
 **Checkpoint:** the intended phone is selected, its picture is live and control remains ready.
 
@@ -133,52 +133,41 @@ Right-click inside the phone picture invokes the same assigned action. Right-cli
 
 **Checkpoint:** click, exact text, list drag, Home and return to PC all work on this phone.
 
-## 7. Set up the agent's frame reader
+## 7. Give the agent a current image
 
-The Windows ZIP contains the frame reader. Install Python 3.12 only if no suitable Python 3.12+ is already available:
-
-```powershell
-winget install --exact --id Python.Python.3.12 --source winget
-```
-
-Open a fresh shell after installation. From `$packageRoot`, create an isolated environment and install the reader's dependency:
+The Windows ZIP includes `iosctl.exe`; it captures decoded phone images without Python and without changing focus. From the extracted package folder:
 
 ```powershell
+# Recreate $receiverExe and $packageRoot from the recorded paths.
 Set-Location -LiteralPath $packageRoot
-if (-not (Test-Path -LiteralPath '.venv\Scripts\python.exe')) {
-    py -3.12 -m venv .venv
-    if ($LASTEXITCODE -ne 0) { throw 'Python environment creation failed.' }
+$iosctlExe = Join-Path $packageRoot 'iosctl.exe'
+if (-not (Test-Path -LiteralPath $iosctlExe)) {
+    $iosctlExe = Join-Path $packageRoot 'app\build\Release\bin\iosctl.exe'
 }
-.\.venv\Scripts\python.exe -m pip install -r requirements-agent.txt
-if ($LASTEXITCODE -ne 0) { throw 'Frame-reader dependency installation failed.' }
-```
-
-Use the verified Python executable's full path if the launcher is absent or a different supported version is installed. Reuse a working environment.
-
-Discover the receiver by executable path, then capture one frame:
-
-```powershell
-# Recreate $receiverExe and $packageRoot from the paths recorded earlier.
-Set-Location -LiteralPath $packageRoot
 $receivers = @(Get-CimInstance Win32_Process | Where-Object {
     $_.Name -eq 'AirWindowsNative.exe' -and $_.ExecutablePath -eq $receiverExe
 })
 if ($receivers.Count -ne 1) { throw 'Expected exactly one receiver at the selected path.' }
 $receiverPid = [int]$receivers[0].ProcessId
-.\.venv\Scripts\python.exe .\app\scripts\observe-phone.py `
-    --pid $receiverPid --output .\.local\phone.png
-if ($LASTEXITCODE -ne 0) { throw 'No fresh frame. Do not use an older output file.' }
+& $iosctlExe --pid $receiverPid 'preflight'
+if ($LASTEXITCODE -ne 0) { throw 'Phone control is not ready; inspect the reported reason.' }
+& $iosctlExe --pid $receiverPid 'shot ".local\phone.png"'
+if ($LASTEXITCODE -ne 0) { throw 'No fresh image. Do not use an older output file.' }
 ```
 
-Read the PNG with your image tool. The adjacent JSON records receiver identity, image dimensions and age. Capture is read-only and does not take focus. Inactive or older-than-one-second frames are rejected. A static phone screen can age out; obtain a current view through your desktop tool or wait for a visible update. Never treat an old PNG as a new observation.
+Read the PNG with your image tool. Its JSON sidecar records receiver identity, dimensions and age. `preflight` checks fresh frames and current binding; it does not send input or prove a physical result. The helper uses .NET Framework 4.8, available on the tested Windows 11 setup.
 
-Phone-image coordinates differ from desktop coordinates. Locate the picture rectangle, excluding the toolbar and bars, and recalculate after resize, movement, rotation or DPI changes. Follow [the coordinate mapping guide](app/CLAUDE-CONTROL.md#coordinates).
+Inactive or older-than-one-second images are rejected. A static phone screen can age out; obtain a current view through a permitted desktop tool or wait for a visible update. Never treat an old PNG as a new observation.
 
-**Checkpoint:** the agent can read a current phone image and locate it on the desktop.
+For `iosctl` input, use coordinates from the native-size phone image. It calculates the displayed picture bounds. For another desktop tool, map those pixels to that tool's screenshot coordinate space; see [coordinate mapping](app/CLAUDE-CONTROL.md#coordinates).
+
+The older Python reader remains in `app\scripts\observe-phone.py`. If using it, install `requirements-agent.txt` into a Python 3.12+ environment. It is optional for the compiled helper.
+
+**Checkpoint:** the agent reads a current image from the intended receiver.
 
 ## 8. Prove agent control
 
-Use the agent's desktop-input tool for these tests:
+Use `iosctl` where your environment permits its desktop input, or your supported desktop tool, for these tests. Read [the helper guide](app/tools/iosctl/README.md) before sending commands:
 
 | Action | Visible result |
 |---|---|
@@ -211,12 +200,12 @@ Clicking another application returns control to Windows. Disconnect or closing A
 | BLE peripheral role unavailable | Check adapter/driver support |
 | PC missing from Bluetooth discovery | Reopen the 120-second Pair Bluetooth window |
 | Connected on phone, selector empty | Use the main Bluetooth settings route; inspect current subscriptions/status |
-| Repeated disconnects | Disconnect the other previously paired phone; wait for stable readiness |
+| Repeated disconnects | Inspect the selected phone and current subscriptions; isolate an unrelated subscriber if needed |
 | Clicks miss | Recalculate picture bounds, DPI scale and overlay positions |
 | Typing stops or goes elsewhere | Restore the intended field and video focus, then inspect before continuing |
 | Home opens the PC menu | Use the toolbar or click inside the picture; verify Button 2 mapping |
 | Frame is stale or wrong PID | Rediscover the receiver and obtain a current observation |
-| Agent sees but cannot click | Supply a supported native desktop-input tool |
+| Agent sees but cannot click | Use iosctl where permitted, or supply a supported native desktop-input tool |
 
 For source builds, follow [the build guide](app/README.md#build). Set `$packageRoot` to the source root and `$receiverExe` to `app\build\Release\bin\AirWindowsNative.exe`, then continue at Step 3. Keep `app` and `native-ble-prototype` beside each other.
 

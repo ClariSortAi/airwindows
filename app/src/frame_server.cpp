@@ -97,6 +97,9 @@ struct FrameServer::Impl {
     uint64_t generation = 1, sequence = 0, receivedMs = 0, decodedMs = 0, instance = 0;
     int width = 0, height = 0;
     bool active = false, paused = false, selfTest = false;
+    bool controlReady=false, controlBusy=false, controlFocused=false;
+    uint64_t controlTick=0, controlEpoch=1;
+    std::string controlPeer, controlSender;
     std::atomic<bool> enabled{false};
     HANDLE stopEvent = nullptr;
     std::thread worker;
@@ -111,6 +114,7 @@ struct FrameServer::Impl {
     std::string Snapshot(std::vector<uint8_t>& image) {
         FrameOwner copy;
         uint64_t gen, seq, received, decoded;
+        std::string control;
         {
             std::lock_guard<std::mutex> lock(mutex);
             if (!Fresh()) return "{\"ok\":false,\"error\":\"no_fresh_active_frame\",\"image_bytes\":0}";
@@ -127,6 +131,12 @@ struct FrameServer::Impl {
                 image.clear();
                 return "{\"ok\":false,\"error\":\"frame_invalidated\",\"image_bytes\":0}";
             }
+            control=",\"control_ready\":"+std::string(controlReady?"true":"false")+
+                ",\"control_busy\":"+std::string(controlBusy?"true":"false")+
+                ",\"control_focused\":"+std::string(controlFocused?"true":"false")+
+                ",\"control_tick_ms\":"+std::to_string(controlTick)+
+                ",\"control_epoch\":"+std::to_string(controlEpoch)+
+                ",\"control_peer\":\""+controlPeer+"\",\"control_sender\":\""+controlSender+"\"";
         }
         return "{\"ok\":true,\"protocol\":1,\"source\":\"" + std::string(selfTest ? "selftest" : "airplay") +
             "\",\"receiver_pid\":" + std::to_string(GetCurrentProcessId()) +
@@ -134,7 +144,7 @@ struct FrameServer::Impl {
             ",\"sequence\":" + std::to_string(seq) + ",\"received_tick_ms\":" + std::to_string(received) +
             ",\"decoded_tick_ms\":" + std::to_string(decoded) + ",\"source_pts_ns\":" + std::to_string(copy.value->pts) +
             ",\"width\":" + std::to_string(copy.value->width) + ",\"height\":" + std::to_string(copy.value->height) +
-            ",\"format\":\"ppm\",\"image_bytes\":" + std::to_string(image.size()) + "}";
+            ",\"format\":\"ppm\",\"image_bytes\":" + std::to_string(image.size()) + control + "}";
     }
 
     bool Complete(HANDLE pipe, OVERLAPPED& ov, BOOL immediate, DWORD timeout, DWORD* count) {
@@ -196,6 +206,15 @@ struct FrameServer::Impl {
 
 FrameServer::FrameServer() : impl_(std::make_unique<Impl>()) {}
 FrameServer::~FrameServer() { Stop(); }
+void FrameServer::SetControlState(bool ready,bool busy,bool focused,const std::string& peer,const std::string& sender) {
+    const auto valid=[](const std::string& token){return token.size()==16 && token.find_first_not_of("0123456789abcdef")==std::string::npos;};
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    ready=ready && valid(peer) && valid(sender);
+    const std::string selected=ready?peer:"", source=ready?sender:"";
+    if(ready!=impl_->controlReady || selected!=impl_->controlPeer || source!=impl_->controlSender)++impl_->controlEpoch;
+    impl_->controlReady=ready;impl_->controlBusy=busy;impl_->controlFocused=ready && focused;
+    impl_->controlPeer=selected;impl_->controlSender=source;impl_->controlTick=GetTickCount64();
+}
 bool FrameServer::Start(bool selfTest) {
     auto& s = *impl_;
     if (s.worker.joinable()) return true;

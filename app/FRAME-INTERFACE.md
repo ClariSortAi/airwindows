@@ -16,10 +16,15 @@ Successful JSON fields:
 | `received_tick_ms`, `decoded_tick_ms` | Receiver `GetTickCount64` timestamps |
 | `source_pts_ns` | Decoder PTS mapped by the existing AirPlay path; not an independently verified phone render time |
 | `width`, `height`, `image_bytes` | Exact image geometry and payload length |
+| `control_ready`, `control_focused`, `control_busy` | Current receiver binding, focused-input and queue/worker state |
+| `control_tick_ms`, `control_epoch` | Time the UI refreshed control state; epoch changes when readiness or the selected binding changes |
+| `control_peer`, `control_sender` | Selected Bluetooth/AirPlay fingerprints; empty when control is not ready |
 
 Errors return `ok:false`, an error string and `image_bytes:0`. Pause/resume, flush/reset, codec changes, mirror loss and geometry changes invalidate retained frames and advance the generation. Queued packets carry their original generation and receipt time through FFmpeg's `AV_CODEC_FLAG_COPY_OPAQUE`; decoding after a state change cannot make an old packet valid. A request fails if packet receipt or decode age exceeds one second. Consumers must check age again after full receipt and before acting, bind the intended phone separately, and reject changed generations or geometry. The API cannot establish when iOS rendered a picture or identify the BLE target from AirPlay alone.
 
 The Python client is `scripts/observe-phone.py`, backed by `scripts/airwindows_frames.py`. It checks the pipe's actual server PID, validates source/metadata/size/timestamps, and saves a PNG with adjacent JSON only when requested. The command rejects synthetic frames. It sends no phone input; desktop agents use the focused receiver window for input.
+
+The compiled `iosctl` client uses the same read-only pipe. Before input it requires fresh control metadata and an unchanged receiver, frame generation, dimensions and binding epoch. After an action it waits for post-action focused/idle status before returning focus. These fields describe receiver state, not a phone action acknowledgement. Existing readers can ignore the additional fields.
 
 ## Verification
 

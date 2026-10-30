@@ -1,35 +1,35 @@
-# Claude Code review before the first control release
+# Claude Code integration and release review
 
-Reviewed on 2026-10-30: the receiver source, Claude Code's local `iosctl` helper and the relevant conversation transcript. This is a summary of development evidence. Raw transcripts, phone captures, device identifiers, personal targets and demo recipients remain local.
+Updated for **0.3.1-rc.1** on 2026-10-30. Claude Code's local `iosctl` prototype and the relevant session transcript informed this integration. Raw transcripts, phone captures, device identifiers, personal maps and demo recipients remain local.
 
-## What Claude added
+## What was folded in
 
-Claude built a C# desktop helper for taps, paced drags, text, Home, screenshots and screen-change sampling. It added a named target map, a connection preflight and a Camera demo runbook. Those files were in the research workspace, outside the publication checkout.
+The Windows package now includes `iosctl.exe`: taps, text, Home, paced swipes/flicks, page movement, named targets, screenshots, crops, brightness-grid inspection, screen-change sampling and preflight. The source is in [app/tools/iosctl](../app/tools/iosctl/README.md), with a portable photo-demo guide.
 
-The transcript reports successful app navigation, list scrolling, Button 2 Home and repeated Camera captures. It also records missed taps, inconsistent paging and a Home action that left the screen unchanged. These are useful device observations from the running integration build, not a separate qualification of the packaged executable.
+Claude's transcript reports app navigation, list scrolling, Button 2 Home and repeated Camera captures on the earlier running integration build. It also records missed taps, inconsistent paging and a Home action that left the screen unchanged. Those observations shaped this candidate; they do not qualify the revised executable on a phone.
 
-Claude traced repeated Bluetooth reconnects to a second previously paired phone subscribing to the HID service. Disconnecting that phone stabilized the session. The user asked Claude to leave receiver code unchanged, and it did.
+## Improvements made before packaging
 
-## Findings and release decisions
+| Original issue | Integrated behavior |
+|---|---|
+| First process chosen automatically; fixed 498 × 1080 geometry | Explicit receiver PID, verified pipe-server PID, actual source dimensions and DPI-aware picture mapping |
+| Personal icon locations and recipient embedded in demo files | Explicit per-user map, empty example, dimension checks and a generic photo workflow |
+| Desktop screenshots could include occlusion or another window | Decoded phone-only frames with receiver identity and freshness checks |
+| Focus and `SendInput` results ignored | Checked foreground/video focus, target visibility, geometry and input return values; held modifiers stop typing |
+| Failed or unknown commands could report success | Whole-batch parsing before input, bounded arguments, structured output and nonzero failure/timeout codes |
+| Automatic retries inferred success from pixel differences | One input attempt; `changed` reports pixels and `settle` reports stability, with no automatic replay |
+| Exceptions could leave buttons held or focus displaced | Release-on-error cleanup, paired down/up within one batch, restore attempts and a distinct cleanup/restore failure code |
+| Concurrent helpers could interleave input | One input lease per receiver; competing batches fail before input |
+| Preflight inferred readiness from toolbar state | Receiver-exported control readiness, selected identities, binding epoch, focus and queue/worker activity |
+| Another HID subscriber caused provider teardown and reconnect | Exact selected-peer routing and reconnect; extra subscribers do not cancel that peer or withdraw its service; unrelated control writes are rejected |
+| Source checkout needed for agent tools | Compiled helper, guides, preflight and example map included in the Windows ZIP; Python is optional |
 
-| Finding | Consequence | Action |
-|---|---|---|
-| Agent instructions and frame reader were only in source | A binary download was insufficient for agent setup | Bundle both, a launcher and the reader dependency file in the Windows ZIP |
-| Helper assumes a 498 × 1080 portrait phone and a personal icon map | Coordinates can target the wrong control on another phone or layout | Keep personal maps out; document measured picture bounds and fresh coordinates |
-| Helper takes the first receiver and ignores focus/input return values | Input can be missed or reach the wrong foreground window | Keep it experimental; use a supported desktop tool for the release |
-| `tapv`, `gov` and `page` retry based on pixel changes | A repeat may toggle, submit twice or act on a changed screen; changed pixels do not establish the intended result | Require observe, act once, verify in the published agent instructions |
-| Helper returns success for some failed or unknown commands and lacks guaranteed cleanup after an exception | An agent can misread failure or leave a button held | Require nonzero failures and guaranteed release before packaging this helper |
-| Preflight infers readiness from a disabled Connect button and peer count | It can overstate readiness without proving identity, freshness or successful input | Use current receiver status and a visible input test |
-| A second HID subscriber triggers provider teardown and reconnect | Another paired phone can interrupt control | Document the one-phone workaround; keep the runtime behavior unchanged in this packaging release |
+The new tests caught and fixed an ArrayList parsing error and an asynchronous timeout cleanup crash. Source and binary versions now come from the same CMake version settings, and packaging rejects mismatched helper/receiver versions.
 
-## Follow-up engineering
+## Validation and remaining work
 
-Before shipping `iosctl`, add explicit receiver selection, current frame dimensions, checked focus and input delivery, bounded arguments, guaranteed button release and failures that stop a command batch. Remove automatic input replay. Use the decoded-frame pipe for phone observations; desktop captures can include occlusion or another window. Store target maps per user and derive them from the current screen.
+Local checks passed: 198 control/coordinate assertions, 19 discovery/battery assertions, 12 Python frame tests, 68 helper checks and the frame-pipe lifecycle/metadata tests. Helper tests include actual local-pipe reads and timeouts, malformed commands, target bounds, metadata changes, concurrency and release-on-error logic. They send no desktop or Bluetooth input.
 
-For multi-phone handling, distinguish an extra subscriber from loss of the selected phone. Any change must preserve device-specific notification routing and be tested with two bonded phones, including disconnect/reconnect. Do not simply remove subscriber checks.
+Complete a live-device run of the packaged candidate before calling it physically accepted: click, exact text, drag, mapped Home, return to Windows, and a second bonded phone joining/leaving. Other Bluetooth adapters, iOS versions, paste and wheel input remain separate test work. A static picture can exceed the reader's one-second freshness limit; both clients reject it instead of calling it a new observation.
 
-Home is now supported by session evidence, but still needs its one-time mapping and a visible test on each setup. Paste, wheel input, other adapters and other iOS versions remain separate test work.
-
-## Package boundary
-
-The preview includes the receiver, launcher, setup and operating guides, decoded-frame reader, license notices, matching source and checksums. It uses ordinary focused desktop input. The personal demo helper, raw session evidence and unrelated AirDrop research are excluded from the application archives.
+The active development receiver was kept separate from the package build. This release includes the revised helper and its complete source. It excludes raw session evidence and unrelated AirDrop research from the application archives.

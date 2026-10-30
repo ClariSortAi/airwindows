@@ -2,6 +2,7 @@
 #include "discovery_window.h"
 #include "battery_level.h"
 #include "absolute_buttons.h"
+#include "subscriber_selection.h"
 #include <windows.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -141,13 +142,15 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
     }
 
     void SubscriptionChanged() {
-        cancel = true;
         const auto clients = Clients();
         std::lock_guard<std::mutex> lock(stateMutex);
         ++subscriptionCallbacks;
-        enabled = false;
-        if (!bound.empty() && clients.find(bound) == clients.end()) bound = hstring{};
-        values["keyboard"] = Bytes(8); values["mouse"] = Bytes(5);
+        // A different phone subscribing must not cancel the selected phone.
+        // Loss of that selected keyboard/mouse pair still invalidates input.
+        if (bound.empty() || clients.find(bound) == clients.end()) {
+            cancel=true;enabled=false;bound=hstring{};
+            values["keyboard"] = Bytes(8); values["mouse"] = Bytes(5);
+        }
     }
 
     void Read(const std::string& name, GattReadRequestedEventArgs const& args) {
@@ -192,19 +195,24 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
             if (request) {
                 const auto reader = DataReader::FromBuffer(request.Value());
                 bool valid = request.Offset() == 0 && reader.UnconsumedBufferLength() == 1;
+                bool permitted;
                 const uint8_t value = valid ? reader.ReadByte() : 0;
                 if (name != "leds") valid = valid && value <= 1;
-                if (valid) {
+                {
                     std::lock_guard<std::mutex> lock(stateMutex);
-                    if (name == "control") suspended = value == 0;
-                    else values[name] = {value};
-                    if (name != "leds") {
-                        cancel = true; enabled = false;
-                        values["keyboard"] = Bytes(8); values["mouse"] = Bytes(5);
+                    permitted=bound.empty() || bound==args.Session().DeviceId().Id();
+                    if (valid && permitted) {
+                        if (name == "control") suspended = value == 0;
+                        else values[name] = {value};
+                        if (name != "leds") {
+                            cancel = true; enabled = false;
+                            values["keyboard"] = Bytes(8); values["mouse"] = Bytes(5);
+                        }
                     }
                 }
                 if (request.Option() == GattWriteOption::WriteWithResponse) {
-                    if (valid) request.Respond(); else request.RespondWithProtocolError(0x13);
+                    if (!permitted) request.RespondWithProtocolError(0x08);
+                    else if (valid) request.Respond(); else request.RespondWithProtocolError(0x13);
                 }
             }
         } catch (hresult_error const& error) { cancel = true; Diagnostic("write_"+name,static_cast<uint32_t>(error.code())); }
@@ -269,7 +277,7 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
         } else {
             const auto clients = Clients();
             auto found = clients.find(target);
-            if (!target.empty() && clients.size() == 1 && found != clients.end()) {
+            if (!target.empty() && found != clients.end()) {
                 for (auto subscriber : chars.at(name).SubscribedClients()) {
                     if (subscriber.Session().DeviceId().Id() == target && subscriber.Session().SessionStatus() == GattSessionStatus::Active)
                         client = subscriber;
@@ -475,16 +483,17 @@ std::string NativeHidBackend::Status() const {
 }
 void NativeHidBackend::Bind(const std::string& fingerprint) {
     const auto clients = impl_->Clients();
-    if (clients.size() != 1 || Fingerprint(clients.begin()->first) != fingerprint)
-        throw std::runtime_error("Require the fingerprint of exactly one keyboard/mouse subscriber");
-    auto device = BluetoothLEDevice::FromIdAsync(clients.begin()->first).get();
+    const auto selected = UniqueSubscriber(clients, [&](const auto& peer) { return Fingerprint(peer.first) == fingerprint; });
+    if (fingerprint.empty() || selected == clients.end())
+        throw std::runtime_error("Select one unambiguous keyboard/mouse subscriber by fingerprint");
+    auto device = BluetoothLEDevice::FromIdAsync(selected->first).get();
     if (!device) throw std::runtime_error("Cannot inspect subscribed peer");
     const bool paired = device.DeviceInformation().Pairing().IsPaired();
     device.Close();
     if (!paired) throw std::runtime_error("Complete Windows/iPhone pairing first");
     {
         std::lock_guard<std::mutex> lock(impl_->stateMutex);
-        impl_->bound = impl_->lastBound = clients.begin()->first; impl_->enabled = false; impl_->cancel = true;
+        impl_->bound = impl_->lastBound = selected->first; impl_->enabled = false; impl_->cancel = true;
     }
     // StopAdvertising withdraws the GATT service and destroys report subscriptions.
     // Binding only selects the peer; publication remains until the existing deadline.
@@ -492,7 +501,7 @@ void NativeHidBackend::Bind(const std::string& fingerprint) {
 void NativeHidBackend::EnableOneAction() {
     const auto clients = impl_->Clients();
     std::lock_guard<std::mutex> lock(impl_->stateMutex);
-    if (impl_->closed || impl_->discovery.Failed(GetTickCount64()) || impl_->bound.empty() || clients.size() != 1 || clients.find(impl_->bound) == clients.end())
+    if (impl_->closed || impl_->discovery.Failed(GetTickCount64()) || impl_->bound.empty() || clients.find(impl_->bound) == clients.end())
         throw std::runtime_error("Bind the intended phone first");
     impl_->enabled = true; impl_->enableDeadline = GetTickCount64() + 2000;
 }

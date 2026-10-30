@@ -8,9 +8,9 @@ For a new user or a fresh PC, complete [the setup runbook](../FOR-AGENTS.md) fir
 
 The iPhone controls are pixels inside a Windows video window. They are not browser DOM elements or Windows accessibility controls. Browser automation, UI Automation `SetValue`, and searching for an accessible iPhone “Settings” button will not operate them. Windows accessibility tools may expose the AirWindows toolbar itself.
 
-You need an authorized Windows desktop-input tool that can bring the window forward, inspect a screenshot, click, drag and type. Use the tool's actual advertised interface; do not invent tool names. A shell and an image reader alone do not provide that capability. If your environment lacks desktop input, identify that exact missing capability before attempting phone operations. Follow your environment's tool restrictions; do not substitute a prohibited injection mechanism.
+Use the bundled [iosctl helper](tools/iosctl/README.md) where your environment permits local CLI-based desktop input, or a supported Windows desktop tool. The helper supplies taps, typing, paced drags, Home, fresh image capture and preflight. Follow your environment's tool restrictions; a bundled executable does not authorize a prohibited input mechanism. If neither input route is available, identify the missing capability before attempting phone operations.
 
-The decoded-frame pipe is read-only. There is no supported native phone-input HTTP/MCP/CLI endpoint attached to the running GUI. The separate `native_hid.exe` bench provider must not run alongside it. The older ESP `IPhone-Ble.py` and AI KVM MCP actions are not the native GUI control route.
+The decoded-frame pipe is read-only. `iosctl` reads it for observation and sends checked desktop input to the same focused video window; it does not bypass the receiver's queue or Bluetooth identity checks. There is no phone-input HTTP/MCP endpoint. The separate `native_hid.exe` bench provider must not run alongside it. The older ESP `IPhone-Ble.py` and AI KVM MCP actions are not the native GUI control route.
 
 ## Locate the running receiver
 
@@ -101,6 +101,6 @@ For a desktop tool that exposes message-based operations: input belongs to the *
 
 Use the user's current task or a harmless Settings search. Record a fresh before image; click one visible target; verify the new screen; click Search and type `Bluetooth`; verify the exact text; click back into a PC window and verify input returns there. Test Home separately after its mapping. Stop at the first failed layer and report the tool used, intended action, before/after result, image dimensions and relevant `[CONTROL]` log lines.
 
-The user confirmed GUI clicking, typing and focus return. Claude Code's later session reports successful taps, list drags, Home and Camera workflows on that running integration build, with intermittent failures. Qualify the current phone and desktop tool through the test above. Paste and wheel still need separate live checks. The 191 policy checks exercise software behavior, not physical phone outcomes.
+The user confirmed GUI clicking, typing and focus return. Claude Code's later session reports successful taps, list drags, Home and Camera workflows on that running integration build, with intermittent failures. Qualify the current phone and desktop tool through the test above. Paste and wheel still need separate live checks. The policy and helper tests exercise software behavior, not physical phone outcomes. Qualify the integrated helper on the current phone before claiming device acceptance.
 
 See [native control details](NATIVE-CONTROL.md) and [frame protocol](FRAME-INTERFACE.md). Keep phone screenshots local; they may contain personal information.

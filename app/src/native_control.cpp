@@ -1,5 +1,6 @@
 #include "native_control.h"
 #include "native_hid_backend.h"
+#include "subscriber_selection.h"
 #include "log.h"
 #include <windows.h>
 #include <winrt/base.h>
@@ -9,6 +10,7 @@
 #include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <atomic>
 
 struct NativeControl::Impl {
     mutable std::mutex mutex;
@@ -27,6 +29,7 @@ struct NativeControl::Impl {
     int pointerX=0,pointerY=0;
     uint64_t pressedAt=0, holdExpires=0, holdLimit=0;
     uint64_t inspectAt=0;
+    std::atomic<bool> processing{false};
 
     void RefreshFocus() { // mutex held
         const bool usable = focused && mirror && !paused && picture && state.ready;
@@ -73,10 +76,12 @@ struct NativeControl::Impl {
                 quit=quitting; doPair=pair; pair=false; doDisconnect=disconnect; disconnect=false;
                 doStop=stop; stop=false; doBind.swap(bind);
                 action=queue.Pop(GetTickCount64());
+                processing=action.has_value();
                 if(queue.LastFailure()==ControlQueue::Failure::Expired){
                     DropInput();focused=false;state.message="Input stopped: queued action expired. Remaining input was discarded.";doStop=true;
                 }
             }
+            struct ActionDone { std::atomic<bool>& flag; ~ActionDone(){flag=false;} } actionDone{processing};
             try {
                 if (quit) { Close(); break; }
                 if (doDisconnect) { Close(); std::lock_guard<std::mutex> lock(mutex); state.message="Bluetooth control disconnected"; continue; }
@@ -109,7 +114,8 @@ struct NativeControl::Impl {
                     auto view=current->Inspect();
                     std::string remembered;
                     {std::lock_guard<std::mutex> lock(mutex);remembered=expected;}
-                    if(view.bound.empty() && !remembered.empty() && view.peers.size()==1 && view.peers.front().absolute && view.peers.front().fingerprint==remembered) {
+                    const auto savedPeer=UniqueSubscriber(view.peers,[&](const auto& peer){return peer.absolute && peer.fingerprint==remembered;});
+                    if(view.bound.empty() && !remembered.empty() && savedPeer!=view.peers.end()) {
                         current->Bind(remembered); current->KeepPublishedWhileBound(true); view=current->Inspect();
                         LOGI("[CONTROL] Reconnected saved phone %s",remembered.c_str());
                         std::lock_guard<std::mutex> lock(mutex);
@@ -121,7 +127,8 @@ struct NativeControl::Impl {
                         state.peers.clear();
                         for (auto& peer:view.peers) if (peer.absolute) state.peers.push_back({peer.fingerprint,peer.name});
                         state.published=view.published;
-                        const bool subscribed=state.peers.size()==1 && !state.bound.empty() && view.bound==state.bound && state.peers.front().token==state.bound;
+                        const auto selected=UniqueSubscriber(state.peers,[&](const auto& peer){return peer.token==state.bound;});
+                        const bool subscribed=!state.bound.empty() && view.bound==state.bound && selected!=state.peers.end();
                         const bool ready=subscribed && !sender.empty() && sender==expectedSender;
                         if(ready!=state.ready)LOGI("[CONTROL] Ready=%d; matching Bluetooth and AirPlay identities",ready?1:0);
                         state.ready=ready;
@@ -263,4 +270,7 @@ void NativeControl::Sender(const std::string& identity){
       impl_->sender=token;}
     impl_->Cancel();
 }
-NativeControlState NativeControl::State()const{std::lock_guard<std::mutex>lock(impl_->mutex);return impl_->state;}
+NativeControlState NativeControl::State()const{
+    std::lock_guard<std::mutex>lock(impl_->mutex);
+    auto result=impl_->state;result.busy=impl_->processing || impl_->queue.Size()!=0;return result;
+}

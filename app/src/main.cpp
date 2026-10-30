@@ -786,6 +786,7 @@ void OnCommand(App& app, UINT id) {
 
 void UpdateControlUi(App& app) {
     const auto state=app.control.State();
+    app.video.Frames().SetControlState(state.ready,state.busy,state.focused,state.bound,state.sender);
     if(!state.focused && app.controlDragging){app.controlDragging=false;if(GetCapture()==app.videoWindow)ReleaseCapture();}
     if(state.ready && (state.bound!=app.settings.controlPhone || state.sender!=app.settings.controlSender)){
         app.settings.controlPhone=state.bound;app.settings.controlSender=state.sender;app.settings.Save();
@@ -795,11 +796,15 @@ void UpdateControlUi(App& app) {
     bool changed=state.peers.size()!=app.controlPeers.size();
     if(!changed)for(size_t i=0;i<state.peers.size();++i)if(state.peers[i].token!=app.controlPeers[i].token || state.peers[i].name!=app.controlPeers[i].name)changed=true;
     if(changed){
+        const auto oldSelection=SendMessageW(app.controlPeer,CB_GETCURSEL,0,0);
+        const std::string selectedToken=oldSelection>=0 && size_t(oldSelection)<app.controlPeers.size()
+            ? app.controlPeers[size_t(oldSelection)].token : state.bound;
         app.controlPeers=state.peers;SendMessageW(app.controlPeer,CB_RESETCONTENT,0,0);
         for(const auto& peer:app.controlPeers){const auto label=Utf8ToWide(peer.name+" ["+peer.token+"]");SendMessageW(app.controlPeer,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str()));}
         if(app.controlPeers.size()==1)SendMessageW(app.controlPeer,CB_SETCURSEL,0,0);
+        else for(size_t i=0;i<app.controlPeers.size();++i)if(app.controlPeers[i].token==selectedToken)SendMessageW(app.controlPeer,CB_SETCURSEL,i,0);
     }
-    EnableWindow(app.controlBind,app.controlPeers.size()==1 && !state.ready);
+    EnableWindow(app.controlBind,!app.controlPeers.empty() && !state.ready);
     EnableWindow(app.controlPair,!state.ready);
     EnableWindow(app.controlDisconnect,state.published || state.ready);
     EnableWindow(app.controlHome,state.ready && app.hasPicture && app.mirrorRunning);

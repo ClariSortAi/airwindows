@@ -4,13 +4,13 @@ Mirror your iPhone on Windows, then click and type in the mirrored screen using 
 
 AirWindows receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
 
-This preview has been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. Other Bluetooth adapters and iOS versions still need testing.
+Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper; live acceptance of the revised helper and wider adapter/iOS support is still pending.
 
 ## Get started
 
-**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.0-preview.1/AirWindows-0.3.0-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.0-preview.1)
+**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.1/AirWindows-0.3.1-rc.1-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.1)
 
-Extract the ZIP and double-click **Start-AirWindows.cmd**. The package includes the receiver, frame reader, licenses and setup guides. No compiler or GitHub account is required.
+Extract the ZIP and double-click **Start-AirWindows.cmd**. The package includes the receiver, `iosctl.exe`, frame reader, licenses and setup guides. No compiler or GitHub account is required.
 
 Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md), also included in the ZIP. It walks through installation, pairing, Home setup and the final agent-operated test.
 
@@ -38,15 +38,15 @@ The app remembers the selected Bluetooth phone and its matching AirPlay sender. 
 
 For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in AirWindows, then assign the detected Button 2 to **Home**. Bottom-edge mouse dragging was unreliable in testing, so use the assigned button for this action.
 
-Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste and wheel input still need separate live checks. Unicode input and general keyboard shortcuts are not supported. Keep other previously paired phones disconnected while using this preview; a second HID subscriber can cause repeated reconnects.
+Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste and wheel input still need separate live checks. Unicode input and general keyboard shortcuts are not supported. This candidate keeps input bound to the selected phone when another subscriber appears. The two-phone behavior still needs a live-device check.
 
 ## Using a desktop agent
 
 An agent operates the same window you do. It reads the phone image and sends desktop mouse and keyboard input inside the picture. The phone's controls are pixels, so browser selectors and Windows accessibility element lookup cannot identify them.
 
-[The operating guide](app/CLAUDE-CONTROL.md) covers focus, coordinates, frame capture and failure diagnosis. The launcher enables `--frames`, which supplies native-resolution images to programs running as the same Windows user. It is read-only; input goes through the focused window. Agents need a supported Windows desktop-input tool and Python for the bundled frame reader.
+[The operating guide](app/CLAUDE-CONTROL.md) covers focus, coordinates, frame capture and failure diagnosis. The launcher enables `--frames`, which supplies native-resolution images to programs running as the same Windows user. It is read-only; input goes through the focused window. The bundled `iosctl.exe` supplies command-line capture, taps, typing, drags, Home and preflight. Use it where your agent environment permits desktop input through a local CLI, or use a supported desktop tool. Python is optional.
 
-See [the Claude Code review](docs/CLAUDE-CODE-REVIEW.md) for the demo results, reliability findings and follow-up work. Its personal target map and experimental click-retry helper are not part of the release.
+Start with [the iosctl guide](app/tools/iosctl/README.md). The helper uses the selected receiver's actual dimensions, checks input/focus results, releases held buttons on failure and never retries a click automatically. [The Claude Code review](docs/CLAUDE-CODE-REVIEW.md) records what was integrated and what still needs a device test. Personal target maps and recipients are excluded.
 
 ## Development
 
@@ -58,6 +58,8 @@ python -m pip install -r requirements-dev.txt
 .\scripts\check.ps1
 python -m pytest app/tests/test_frames.py
 python scripts/check-repository.py
+.\app\tools\iosctl\build.ps1
+.\app\build\Release\bin\iosctl.exe --self-test
 ```
 
 GitHub Actions runs the policy checks, builds the receiver and tests the frame pipe on Windows. These checks do not pair a phone or prove a physical input result. [Contributing](CONTRIBUTING.md) explains the device tests and what to include in a bug report.
