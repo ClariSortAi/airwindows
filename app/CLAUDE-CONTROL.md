@@ -45,7 +45,7 @@ Reuse the running receiver. Do not start a second copy, delete pairings or resta
 For sharp phone-only images, use the existing reader. This command sends no input and can run without focusing a terminal window:
 
 ```powershell
-# Install requirements-dev.txt once; run the discovery block first in this session.
+# Install requirements-agent.txt once; run the discovery block first in this session.
 python .\app\scripts\observe-phone.py --pid $receiverPid --output .\.local\phone.png
 if ($LASTEXITCODE -ne 0) { throw 'No valid fresh phone frame was obtained.' }
 ```
@@ -101,6 +101,6 @@ For a desktop tool that exposes message-based operations: input belongs to the *
 
 Use the user's current task or a harmless Settings search. Record a fresh before image; click one visible target; verify the new screen; click Search and type `Bluetooth`; verify the exact text; click back into a PC window and verify input returns there. Test Home separately after its mapping. Stop at the first failed layer and report the tool used, intended action, before/after result, image dimensions and relevant `[CONTROL]` log lines.
 
-Evidence boundaries: the user confirmed GUI clicking, typing and focus return. Logs show right-click Button 2 submissions; Home mapping/result, paste, wheel, and Claude-driven input have not been independently accepted. The 191 policy checks are software checks, not substitutes for this live test.
+The user confirmed GUI clicking, typing and focus return. Claude Code's later session reports successful taps, list drags, Home and Camera workflows on that running integration build, with intermittent failures. Qualify the current phone and desktop tool through the test above. Paste and wheel still need separate live checks. The 191 policy checks exercise software behavior, not physical phone outcomes.
 
 See [native control details](NATIVE-CONTROL.md) and [frame protocol](FRAME-INTERFACE.md). Keep phone screenshots local; they may contain personal information.

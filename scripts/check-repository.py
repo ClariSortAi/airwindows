@@ -18,7 +18,8 @@ for name in filter(None, paths):
         errors.append(f"Local artifact tracked: {name}")
     # Historical AirDrop research has its own evidence and path conventions.
     scoped = name.startswith(("app/", "native-ble-prototype/")) or name in {
-        "README.md", "FOR-AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "LICENSE.md"
+        "README.md", "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "LICENSE.md",
+        "docs/CLAUDE-CODE-REVIEW.md",
     }
     if not scoped or path.suffix.lower() not in {".md", ".txt", ".py", ".ps1", ".cpp", ".h"}:
         continue
@@ -38,6 +39,8 @@ for name in (
     "app/LICENSE", "native-ble-prototype/LICENSE-iphone-use",
     "native-ble-prototype/native_hid_backend.cpp", "app/scripts/observe-phone.py",
     ".github/workflows/ci.yml", "CONTRIBUTING.md", "SECURITY.md",
+    "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "requirements-agent.txt",
+    "app/packaging/Start-AirWindows.cmd",
 ):
     if not (ROOT / name).is_file():
         errors.append(f"Missing repository input: {name}")

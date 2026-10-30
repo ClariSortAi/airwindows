@@ -35,7 +35,9 @@ Focus loss, pause, stream loss, sender change and geometry changes cancel pendin
 
 ## Verification and troubleshooting
 
-The 2026-10-30 bench observed native typing, relative movement, absolute coordinates, two absolute-button clicks and a list drag on an iPhone. The user then confirmed clicking, typing and returning focus through the GUI. Home mapping, paste, wheel and agent-driven input remain separate live checks. A submitted HID report is not proof of a visible result.
+The 2026-10-30 bench observed native typing, relative movement, absolute coordinates, two absolute-button clicks and a list drag on an iPhone. The user confirmed clicking, typing and returning focus through the GUI. Claude Code's later session reports taps, list drags, Home and Camera workflows on that running build, with intermittent failures. Paste and wheel still need separate live checks. A submitted HID report is not proof of a visible result.
+
+A second previously paired HID subscriber can trigger repeated provider teardown and reconnect. Disconnect that other phone while using this preview, then wait for stable readiness. Preserve unrelated bonds.
 
 Logs are in `%LOCALAPPDATA%\AirWindows\debug.txt`; look for recent `[CONTROL]` entries and the current toolbar status. Repeated Ready=0/Ready=1 transitions indicate instability: stop new input, wait for a stable connection and observe the current screen before continuing.
 

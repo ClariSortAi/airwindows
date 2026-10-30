@@ -46,6 +46,22 @@ if ($Release) {
 New-Item -ItemType Directory -Path (Join-Path $appDir 'licenses') -Force | Out-Null
 Copy-Item -LiteralPath $exe -Destination $appDir
 Copy-Item -LiteralPath (Join-Path $root 'packaging\README.txt') -Destination $appDir
+Copy-Item -LiteralPath (Join-Path $root 'packaging\Start-AirWindows.cmd') -Destination $appDir
+Copy-Item -LiteralPath (Join-Path $repo 'FOR-AGENTS.md') -Destination $appDir
+foreach ($name in @('AGENTS.md','CLAUDE.md')) {
+    Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $appDir
+}
+Copy-Item -LiteralPath (Join-Path $repo 'requirements-agent.txt') -Destination $appDir
+$agentApp = Join-Path $appDir 'app'
+New-Item -ItemType Directory -Path (Join-Path $agentApp 'scripts') -Force | Out-Null
+foreach ($name in @('README.md','NATIVE-CONTROL.md','CLAUDE-CONTROL.md','FRAME-INTERFACE.md')) {
+    Copy-Item -LiteralPath (Join-Path $root $name) -Destination $agentApp
+}
+foreach ($name in @('observe-phone.py','airwindows_frames.py')) {
+    Copy-Item -LiteralPath (Join-Path $root "scripts\$name") -Destination (Join-Path $agentApp 'scripts')
+}
+Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $agentApp
+Copy-Item -LiteralPath (Join-Path $root 'THIRD-PARTY.md') -Destination $agentApp
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $appDir 'LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $root 'THIRD-PARTY.md') -Destination (Join-Path $appDir 'THIRD-PARTY.txt')
 foreach ($name in $licenses.Keys) {
@@ -71,7 +87,11 @@ try {
         Copy-Item -LiteralPath (Join-Path $backend $name) -Destination $sourceBackend
     }
     Copy-Item -LiteralPath (Join-Path $repo 'requirements-dev.txt') -Destination $top
+    Copy-Item -LiteralPath (Join-Path $repo 'requirements-agent.txt') -Destination $top
     Copy-Item -LiteralPath (Join-Path $repo 'FOR-AGENTS.md') -Destination $top
+    foreach ($name in @('AGENTS.md','CLAUDE.md')) {
+        Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $top
+    }
     New-Item -ItemType Directory -Path (Join-Path $top 'scripts') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $repo 'scripts\check.ps1') -Destination (Join-Path $top 'scripts')
     @('# AirWindows source', '', 'Build from the app directory with scripts/bootstrap.ps1 and scripts/build.ps1 -Target AirWindowsNative.', 'See app/README.md for prerequisites, app/LICENSE for licensing and app/THIRD-PARTY.md for notices.', 'Keep app/ and native-ble-prototype/ beside each other. The archive includes the linked upstream sources.', 'The separate AirDrop research tree is not part of this application bundle.') |

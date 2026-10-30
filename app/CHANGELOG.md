@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0-preview.1 (2026-10-30)
 
 - Native Windows BLE keyboard and absolute mouse control inside the AirPlay picture.
 - Focus returns to Windows when clicking another application; input cancels on focus, identity or stream changes.
@@ -8,8 +8,9 @@
 - Bounded ASCII typing and explicit paste, list dragging and wheel-to-swipe routing.
 - Local decoded-frame reader, desktop-agent instructions, policy checks and Windows CI.
 - Release archives include the sibling Bluetooth backend and its MIT descriptor notice.
+- Windows ZIP includes a launcher, agent setup guide and Python frame reader; source is optional for normal use.
 
-GUI clicking, typing and focus return were accepted on a real iPhone. Home mapping, paste, wheel and agent-driven input remain unqualified. Older downloads do not contain this integration.
+GUI clicking, typing and focus return were accepted on a real iPhone. Claude Code's later session exercised taps, list dragging, Home and Camera workflows, with intermittent input failures. Paste and wheel remain unqualified. A second previously paired HID subscriber can cause repeated reconnects; disconnect that device while using this preview.
 
 ## 0.2.0 (not yet released)
 

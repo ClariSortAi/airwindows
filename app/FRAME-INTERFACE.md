@@ -1,6 +1,6 @@
 # Decoded frame interface
 
-The 2026-10-30 source build adds opt-in, local frame access for a supervised iPhone controller. Launch the receiver with `--frames`; normal launches expose no frame interface. The current source builds `AirWindowsNative.exe` and the `AirWindows.exe` alias with focused-window Bluetooth mouse and keyboard control; see [native control](NATIVE-CONTROL.md) and [the agent operating guide](CLAUDE-CONTROL.md). Older packaged downloads provide capture only. The frame pipe itself remains read-only.
+The receiver provides opt-in, local frame access for a supervised iPhone controller. The packaged `Start-AirWindows.cmd` launcher enables it, or start the executable with `--frames`. Launching the executable without that option exposes no frame interface. `AirWindowsNative.exe` and the `AirWindows.exe` alias include focused-window Bluetooth mouse and keyboard control; see [native control](NATIVE-CONTROL.md) and [the agent operating guide](CLAUDE-CONTROL.md). The frame pipe itself remains read-only.
 
 Connect to `\\.\pipe\AirWindows.Frames.<receiver PID>`. Windows access control restricts the pipe to the receiver process's user, and remote pipe clients are rejected. There is one connection at a time. Connecting requests one image; no command or authentication token is sent.
 

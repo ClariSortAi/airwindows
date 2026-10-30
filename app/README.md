@@ -18,7 +18,7 @@ From this `app` directory:
 
 Bootstrap fetches pinned UxPlay and vcpkg commits into this directory. The first build compiles OpenSSL, libplist and FFmpeg from source. Later builds reuse the results. The build scripts load the MSVC x64 environment and use Ninja; dependencies are not installed system-wide.
 
-Keep the sibling `native-ble-prototype` directory beside `app`. Both `AirWindowsNative` and `AirWindows` targets now compile the same integrated source; the former is the documented control executable. Version 0.3.0 is unreleased. Earlier downloads from [the AirWindows page](https://www.graniteai.co/tools/airwindows) do not include this integration.
+Keep the sibling `native-ble-prototype` directory beside `app`. Both `AirWindowsNative` and `AirWindows` targets compile the same integrated source; the former is the documented control executable. For a ready-to-run build, use [the 0.3.0 preview release](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.0-preview.1).
 
 The vcpkg commit in `scripts/bootstrap.ps1` pins library versions. `vcpkg-ports/ffmpeg` enables H.264, H.265, AAC and ALAC decoding with D3D11VA acceleration. A custom CMake invocation must use the `x64-windows-static` triplet and the pinned vcpkg toolchain.
 
@@ -82,7 +82,7 @@ After building, use a new output directory:
 .\scripts\package.ps1 -Release -OutDir .\dist\candidate-0.3.0
 ```
 
-This creates the runnable folder, `AirWindows-0.3.0-win-x64.zip`, a matching source zip, and `SHA256SUMS.txt`. Existing package outputs are never overwritten. The binary folder includes the GPL and dependency notices, including iphone-use's MIT notice.
+This creates the runnable folder, `AirWindows-0.3.0-win-x64.zip`, a matching source zip, and `SHA256SUMS.txt`. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, agent setup guide, Python frame reader, GPL and dependency notices, including iphone-use's MIT notice.
 
 The source archive contains `app`, its sibling Bluetooth backend, UxPlay, and the upstream FFmpeg, OpenSSL and libplist source archives with the relevant ports. Those archives must be present in vcpkg's downloads directory. Publish the matching source and checksums with any binary. The separate AirDrop research is not bundled.
 
