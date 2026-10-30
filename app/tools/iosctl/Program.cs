@@ -74,7 +74,7 @@ sealed class Plan {
                     Count(c,1,1);int ms=(int)Range(c,0,0,5000,true);totalWait+=ms;if(held)heldWait+=ms;
                     if(heldWait>1000 || totalWait>15000)throw new ArgumentException("Wait budget exceeded");break;
                 case "settle":Count(c,0,1);if(c.Args.Length>0)Range(c,0,100,5000,true);break;
-                case "shot":
+                case "snapshot":case "shot":
                     Count(c,1,2);if(c.Args.Length==2)Range(c,1,.1,2);ValidatePath(c.Args[0]);break;
                 case "crop":
                     Count(c,5,6);ValidatePath(c.Args[0]);Range(c,1,0,4095,true);Range(c,2,0,4095,true);Range(c,3,1,4096,true);Range(c,4,1,4096,true);if(c.Args.Length==6)Range(c,5,.1,4);break;
@@ -90,6 +90,7 @@ sealed class Plan {
         }
         if(held)throw new ArgumentException("down must have a matching up in the same batch");
         if(Commands.Count==0 || Commands.Count>64)throw new ArgumentException("Use 1-64 commands per batch");
+        if(Commands.Any(c=>c.Name=="snapshot") && Commands.Count!=1)throw new ArgumentException("snapshot is a standalone observation; never mix retained images with input or verification");
     }
     static void ValidatePath(string path) {
         if(!String.Equals(Path.GetExtension(path),".png",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Capture paths must end in .png");
@@ -154,10 +155,21 @@ static class Program {
             }
         }
     }
-    static int Execute(int pid,Plan plan,Targets targets,bool keep) {
+    internal static int Execute(int pid,Plan plan,Targets targets,bool keep) {
         var session=new FrameSession();Desktop desktop=null;byte[] baseline=null;int hold=300;bool submitted=false;
         var total=Stopwatch.StartNew();
         try {
+            if(plan.Commands[0].Name=="snapshot") {
+                var c=plan.Commands[0];
+                using(var frame=Frames.Read(pid,true)) {
+                    frame.Meta["frame_age_ms"]=(long)Frames.GetTickCount64()-Frames.Number(frame.Meta,"received_tick_ms");
+                    frame.Meta["frame_fresh"]=Frames.Number(frame.Meta,"frame_age_ms")<=1000;
+                    frame.Meta["purpose"]="inspection_only";
+                    Vision.Save(frame,c.Args[0],c.Args.Length==2?c.N(1):1,new Rectangle(0,0,frame.Width,frame.Height));
+                    Output(new{command=c.Name,status="saved",path=Path.GetFullPath(c.Args[0]),frame_age_ms=Frames.Number(frame.Meta,"frame_age_ms"),frame_fresh=Frames.Flag(frame.Meta,"frame_fresh"),purpose="inspection_only"});
+                }
+                return 0;
+            }
             using(var first=Read(pid,session,plan.Control)) {
                 Geometry(plan,targets,first);
                 if(plan.Input && Frames.Flag(first.Meta,"control_busy"))throw new InvalidOperationException("Receiver is processing input; observe before starting another batch");
@@ -235,9 +247,14 @@ static class Program {
     static int Main(string[] args) {
         try {
             if(args.Length==1 && args[0]=="--self-test")return Tests.Run();
+            if(args.Length>=1 && args[0]=="--doctor") {
+                int selected=0;
+                if(args.Length!=1 && (args.Length!=3 || args[1]!="--pid" || !Int32.TryParse(args[2],out selected) || selected<1))throw new ArgumentException("Use --doctor [--pid PID]");
+                return Doctor.Run(selected);
+            }
             if(args.Length==1 && args[0]=="--version"){Console.WriteLine("iosctl "+FileVersionInfo.GetVersionInfo(typeof(Program).Assembly.Location).ProductVersion);return 0;}
             if(args.Length==0 || (args.Length==1 && args[0]=="--help")) {
-                Console.WriteLine("iosctl --pid PID [--targets FILE] [--keep-focus] \"commands\"\nRead README.md for input permissions and examples.\nCommands: status, preflight, shot PATH [scale], crop PATH X Y W H [zoom],\ngrid [threshold], tap X Y, go NAME, home, type 'text', key NAME,\nswipe/flick X1 Y1 X2 Y2 [ms], page left|right, hold MS,\ndown X Y; move X Y; up X Y, wait MS, changed, settle [ms], targets.\nQuotes preserve spaces and semicolons. No automatic retries.\n--list lists receiver processes; --self-test sends no input.");return 0;
+                Console.WriteLine("iosctl --pid PID [--targets FILE] [--keep-focus] \"commands\"\nRead README.md for input permissions and examples.\nCommands: status, preflight, shot PATH [scale], crop PATH X Y W H [zoom],\ngrid [threshold], tap X Y, go NAME, home, type 'text', key NAME,\nswipe/flick X1 Y1 X2 Y2 [ms], page left|right, hold MS,\ndown X Y; move X Y; up X Y, wait MS, changed, settle [ms], targets.\nsnapshot PATH [scale] saves a retained image for inspection only; run alone.\nQuotes preserve spaces and semicolons. No automatic retries.\n--doctor [--pid PID] diagnoses setup without input (exit 2: action needed).\n--list lists receiver processes; --self-test sends no input.");return 0;
             }
             if(args.Length==1 && args[0]=="--list") {
                 foreach(string name in new[]{"AirWindowsNative","AirWindows"})foreach(var p in Process.GetProcessesByName(name))using(p)Output(new{pid=p.Id,path=p.MainModule.FileName});return 0;

@@ -11,6 +11,7 @@ Use input commands only where your agent environment permits desktop automation 
 Run from the extracted `AirWindows` folder:
 
 ```powershell
+.\iosctl.exe --doctor
 .\iosctl.exe --list
 # Set $receiverPid to the PID at the intended receiver's executable path.
 .\iosctl.exe --pid $receiverPid 'preflight'
@@ -35,6 +36,7 @@ Output is one JSON object per result. `submitted` means Windows accepted the inp
 | `status` | Current frame and receiver control metadata |
 | `preflight` | Three consistent, fresh observations with the intended binding ready; no input |
 | `shot PATH [scale]` | Save a PNG and JSON sidecar; scale defaults to 1 |
+| `snapshot PATH [scale]` | Inspect the retained image while mirroring remains active; reports its age; must run alone |
 | `crop PATH X Y W H [zoom]` | Save a region in native source pixels |
 | `grid [threshold]` | Brightness-based row/column bands; does not identify apps |
 | `tap X Y` | One left-button press and release |
@@ -73,14 +75,18 @@ The example map contains no app locations. Matching dimensions do not establish 
 |---|---|
 | `0` | Commands completed; input results still need visual verification |
 | `1` | Invalid command, unavailable frame, focus/identity change or input failure; batch stopped |
-| `2` | `settle` ended unchanged or unstable; later commands were skipped |
+| `2` | Doctor found a setup issue, or `settle` ended unchanged/unstable and skipped later commands |
 | `3` | Input finished, but cleanup or foreground restoration was not confirmed |
 
 After any failure, observe again before issuing another action. The helper never retries an input command. It attempts to release held buttons and keys on exit. Presses cannot intentionally remain held across invocations. Input is rejected if the receiver is minimized, the target is covered, focus moves away or the window changes geometry during a gesture.
 
 One `iosctl` input batch may control a receiver at a time. A competing batch fails immediately. While a primitive `down` is active, only `move`, a short `wait` and `up` are allowed; release before capture or other blocking work. Held modifiers stop typing.
 
-The frame reader rejects inactive and older-than-one-second images. A static phone screen can age out even when the mirror remains connected. Use a permitted live desktop observation or wait for a visible update; do not reuse an older PNG after a failed capture. `preflight` establishes current connection readiness, not successful physical input.
+Normal capture, input and verification reject images older than one second. For an idle screen, run `snapshot` alone: it saves the last decoded picture with `frame_age_ms`, `frame_fresh` and `purpose:inspection_only` in its result. The adjacent JSON preserves the frame's original timestamps. It cannot distinguish a static screen from a stalled stream, so it cannot authorize input or verify an action. Pause, disconnect and screen-generation changes invalidate the retained picture. Never reuse an older PNG after a failed capture.
+
+`iosctl --doctor` finds a single running receiver and reports the next setup step without focus changes or input. It identifies a missing receiver, duplicate receivers, unavailable frame interface, stopped/paused mirroring, missing picture, stale control status, incomplete control connection, busy input and idle image. With several receivers, use `--doctor --pid PID` to inspect one explicitly. It does not alter pairing, firewall settings or processes. A `ready` result means software prerequisites passed; test actual click, text and Home behavior on the phone.
+
+Doctor and idle snapshots require the receiver from **0.3.1-rc.2 or later**. Older receivers still support fresh captures; upgrade both executables together for the new commands. `preflight` remains the three-observation check before input.
 
 ## Build and checks
 

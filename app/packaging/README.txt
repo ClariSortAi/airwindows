@@ -23,6 +23,9 @@ Home on the phone. Right-click inside the phone picture invokes the same
 assigned action. Right-click in the bars or chrome opens the PC menu.
 
 Run only one receiver. For Claude Code or Codex, start with FOR-AGENTS.md.
+Run iosctl.exe --doctor for a read-only diagnosis and the next setup step.
+Use iosctl.exe --pid PID "snapshot idle.png" to inspect an idle picture;
+its reported age matters. Normal capture and input still require fresh frames.
 The compiled iosctl.exe helper supplies capture, taps, typing, drags, Home
 and preflight. Read app/tools/iosctl/README.md for commands and use input
 only where the agent's environment permits it. Python is optional; the

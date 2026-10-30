@@ -9,6 +9,22 @@
 #include <cmath>
 
 enum class ControlKind { Point, Click, Down, Up, ScrollUp, ScrollDown, Text, Key, Home, Secondary };
+// WM_MOUSEWHEEL may deliver fractions of a 120-unit notch. Carry only the
+// current focused picture's short-lived remainder, never a previous gesture.
+class WheelSteps {
+public:
+    void Reset() { remainder_=0; generation_=0; last_=0; }
+    int Add(int delta,uint64_t generation,uint64_t now) {
+        if(generation!=generation_ || now<last_ || now-last_>500)remainder_=0;
+        generation_=generation;last_=now;
+        // ponytail: bound a single event to four swipes; no new gesture queue.
+        remainder_+=std::clamp(delta,-480,480);
+        const int steps=remainder_/120;remainder_%=120;return steps;
+    }
+private:
+    int remainder_=0;
+    uint64_t generation_=0,last_=0;
+};
 struct ControlAction {
     ControlKind kind;
     int x = 0, y = 0;

@@ -19,26 +19,39 @@ static class Tests {
             {"receiver_pid",pid},{"instance","12345"},{"generation",1},{"sequence",1},
             {"received_tick_ms",now-10},{"decoded_tick_ms",now-5},{"width",2},{"height",2},{"image_bytes",23},
             {"control_ready",true},{"control_busy",false},{"control_focused",true},{"control_tick_ms",now},{"control_epoch",1},
-            {"control_peer","0000000000000001"},{"control_sender","0000000000000002"}};
+            {"control_peer","0000000000000001"},{"control_sender","0000000000000002"},
+            {"status_tick_ms",now},{"mirror_active",true},{"mirror_paused",false}};
     }
     static byte[] Ppm() {
         byte[] header=Encoding.ASCII.GetBytes("P6\n2 2\n255\n");var data=new byte[header.Length+12];header.CopyTo(data,0);
         new byte[]{255,0,0,0,255,0,0,0,255,255,255,255}.CopyTo(data,header.Length);return data;
     }
-    static void PipeRoundTrip(bool stall) {
+    static void PipeRoundTrip(bool stall,bool retained=false,bool inspect=false,bool save=false) {
         int pid=Process.GetCurrentProcess().Id;Exception error=null;
         using(var server=new NamedPipeServerStream("AirWindows.Frames."+pid,PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous)) {
             var worker=new Thread(()=>{
                 try {
                     server.WaitForConnection();
                     if(stall){Thread.Sleep(2100);return;}
-                    byte[] meta=Encoding.UTF8.GetBytes(Frames.Json.Serialize(Meta(pid,(long)Frames.GetTickCount64()))),ppm=Ppm();
+                    var values=Meta(pid,(long)Frames.GetTickCount64());
+                    if(retained)values["received_tick_ms"]=(long)Frames.GetTickCount64()-60000;
+                    if(inspect){values["ok"]=false;values["image_bytes"]=0;values["error"]="no_active_frame";}
+                    byte[] meta=Encoding.UTF8.GetBytes(Frames.Json.Serialize(values)),ppm=inspect?new byte[0]:Ppm();
                     byte[] size=BitConverter.GetBytes(meta.Length);server.Write(size,0,4);server.Write(meta,0,meta.Length);server.Write(ppm,0,ppm.Length);
                     if(server.ReadByte()!=75)throw new Exception("Missing frame acknowledgement");
                 } catch(Exception e){error=e;}
             });worker.IsBackground=true;worker.Start();
             if(stall)Reject(()=>{using(var f=Frames.Read(pid)){}},"bounded stalled-pipe read");
-            else using(var frame=Frames.Read(pid))Check(frame.Width==2 && frame.Image.GetPixel(0,0).R==255,"real pipe and RGB decoding");
+            else if(save) {
+                string path=Path.Combine(Path.GetTempPath(),"AirWindows-snapshot-test-"+Guid.NewGuid().ToString("N")+".png");
+                try {
+                    Check(Program.Execute(pid,new Plan("snapshot '"+path+"'"),new Targets(null),false)==0,"standalone snapshot command over real pipe");
+                    using(var image=new Bitmap(path))Check(image.Width==2 && image.GetPixel(0,0).R==255,"snapshot saves actual decoded pixels");
+                    var saved=Frames.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.ChangeExtension(path,".json")));
+                    Check(Frames.Number(saved,"frame_age_ms")>=60000 && !Frames.Flag(saved,"frame_fresh") && Frames.Text(saved,"purpose")=="inspection_only","snapshot sidecar retains age and inspection purpose");
+                }finally{File.Delete(path);File.Delete(Path.ChangeExtension(path,".json"));}
+            }
+            else using(var frame=Frames.Read(pid,retained,inspect))Check(inspect?frame.Image==null && !Frames.Flag(frame.Meta,"ok"):frame.Width==2 && frame.Image.GetPixel(0,0).R==255,"real pipe image/status decoding");
             Check(worker.Join(3000),"pipe test worker finished");
             if(!stall && error!=null)throw error;
         }
@@ -50,6 +63,9 @@ static class Tests {
         Check(plan.Commands[1].Args[0]=="text with spaces; and semicolon","quoted text");
         Check(plan.Commands[3].Args[0]=="C:\\test folder\\phone.png","Windows paths");
         Check(new Plan("status; preflight").Control && !new Plan("status; shot frame.png").Input,"observation does not require input");
+        Check(!new Plan("snapshot 'idle image.png'").Input,"snapshot never takes input focus");
+        Reject(()=>new Plan("snapshot idle.png; tap 1 2"),"retained snapshot cannot authorize input");
+        Reject(()=>new Plan("tap 1 2; snapshot idle.png"),"retained snapshot cannot verify an action");
         foreach(string script in new[]{"", "tap 1 2; typo", "tap NaN 3", "tap Infinity 0", "tap -1 0", "swipe 1 2 3 4 5000", "down 1 2", "up 1 2", "down 1 2; down 2 3; up 1 2", "down 1 2;wait 2000;up 1 2", "type 'snowman \u2603'", "type ''", "key escape", "tapv 1 2", "gov camera", "page right 4", "shot x.png 0", "shot x.jpg", "crop x.png 1 2 0 4", "type 'unterminated"})Reject(()=>new Plan(script),"reject "+script);
         Check(new Plan("down 1 2; move 2 3; wait 50; up 2 3").Commands.Count==4,"bounded drag primitives");
         Reject(()=>new Plan("down 1 2; settle; up 1 2"),"no blocking observation during held input");
@@ -82,6 +98,33 @@ static class Tests {
             var bad=new Dictionary<string,object>(m);bad[key]=0;Reject(()=>Frames.Validate(bad,42,now),"bad "+key);
         }
         var stale=new Dictionary<string,object>(m);stale["received_tick_ms"]=now-1001;Reject(()=>Frames.Validate(stale,42,now),"stale frame");
+        Frames.Validate(stale,42,now,true);Check(true,"explicit retained snapshot permits old pixels");
+        var paused=new Dictionary<string,object>(stale);paused["mirror_paused"]=true;
+        Reject(()=>Frames.Validate(paused,42,now,true),"snapshot rejects pause");
+        paused["mirror_paused"]=false;paused["mirror_active"]=false;
+        Reject(()=>Frames.Validate(paused,42,now,true),"snapshot rejects disconnect");
+        paused["mirror_active"]=true;paused["status_tick_ms"]=now-1001;
+        Reject(()=>Frames.Validate(paused,42,now,true),"old status cannot authorize a retained snapshot");
+        var legacy=new Dictionary<string,object>(m);legacy.Remove("status_tick_ms");
+        Frames.Validate(legacy,42,now);Check(true,"legacy fresh capture remains compatible");
+        Reject(()=>Frames.Validate(legacy,42,now,true),"old receiver cannot claim active retained image");
+        Check(Doctor.Select(new[]{42},0)==42 && Doctor.Select(new[]{42,43},43)==43,"doctor selects only unambiguous or explicit receiver");
+        Reject(()=>Doctor.Select(new int[0],0),"doctor reports no receiver");
+        Reject(()=>Doctor.Select(new[]{42,43},0),"doctor refuses arbitrary receiver");
+        Reject(()=>Doctor.Select(new[]{42},43),"doctor rejects absent requested PID");
+        Check(Doctor.Assess(m,42,now).ready,"doctor ready with unfocused fresh control");
+        var diagnostic=new Dictionary<string,object>(m);diagnostic["control_focused"]=false;
+        Check(Doctor.Assess(diagnostic,42,now).ready,"doctor does not require focus or take it");
+        diagnostic["control_busy"]=true;Check(Doctor.Assess(diagnostic,42,now).code=="input_busy","doctor identifies active input");
+        diagnostic["control_busy"]=false;diagnostic["control_ready"]=false;
+        Check(Doctor.Assess(diagnostic,42,now).code=="control_not_ready","doctor identifies pairing or binding");
+        diagnostic["control_tick_ms"]=now-1001;
+        Check(Doctor.Assess(diagnostic,42,now).code=="control_status_stale","doctor catches stalled control updates");
+        Check(Doctor.Assess(stale,42,now).code=="idle_image","doctor distinguishes idle from disconnect");
+        diagnostic["mirror_paused"]=true;Check(Doctor.Assess(diagnostic,42,now).code=="mirror_paused","doctor identifies pause");
+        diagnostic["mirror_paused"]=false;diagnostic["ok"]=false;
+        Check(Doctor.Assess(diagnostic,42,now).code=="no_picture","doctor diagnoses before first frame");
+        diagnostic["mirror_active"]=false;Check(Doctor.Assess(diagnostic,42,now).code=="not_mirroring","doctor identifies no mirror");
         Reject(()=>Frames.Validate(m,43,now),"wrong receiver PID");
         var wrong=new Dictionary<string,object>(m);wrong["source"]="selftest";Reject(()=>Frames.Validate(wrong,42,now),"synthetic frame rejected in normal client");
         wrong=new Dictionary<string,object>(m);wrong["control_ready"]=false;Reject(()=>Frames.RequireControl(wrong,now),"not ready");
@@ -109,7 +152,7 @@ static class Tests {
             }
         }
         Reject(()=>Frames.Decode(new byte[2],2,2),"truncated PPM");
-        PipeRoundTrip(false);PipeRoundTrip(true);
+        PipeRoundTrip(false);PipeRoundTrip(true);PipeRoundTrip(false,true);PipeRoundTrip(false,false,true);PipeRoundTrip(false,true,false,true);
         Program.Output(new{status="passed",checks=count,desktop_input=false,bluetooth=false});return 0;
     }
 }

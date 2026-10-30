@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1-rc.2 (2026-10-30)
+
+- Accumulate fine-resolution wheel/trackpad events into bounded swipes instead of scrolling once per packet. Clear partial gestures on focus/picture changes and intervening clicks or text.
+- Add standalone `iosctl snapshot` for idle-image inspection, with original timestamps, age and an inspection-only label. Pause/disconnect still clear retained images; normal capture, input and verification keep the one-second limit.
+- Add read-only `iosctl --doctor [--pid PID]` for receiver selection and actionable setup diagnosis, including before the first frame. Upgrade receiver and helper together for these commands.
+- Expand regression checks for both frame clients, real pipe-to-PNG snapshots and wheel normalization. Update README, agent guides and packaged instructions.
+
 ## 0.3.1-rc.1 (2026-10-30)
 
 - Integrates Claude Code's `iosctl` workflow: taps, text, Home, paced drags, paging, screenshot/crop/grid inspection, target maps and preflight.

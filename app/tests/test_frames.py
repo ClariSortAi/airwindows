@@ -28,3 +28,16 @@ def test_reject_unusable_or_misbound_frame(change):
 
 def test_selftest_requires_explicit_opt_in():
     validate_metadata({**frame(), "source": "selftest"}, 2050, 123, allow_selftest=True)
+
+
+def test_retained_image_does_not_bypass_legacy_freshness_check():
+    # rc.2 adds an opt-in retained snapshot to iosctl; this reader stays strict.
+    retained = {**frame(), "status_tick_ms": 5000, "mirror_active": True,
+                "mirror_paused": False, "frame_age_ms": 3000, "frame_fresh": False}
+    with pytest.raises(ValueError, match="stale"):
+        validate_metadata(retained, 5000, 123)
+
+
+def test_additional_diagnostics_do_not_break_fresh_capture():
+    validate_metadata({**frame(), "status_tick_ms": 2050, "mirror_active": True,
+                       "mirror_paused": False, "frame_age_ms": 50, "frame_fresh": True}, 2050, 123)

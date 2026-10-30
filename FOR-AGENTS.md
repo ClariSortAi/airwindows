@@ -32,7 +32,7 @@ Follow your environment's tool restrictions. The phone's controls are pixels, no
 
 ## 2. Download and unpack
 
-Use the [Windows package](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.1/AirWindows-0.3.1-rc.1-win-x64.zip). It includes the receiver, launcher, compiled `iosctl` helper, frame reader, this runbook and operating guides. No compiler, GitHub account or source checkout is needed.
+Use the [Windows package](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.2/AirWindows-0.3.1-rc.2-win-x64.zip). It includes the receiver, launcher, compiled `iosctl` helper, frame reader, this runbook and operating guides. No compiler, GitHub account or source checkout is needed.
 
 Run this in PowerShell to download the package and check its SHA-256 checksum:
 
@@ -40,13 +40,13 @@ Run this in PowerShell to download the package and check its SHA-256 checksum:
 $ErrorActionPreference = 'Stop'
 $setupRoot = Join-Path $env:USERPROFILE 'AirWindowsSetup'
 $downloadDir = Join-Path $setupRoot 'downloads'
-$installDir = Join-Path $setupRoot '0.3.1-rc.1'
+$installDir = Join-Path $setupRoot '0.3.1-rc.2'
 if (Test-Path -LiteralPath $installDir) {
     throw 'This installation already exists. Reuse it, or choose a new installDir.'
 }
 New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
-$releaseUrl = 'https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.1'
-$zipName = 'AirWindows-0.3.1-rc.1-win-x64.zip'
+$releaseUrl = 'https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.2'
+$zipName = 'AirWindows-0.3.1-rc.2-win-x64.zip'
 Invoke-WebRequest "$releaseUrl/$zipName" -OutFile (Join-Path $downloadDir $zipName)
 Invoke-WebRequest "$releaseUrl/SHA256SUMS.txt" -OutFile (Join-Path $downloadDir 'SHA256SUMS.txt')
 $entry = @(Get-Content -LiteralPath (Join-Path $downloadDir 'SHA256SUMS.txt') |
@@ -65,7 +65,7 @@ Get-Item -LiteralPath $receiverExe | Select-Object FullName, Length
 
 Record `$packageRoot` and `$receiverExe` as full paths. Shell calls may start new processes, so recreate these variables when needed. A user who already extracted the ZIP can start here by supplying its `AirWindows` folder.
 
-The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.1) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
+The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.2) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
 
 **Checkpoint:** the verified package is extracted and its executable path is known.
 
@@ -193,6 +193,10 @@ Clicking another application returns control to Windows. Disconnect or closing A
 
 ## Troubleshooting
 
+Start with `iosctl --doctor` from the extracted package folder. It sends no input and reports the next setup step. Exit `0` means software prerequisites are ready; exit `2` means action is needed. With multiple receivers, inspect one explicitly with `--doctor --pid PID`. Upgrade the receiver and helper together; these diagnostics require 0.3.1-rc.2 or later.
+
+An idle screen can exceed the normal one-second image limit. `iosctl --pid PID 'snapshot ".local\idle.png"'` saves its retained picture and reports its age. Use this only for inspection, never as proof of a click or permission to act. Obtain a fresh `shot` or use a permitted live desktop observation for input and verification.
+
 | Symptom | Next step |
 |---|---|
 | Download fails | Retry the linked release download and check network/proxy access |
@@ -204,7 +208,7 @@ Clicking another application returns control to Windows. Disconnect or closing A
 | Clicks miss | Recalculate picture bounds, DPI scale and overlay positions |
 | Typing stops or goes elsewhere | Restore the intended field and video focus, then inspect before continuing |
 | Home opens the PC menu | Use the toolbar or click inside the picture; verify Button 2 mapping |
-| Frame is stale or wrong PID | Rediscover the receiver and obtain a current observation |
+| Frame is stale or wrong PID | Run `--doctor`; inspect an idle image with `snapshot`, then obtain a fresh observation before input |
 | Agent sees but cannot click | Use iosctl where permitted, or supply a supported native desktop-input tool |
 
 For source builds, follow [the build guide](app/README.md#build). Set `$packageRoot` to the source root and `$receiverExe` to `app\build\Release\bin\AirWindowsNative.exe`, then continue at Step 3. Keep `app` and `native-ble-prototype` beside each other.

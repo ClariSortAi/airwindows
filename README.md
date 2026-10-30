@@ -8,9 +8,17 @@ Earlier builds have been used on a real iPhone for mirroring, clicking, typing a
 
 ## Get started
 
-**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.1/AirWindows-0.3.1-rc.1-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.1)
+**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.2/AirWindows-0.3.1-rc.2-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.2)
 
 Extract the ZIP and double-click **Start-AirWindows.cmd**. The package includes the receiver, `iosctl.exe`, frame reader, licenses and setup guides. No compiler or GitHub account is required.
+
+This candidate fixes three first-day problems:
+
+- **Trackpad overscroll:** small wheel events accumulate into one swipe instead of each launching a full swipe.
+- **Idle-screen inspection:** `iosctl --pid PID 'snapshot idle.png'` saves the retained picture with its age. Fresh capture and input checks remain strict.
+- **Setup diagnosis:** `iosctl --doctor` finds the receiver and reports the next step, including duplicate processes, missing mirroring and incomplete control connections. It sends no input.
+
+[Changes and verification](docs/DAY-ONE-RC2.md) cover compatibility, tests and remaining device checks.
 
 Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md), also included in the ZIP. It walks through installation, pairing, Home setup and the final agent-operated test.
 
@@ -30,7 +38,7 @@ The app remembers the selected Bluetooth phone and its matching AirPlay sender. 
 |---|---|
 | Tap or select | Left-click inside the phone picture |
 | Type | Click a phone text field, then type |
-| Scroll a list | Drag with the left button held, then release |
+| Scroll a list | Drag with the left button held, or use the vertical wheel/trackpad |
 | Go Home | Use the Home button or right-click after assigning Button 2 to Home |
 | Return to Windows | Click another application |
 | Open AirWindows settings | Right-click outside the phone picture, in the bars or window chrome |

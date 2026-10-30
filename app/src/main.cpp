@@ -114,6 +114,7 @@ struct App {
     std::wstring lastControlStatus;
     std::string controlPhoneOverride;
     bool controlDragging=false;
+    WheelSteps wheel;
 
     // --selftest options
     int decoderOverride = -1;
@@ -786,6 +787,7 @@ void OnCommand(App& app, UINT id) {
 
 void UpdateControlUi(App& app) {
     const auto state=app.control.State();
+    if(!state.focused)app.wheel.Reset();
     app.video.Frames().SetControlState(state.ready,state.busy,state.focused,state.bound,state.sender);
     if(!state.focused && app.controlDragging){app.controlDragging=false;if(GetCapture()==app.videoWindow)ReleaseCapture();}
     if(state.ready && (state.bound!=app.settings.controlPhone || state.sender!=app.settings.controlSender)){
@@ -851,6 +853,7 @@ LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
     if(g_app){
         if(message==WM_SETFOCUS)g_app->control.Focus(true);
         if(message==WM_KILLFOCUS || message==WM_CANCELMODE || (message==WM_CAPTURECHANGED && g_app->controlDragging)){
+            g_app->wheel.Reset();
             g_app->controlDragging=false;if(GetCapture()==window)ReleaseCapture();g_app->control.Focus(false);
         }
         if(message==WM_RBUTTONDOWN || message==WM_RBUTTONDBLCLK || message==WM_RBUTTONUP){
@@ -858,6 +861,7 @@ LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
             const auto point=MirrorPoint(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight);
             if(point){
                 if(message==WM_RBUTTONUP){
+                    g_app->wheel.Reset();
                     g_app->controlDragging=false;if(GetCapture()==window)ReleaseCapture();
                     g_app->control.Invalidate(); // secondary/Home replaces earlier pending input
                     SetFocus(window);g_app->control.Focus(true);
@@ -886,6 +890,7 @@ LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
                 RECT bounds{};GetClientRect(window,&bounds);
                 const auto point=MirrorPoint(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight);
                 if(down){
+                    g_app->wheel.Reset();
                     if(point){SetFocus(window);g_app->control.Focus(true);
                         if(g_app->control.State().focused){g_app->controlDragging=true;SetCapture(window);g_app->control.Submit(ControlKind::Down,point->first,point->second);}}
                     else {SetFocus(GetParent(window));g_app->control.Focus(false);}
@@ -900,10 +905,14 @@ LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
             POINT mouse{GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam)};ScreenToClient(window,&mouse);
             RECT bounds{};GetClientRect(window,&bounds);
             auto point=MirrorPoint(mouse.x,mouse.y,bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight);
-            if(point)g_app->control.Submit(GET_WHEEL_DELTA_WPARAM(wParam)>0?ControlKind::ScrollUp:ControlKind::ScrollDown,point->first,point->second);
+            if(point && g_app->control.State().focused){
+                const int steps=g_app->wheel.Add(GET_WHEEL_DELTA_WPARAM(wParam),g_app->video.Frames().Stamp().generation,GetTickCount64());
+                for(int i=0;i<std::abs(steps);++i)g_app->control.Submit(steps>0?ControlKind::ScrollUp:ControlKind::ScrollDown,point->first,point->second);
+            }else g_app->wheel.Reset();
             return 0;
         }
         if(message==WM_CHAR){
+            g_app->wheel.Reset();
             if(wParam>=32 && wParam<=126)g_app->control.Submit(ControlKind::Text,0,0,static_cast<unsigned char>(wParam));
             else if(wParam>=128)g_app->control.RejectInput("Text rejected: this keyboard currently supports US ASCII only.");
             return 0;

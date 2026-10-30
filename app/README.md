@@ -18,7 +18,7 @@ From this `app` directory:
 
 Bootstrap fetches pinned UxPlay and vcpkg commits into this directory. The first build compiles OpenSSL, libplist and FFmpeg from source. Later builds reuse the results. The build scripts load the MSVC x64 environment and use Ninja; dependencies are not installed system-wide.
 
-Keep the sibling `native-ble-prototype` directory beside `app`. Both `AirWindowsNative` and `AirWindows` targets compile the same integrated source; the former is the documented control executable. For a ready-to-run build, use [the 0.3.1 release candidate](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.1).
+Keep the sibling `native-ble-prototype` directory beside `app`. Both `AirWindowsNative` and `AirWindows` targets compile the same integrated source; the former is the documented control executable. For a ready-to-run build, use [the 0.3.1 release candidate](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.2).
 
 The vcpkg commit in `scripts/bootstrap.ps1` pins library versions. `vcpkg-ports/ffmpeg` enables H.264, H.265, AAC and ALAC decoding with D3D11VA acceleration. A custom CMake invocation must use the `x64-windows-static` triplet and the pinned vcpkg toolchain.
 
@@ -79,10 +79,10 @@ For video self-tests, feed an Annex-B clip through `--selftest-video`. The log r
 After building, use a new output directory:
 
 ```powershell
-.\scripts\package.ps1 -Release -OutDir .\dist\candidate-0.3.1-rc.1
+.\scripts\package.ps1 -Release -OutDir .\dist\candidate-0.3.1-rc.2
 ```
 
-This creates the runnable folder, `AirWindows-0.3.1-rc.1-win-x64.zip`, a matching source zip, and `SHA256SUMS.txt`. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, compiled `iosctl` helper, agent guides, optional Python reader, GPL and dependency notices. Building the receiver also builds the helper with the .NET Framework C# compiler. Both executable versions must match before packaging.
+This creates the runnable folder, `AirWindows-0.3.1-rc.2-win-x64.zip`, a matching source zip, and `SHA256SUMS.txt`. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, compiled `iosctl` helper, agent guides, optional Python reader, GPL and dependency notices. Building the receiver also builds the helper with the .NET Framework C# compiler. Both executable versions must match before packaging.
 
 The source archive contains `app`, its sibling Bluetooth backend, UxPlay, and the upstream FFmpeg, OpenSSL and libplist source archives with the relevant ports. Those archives must be present in vcpkg's downloads directory. Publish the matching source and checksums with any binary. The separate AirDrop research is not bundled.
 

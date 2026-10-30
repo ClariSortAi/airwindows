@@ -7,3 +7,5 @@ For an existing setup, read [the operating guide](app/CLAUDE-CONTROL.md). Reuse 
 The package includes `iosctl.exe`. Read [its guide](app/tools/iosctl/README.md) for commands, coordinates and exit codes. Use input commands only where local CLI-based desktop automation is permitted. Observation commands use the phone-only frame pipe and do not take focus. Python is optional.
 
 For code changes, preserve concurrent work and distinguish software checks from physical phone results. The receiver source and build instructions live under `app`; the Bluetooth backend lives beside it in `native-ble-prototype`.
+
+Start troubleshooting with `iosctl --doctor`; it sends no input. `snapshot` is a standalone retained-image inspection command. Its output cannot verify an action or replace the fresh observation required for input. Check affected guides, both frame clients, tests and release contents when changing these contracts.

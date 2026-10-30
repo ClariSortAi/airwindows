@@ -1,6 +1,6 @@
 # Claude Code integration and release review
 
-Updated for **0.3.1-rc.1** on 2026-10-30. Claude Code's local `iosctl` prototype and the relevant session transcript informed this integration. Raw transcripts, phone captures, device identifiers, personal maps and demo recipients remain local.
+Updated for **0.3.1-rc.2** on 2026-10-30. Claude Code's local `iosctl` prototype and the relevant session transcript informed this integration. Raw transcripts, phone captures, device identifiers, personal maps and demo recipients remain local. The next candidate's [three first-day fixes](DAY-ONE-RC2.md) add wheel normalization, idle-picture inspection and setup diagnosis.
 
 ## What was folded in
 
@@ -28,8 +28,8 @@ The new tests caught and fixed an ArrayList parsing error and an asynchronous ti
 
 ## Validation and remaining work
 
-Local checks passed: 198 control/coordinate assertions, 19 discovery/battery assertions, 12 Python frame tests, 68 helper checks and the frame-pipe lifecycle/metadata tests. Helper tests include actual local-pipe reads and timeouts, malformed commands, target bounds, metadata changes, concurrency and release-on-error logic. They send no desktop or Bluetooth input.
+Local checks cover control/coordinate assertions, discovery/battery policy, both frame clients, helper commands and frame-pipe lifecycle/metadata. Helper tests include actual local-pipe reads and timeouts, malformed commands, target bounds, metadata changes, concurrency and release-on-error logic. They send no desktop or Bluetooth input. The [candidate verification record](DAY-ONE-RC2.md) covers the new behavior.
 
-Complete a live-device run of the packaged candidate before calling it physically accepted: click, exact text, drag, mapped Home, return to Windows, and a second bonded phone joining/leaving. Other Bluetooth adapters, iOS versions, paste and wheel input remain separate test work. A static picture can exceed the reader's one-second freshness limit; both clients reject it instead of calling it a new observation.
+Complete a live-device run of the packaged candidate before calling it physically accepted: click, exact text, drag, mapped Home, return to Windows, and a second bonded phone joining/leaving. Other Bluetooth adapters, iOS versions, paste and wheel input remain separate test work. A static picture can exceed the normal one-second limit; standalone `snapshot` now permits age-labelled inspection. Input and verification still require a fresh observation.
 
 The active development receiver was kept separate from the package build. This release includes the revised helper and its complete source. It excludes raw session evidence and unrelated AirDrop research from the application archives.

@@ -100,5 +100,17 @@ int main(){
     subscribers.push_back("selected");check(*UniqueSubscriber(subscribers,selected)=="selected"); // exact reconnect
     subscribers.push_back("selected");check(UniqueSubscriber(subscribers,selected)==subscribers.end()); // ambiguous identity
     subscribers.clear();check(UniqueSubscriber(subscribers,selected)==subscribers.end());
+    WheelSteps wheel;
+    for(int i=0;i<7;++i)check(wheel.Add(15,1,100+i*10)==0);
+    check(wheel.Add(15,1,170)==1); // eight trackpad packets are ONE swipe
+    check(wheel.Add(-240,1,180)==-2); // two conventional notches
+    check(wheel.Add(0,1,190)==0);
+    check(wheel.Add(60,1,200)==0);check(wheel.Add(-60,1,210)==0);
+    check(wheel.Add(-120,1,220)==-1); // reverse without an extra swipe
+    check(wheel.Add(60,1,230)==0);wheel.Reset();check(wheel.Add(60,1,240)==0);
+    check(wheel.Add(60,2,250)==0); // new picture discards old remainder
+    check(wheel.Add(60,2,800)==0); // separate gestures do not accumulate
+    check(wheel.Add(60,2,810)==1);
+    check(wheel.Add(32767,2,820)==4);check(wheel.Add(-32768,2,830)==-4);
     std::cout<<checks<<" control queue and coordinate checks passed\n";
 }

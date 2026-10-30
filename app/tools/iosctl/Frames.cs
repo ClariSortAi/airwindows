@@ -37,8 +37,20 @@ static class Frames {
         if(!m.TryGetValue(key,out value) || !(value is bool)) throw new InvalidDataException("Invalid flag: "+key);
         return (bool)value;
     }
-    internal static void Validate(Dictionary<string,object> m,int pid,long now) {
+    internal static void ValidateStatus(Dictionary<string,object> m,int pid,long now) {
+        if(!m.ContainsKey("status_tick_ms"))throw new InvalidDataException("Diagnostics and idle snapshots require AirWindows 0.3.1-rc.2 or later");
+        if(Number(m,"protocol")!=1 || Text(m,"source")!="airplay" || Number(m,"receiver_pid")!=pid)throw new InvalidDataException("Wrong receiver or status protocol");
+        ulong instance;
+        if(!UInt64.TryParse(Text(m,"instance"),out instance) || instance==0)throw new InvalidDataException("Invalid receiver instance");
+        long age=now-Number(m,"status_tick_ms");
+        if(age<0 || age>1000)throw new InvalidDataException("Receiver status is stale");
+    }
+    internal static void Validate(Dictionary<string,object> m,int pid,long now,bool retained=false) {
         if(!Flag(m,"ok")) throw new InvalidDataException("No fresh phone image: "+Text(m,"error"));
+        if(retained) {
+            ValidateStatus(m,pid,now);
+            if(!Flag(m,"mirror_active") || Flag(m,"mirror_paused"))throw new InvalidDataException("No active mirror snapshot");
+        }
         if(Number(m,"protocol")!=1 || Text(m,"source")!="airplay" || Text(m,"format")!="ppm") throw new InvalidDataException("Unsupported frame source/protocol");
         if(Number(m,"receiver_pid")!=pid) throw new InvalidDataException("Receiver PID changed");
         ulong instance;
@@ -47,7 +59,7 @@ static class Frames {
             if(Number(m,key)<=0) throw new InvalidDataException("Invalid "+key);
         foreach(string key in new[]{"received_tick_ms","decoded_tick_ms"}) {
             long age=now-Number(m,key);
-            if(age<0 || age>1000) throw new InvalidDataException("Frame is stale or has an invalid clock");
+            if(age<0 || (!retained && age>1000)) throw new InvalidDataException("Frame is stale or has an invalid clock; use snapshot for inspection only");
         }
         if(Number(m,"received_tick_ms")>Number(m,"decoded_tick_ms")) throw new InvalidDataException("Decode precedes receipt");
         long w=Number(m,"width"), h=Number(m,"height"), bytes=Number(m,"image_bytes");
@@ -100,7 +112,7 @@ static class Frames {
             return image;
         } catch { image.Dispose();throw; }
     }
-    internal static PhoneFrame Read(int pid) {
+    internal static PhoneFrame Read(int pid,bool retained=false,bool inspect=false) {
         using(var pipe=new NamedPipeClientStream(".","AirWindows.Frames."+pid,PipeDirection.InOut,PipeOptions.Asynchronous)) {
             pipe.Connect(1200);
             uint actual;
@@ -109,7 +121,10 @@ static class Frames {
             uint size=BitConverter.ToUInt32(ReadExact(pipe,4,clock),0);
             if(size<2 || size>16384) throw new InvalidDataException("Invalid metadata length");
             var meta=Json.Deserialize<Dictionary<string,object>>(Encoding.UTF8.GetString(ReadExact(pipe,(int)size,clock)));
-            Validate(meta,pid,(long)GetTickCount64());
+            if(inspect)ValidateStatus(meta,pid,(long)GetTickCount64());
+            else Validate(meta,pid,(long)GetTickCount64(),retained);
+            long bytes=Number(meta,"image_bytes");
+            if(bytes<0 || bytes>51000000)throw new InvalidDataException("Frame exceeds limits");
             byte[] data=ReadExact(pipe,(int)Number(meta,"image_bytes"),clock);
             var ack=pipe.WriteAsync(new byte[]{75},0,1);
             if(!ack.Wait(300)) {
@@ -117,9 +132,13 @@ static class Frames {
                 throw new TimeoutException("Frame acknowledgement timed out");
             }
             ack.GetAwaiter().GetResult();
-            Validate(meta,pid,(long)GetTickCount64());
+            if(inspect) {
+                ValidateStatus(meta,pid,(long)GetTickCount64());
+                return new PhoneFrame{Meta=meta};
+            }
+            Validate(meta,pid,(long)GetTickCount64(),retained);
             var image=Decode(data,(int)Number(meta,"width"),(int)Number(meta,"height"));
-            try { Validate(meta,pid,(long)GetTickCount64());return new PhoneFrame{Meta=meta,Image=image}; }
+            try { Validate(meta,pid,(long)GetTickCount64(),retained);return new PhoneFrame{Meta=meta,Image=image}; }
             catch { image.Dispose();throw; }
         }
     }

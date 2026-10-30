@@ -105,46 +105,56 @@ struct FrameServer::Impl {
     std::thread worker;
 
     void Clear() { av_frame_free(&latest); receivedMs = decodedMs = 0; ++generation; }
-    bool Fresh() const {
-        const uint64_t now = GetTickCount64();
-        return active && !paused && latest && receivedMs && now >= receivedMs && now >= decodedMs &&
-            now - receivedMs <= kMaxAgeMs && now - decodedMs <= kMaxAgeMs;
+    bool Available() const {
+        return active && !paused && latest && receivedMs && decodedMs >= receivedMs && GetTickCount64() >= decodedMs;
+    }
+    // Caller holds mutex. Status is available even before the first picture.
+    std::string Status() const {
+        return "\"protocol\":1,\"source\":\"" + std::string(selfTest ? "selftest" : "airplay") +
+            "\",\"receiver_pid\":" + std::to_string(GetCurrentProcessId()) +
+            ",\"instance\":\"" + std::to_string(instance) + "\",\"status_tick_ms\":" + std::to_string(GetTickCount64()) +
+            ",\"mirror_active\":" + (active?"true":"false") + ",\"mirror_paused\":" + (paused?"true":"false") +
+            ",\"control_ready\":" + (controlReady?"true":"false") +
+            ",\"control_busy\":" + (controlBusy?"true":"false") +
+            ",\"control_focused\":" + (controlFocused?"true":"false") +
+            ",\"control_tick_ms\":" + std::to_string(controlTick) +
+            ",\"control_epoch\":" + std::to_string(controlEpoch) +
+            ",\"control_peer\":\"" + controlPeer + "\",\"control_sender\":\"" + controlSender + "\"";
+    }
+    std::string Error(const char* reason) const {
+        return "{\"ok\":false,\"error\":\"" + std::string(reason) + "\",\"image_bytes\":0," + Status() + "}";
     }
 
     std::string Snapshot(std::vector<uint8_t>& image) {
         FrameOwner copy;
         uint64_t gen, seq, received, decoded;
-        std::string control;
+        std::string status;
+        uint64_t age=0;
         {
             std::lock_guard<std::mutex> lock(mutex);
-            if (!Fresh()) return "{\"ok\":false,\"error\":\"no_fresh_active_frame\",\"image_bytes\":0}";
+            if (!Available()) return Error("no_active_frame");
             copy.value = av_frame_clone(latest);
             gen = generation; seq = sequence; received = receivedMs; decoded = decodedMs;
         }
         if (!copy.value || !ToPpm(copy.value, image)) {
             image.clear();
-            return "{\"ok\":false,\"error\":\"frame_conversion_failed\",\"image_bytes\":0}";
+            std::lock_guard<std::mutex> lock(mutex);
+            return Error("frame_conversion_failed");
         }
         {
             std::lock_guard<std::mutex> lock(mutex);
-            if (!Fresh() || gen != generation || GetTickCount64() - received > kMaxAgeMs) {
+            if (!Available() || gen != generation) {
                 image.clear();
-                return "{\"ok\":false,\"error\":\"frame_invalidated\",\"image_bytes\":0}";
+                return Error("frame_invalidated");
             }
-            control=",\"control_ready\":"+std::string(controlReady?"true":"false")+
-                ",\"control_busy\":"+std::string(controlBusy?"true":"false")+
-                ",\"control_focused\":"+std::string(controlFocused?"true":"false")+
-                ",\"control_tick_ms\":"+std::to_string(controlTick)+
-                ",\"control_epoch\":"+std::to_string(controlEpoch)+
-                ",\"control_peer\":\""+controlPeer+"\",\"control_sender\":\""+controlSender+"\"";
+            status=Status();age=GetTickCount64()-received;
         }
-        return "{\"ok\":true,\"protocol\":1,\"source\":\"" + std::string(selfTest ? "selftest" : "airplay") +
-            "\",\"receiver_pid\":" + std::to_string(GetCurrentProcessId()) +
-            ",\"instance\":\"" + std::to_string(instance) + "\",\"generation\":" + std::to_string(gen) +
+        return "{\"ok\":true," + status + ",\"generation\":" + std::to_string(gen) +
             ",\"sequence\":" + std::to_string(seq) + ",\"received_tick_ms\":" + std::to_string(received) +
             ",\"decoded_tick_ms\":" + std::to_string(decoded) + ",\"source_pts_ns\":" + std::to_string(copy.value->pts) +
             ",\"width\":" + std::to_string(copy.value->width) + ",\"height\":" + std::to_string(copy.value->height) +
-            ",\"format\":\"ppm\",\"image_bytes\":" + std::to_string(image.size()) + control + "}";
+            ",\"format\":\"ppm\",\"image_bytes\":" + std::to_string(image.size()) +
+            ",\"frame_age_ms\":" + std::to_string(age) + ",\"frame_fresh\":" + (age<=kMaxAgeMs?"true":"false") + "}";
     }
 
     bool Complete(HANDLE pipe, OVERLAPPED& ov, BOOL immediate, DWORD timeout, DWORD* count) {

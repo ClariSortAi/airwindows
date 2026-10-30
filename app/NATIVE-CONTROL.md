@@ -23,7 +23,7 @@ On the iPhone, open Settings > Accessibility > Touch > AssistiveTouch > Devices 
 
 After that assignment, the toolbar Home button or a right-click inside the phone picture invokes Home. Right-click in the bars or chrome opens the PC menu. The keyboard context-menu key also opens the PC menu. The Home control sends an 80 ms Button 2 pulse and releases at the same position; it does not require a descriptor or pairing change.
 
-A left-button drag scrolls a list. Wheel input becomes a bounded vertical swipe. A mouse drag from the bottom edge did not reliably reproduce the phone's Home gesture. Use the assigned button for Home instead.
+A left-button drag scrolls a list. Mouse-wheel and vertical trackpad input accumulate to one swipe per 120 Windows wheel units, so small trackpad packets no longer each launch a full swipe. Multiple notches are preserved up to four per event. Remainders expire after 500 ms and reset on focus loss, outside-picture scrolling or picture-generation changes. This follows [Windows wheel-delta guidance](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel). Horizontal trackpad scrolling is not implemented. A mouse drag from the bottom edge did not reliably reproduce Home; use the assigned button instead.
 
 ## Text and focus
 

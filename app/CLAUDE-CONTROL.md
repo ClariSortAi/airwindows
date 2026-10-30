@@ -50,7 +50,7 @@ python .\app\scripts\observe-phone.py --pid $receiverPid --output .\.local\phone
 if ($LASTEXITCODE -ne 0) { throw 'No valid fresh phone frame was obtained.' }
 ```
 
-Open the PNG with your image-reading tool. The adjacent JSON records PID, instance, generation, sequence, dimensions and age. A failed capture may leave an older file on disk: do not mistake it for a new image. The reader rejects inactive or older-than-one-second frames. The command accepts only real AirPlay frames. A static image may age out while manual GUI control remains available; distinguish this from a disconnected phone. Re-observe through the live desktop tool or report the stale-frame limitation rather than disabling the checks.
+Open the PNG with your image-reading tool. The adjacent JSON records PID, instance, generation, sequence, dimensions and age. A failed capture may leave an older file on disk: do not mistake it for a new image. Normal readers reject inactive or older-than-one-second frames and accept only real AirPlay frames. For setup diagnosis, run `iosctl --doctor` (or `--doctor --pid PID` when several receivers exist). For idle-image inspection, use `iosctl --pid PID 'snapshot ".local\idle.png"'` alone. Its reported age is meaningful: it cannot distinguish a static screen from a stalled stream and cannot verify an action. Use a fresh `shot` or a permitted live desktop observation before input.
 
 ## Coordinates
 

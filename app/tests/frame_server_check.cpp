@@ -51,6 +51,8 @@ int main() {
         FrameServer server;
         Require(server.Start(true), "server start");
         Expected(false);
+        const auto waiting=ReadFrame();
+        Require(waiting.find("\"status_tick_ms\":")!=std::string::npos && waiting.find("\"mirror_active\":true")!=std::string::npos,"diagnostics before first frame");
         AVFrame* frame = av_frame_alloc();
         frame->format = AV_PIX_FMT_YUV420P; frame->width = frame->height = 8;
         Require(av_frame_get_buffer(frame, 32) == 0, "frame allocation");
@@ -72,10 +74,13 @@ int main() {
         server.SetPaused(false); Expected(false);
         server.Publish(frame, old); Expected(false);
         server.Publish(frame, server.Stamp()); Expected(true);
-        Sleep(1100); Expected(false);
+        Sleep(1100);
+        const auto idle=ReadFrame();
+        Require(idle.find("\"ok\":true")!=std::string::npos && idle.find("\"frame_fresh\":false")!=std::string::npos,"idle image retained with honest freshness");
         server.Publish(frame, server.Stamp()); Expected(true);
         old = server.Stamp();
         server.SetActive(false); Expected(false);
+        Require(ReadFrame().find("\"mirror_active\":false")!=std::string::npos,"disconnect diagnostic clears image");
         server.SetActive(true); server.Publish(frame, old); Expected(false);
         server.Publish(frame, server.Stamp()); Expected(true);
         old = server.Stamp();
@@ -86,7 +91,7 @@ int main() {
         Require(server.Start(true), "server restart"); Expected(false);
         server.Publish(frame, server.Stamp()); Expected(true);
         server.Stop(); av_frame_free(&frame);
-        puts("PASS: fresh pixels, idle, pause/resume, stale packets, timeout, disconnect/reconnect, geometry, invalidation, restart");
+        puts("PASS: fresh and retained pixels, no-picture diagnostics, pause/resume, stale packets, disconnect/reconnect, geometry, invalidation, restart");
         return 0;
     } catch (const std::exception& error) { fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }
 }
