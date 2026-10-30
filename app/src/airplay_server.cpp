@@ -137,6 +137,7 @@ struct AirPlayServer::Callbacks {
         if (count <= 0) {
             self->remoteClockOffset_ = 0;
             self->sink_->OnAudioStop();
+            self->sink_->OnMirrorState(false);
         }
         PostMessageW(self->notify_, WM_APP_CONNECTIONS, static_cast<WPARAM>(count < 0 ? 0 : count), 0);
     }
@@ -145,11 +146,13 @@ struct AirPlayServer::Callbacks {
 
     // The listener cannot be restarted from inside a protocol callback, so hand it to the UI thread.
     static void ConnReset(void* cls, int reason) {
+        Self(cls)->sink_->OnMirrorState(false);
         LOGW("connection reset requested by protocol engine (reason %d)", reason);
         PostMessageW(Self(cls)->notify_, WM_APP_SERVER_RESET, static_cast<WPARAM>(reason), 0);
     }
 
     static void ReportClientRequest(void* cls, char* deviceId, char* model, char* name, bool* admit) {
+        Self(cls)->sink_->OnClientRequest(deviceId ? deviceId : "");
         *admit = true;
         LOGI("connection request from %s (%s), device id %s", name ? name : "?", model ? model : "?", deviceId ? deviceId : "?");
         auto* info = new ClientInfo{name ? name : "", model ? model : "", deviceId ? deviceId : ""};
@@ -228,6 +231,7 @@ struct AirPlayServer::Callbacks {
     }
 
     static void MirrorVideoRunning(void* cls, bool running) {
+        Self(cls)->sink_->OnMirrorState(running);
         PostMessageW(Self(cls)->notify_, WM_APP_MIRROR_RUNNING, running ? 1 : 0, 0);
     }
 
@@ -433,6 +437,7 @@ void AirPlayServer::RestartListener() {
         return;
     }
     LOGI("restarting AirPlay listener");
+    sink_->OnMirrorState(false);
     raop_t* raop = Raop(raop_);
     raop_stop_httpd(raop);
     sink_->OnAudioStop();

@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "settings.h"
+#include "frame_server.h"
 
 struct VideoStats {
     double fps = 0.0;
@@ -41,6 +42,7 @@ public:
     void RequestRedraw();
     void SetVSync(bool vsync);
     VideoStats Stats() const;
+    FrameServer& Frames();
 
     // True when the default adapter exposes an HEVC Main hardware decoder.
     static bool HardwareHevcAvailable();

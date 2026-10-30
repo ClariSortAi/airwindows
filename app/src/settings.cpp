@@ -111,6 +111,10 @@ void Settings::Load() {
     alwaysOnTop = ReadInt(path, L"AlwaysOnTop", 0) != 0;
     allowH265 = ReadInt(path, L"AllowH265", 1) != 0;
     macAddress = WideToUtf8(ReadString(path, L"MacAddress", L""));
+    controlPhone = WideToUtf8(ReadString(path, L"NativeControlPhone", L""));
+    if(controlPhone.size()!=16 || controlPhone.find_first_not_of("0123456789abcdef")!=std::string::npos)controlPhone.clear();
+    controlSender = WideToUtf8(ReadString(path, L"NativeControlSender", L""));
+    if(controlSender.size()!=16 || controlSender.find_first_not_of("0123456789abcdef")!=std::string::npos)controlSender.clear();
 }
 
 void Settings::Save() const {
@@ -125,6 +129,8 @@ void Settings::Save() const {
     WriteString(path, L"AlwaysOnTop", alwaysOnTop ? L"1" : L"0");
     WriteString(path, L"AllowH265", allowH265 ? L"1" : L"0");
     WriteString(path, L"MacAddress", Utf8ToWide(macAddress));
+    WriteString(path, L"NativeControlPhone", Utf8ToWide(controlPhone));
+    WriteString(path, L"NativeControlSender", Utf8ToWide(controlSender));
 }
 
 std::string WideToUtf8(const std::wstring& text) {

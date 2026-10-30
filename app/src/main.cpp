@@ -27,6 +27,7 @@
 #include "settings.h"
 #include "version.h"
 #include "video_pipeline.h"
+#include "native_control.h"
 
 namespace {
 
@@ -35,23 +36,33 @@ constexpr wchar_t kVideoClass[] = L"AirWindowsVideoWindow";
 constexpr wchar_t kAppTitle[] = L"AirWindows";
 constexpr UINT_PTR kTickTimer = 1;
 constexpr UINT_PTR kExitTimer = 2;
+constexpr UINT_PTR kControlTimer = 3;
+constexpr int kPairControl=40001, kPeerControl=40002, kBindControl=40003, kDisconnectControl=40004, kHomeControl=40005;
 constexpr COLORREF kBackground = RGB(0x2C, 0x2C, 0x2C);  // idle screen
 constexpr DWORD kCursorHideMs = 3000;
 
 // Routes protocol callbacks to the two pipelines.
 class MediaRouter final : public IMediaSink {
 public:
-    MediaRouter(VideoPipeline& video, AudioPipeline& audio) : video_(video), audio_(audio) {}
+    MediaRouter(VideoPipeline& video, AudioPipeline& audio, NativeControl& control) : video_(video), audio_(audio), control_(control) {}
 
-    bool OnVideoCodec(bool h265) override { return video_.SetCodec(h265); }
+    void AwaitPicture() { control_.AwaitPicture(video_.Frames().Stamp().generation); }
+    void OnClientRequest(const std::string& identity) override { control_.Sender(identity);video_.Frames().Invalidate();AwaitPicture(); }
+    bool OnVideoCodec(bool h265) override { control_.Invalidate();const bool result=video_.SetCodec(h265);AwaitPicture();return result; }
     void OnVideoData(const uint8_t* data, int size, uint64_t ptsNs) override { video_.Push(data, size, ptsNs); }
     void OnVideoSize(int sourceWidth, int sourceHeight, int width, int height) override {
+        const bool widthChanged=geometryWidth_.exchange(width)!=width;
+        const bool heightChanged=geometryHeight_.exchange(height)!=height;
+        if(widthChanged || heightChanged) control_.Invalidate();
+        video_.Frames().SetGeometry(width, height);
+        if(widthChanged || heightChanged)AwaitPicture();
         LOGI("video stream %dx%d (source %dx%d)", width, height, sourceWidth, sourceHeight);
     }
-    void OnVideoPause() override { LOGI("video paused by sender"); }
-    void OnVideoResume() override { LOGI("video resumed by sender"); }
-    void OnVideoFlush() override {}
-    void OnVideoReset() override { video_.Reset(); }
+    void OnVideoPause() override { control_.Pause(true); video_.Frames().SetPaused(true); AwaitPicture(); LOGI("video paused by sender"); }
+    void OnVideoResume() override { video_.Frames().SetPaused(false); AwaitPicture(); control_.Pause(false); LOGI("video resumed by sender"); }
+    void OnVideoFlush() override { control_.Invalidate(); video_.Frames().Invalidate(); AwaitPicture(); }
+    void OnVideoReset() override { control_.Picture(false,0,0); video_.Reset(); }
+    void OnMirrorState(bool running) override { control_.Mirror(running); video_.Frames().SetActive(running); AwaitPicture(); }
 
     void OnAudioFormat(uint8_t compressionType) override { audio_.SetFormat(compressionType); }
     void OnAudioData(const uint8_t* data, int size, uint8_t compressionType, uint64_t) override {
@@ -64,6 +75,8 @@ public:
 private:
     VideoPipeline& video_;
     AudioPipeline& audio_;
+    NativeControl& control_;
+    std::atomic<int> geometryWidth_{0},geometryHeight_{0};
 };
 
 struct App {
@@ -75,12 +88,14 @@ struct App {
     Settings settings;
     VideoPipeline video;
     AudioPipeline audio;
-    MediaRouter router{video, audio};
+    NativeControl control;
+    MediaRouter router{video, audio, control};
     AirPlayServer server;
 
     bool serverOk = false;
     bool hevcHardware = false;
     bool debugLog = false;
+    bool exportFrames = false;
     bool fullscreen = false;
     WINDOWPLACEMENT savedPlacement{sizeof(WINDOWPLACEMENT)};
     LONG_PTR savedStyle = 0;
@@ -94,6 +109,11 @@ struct App {
     bool mirrorRunning = false;
     int connections = 0;
     ClientInfo client;
+    HWND controlPair=nullptr,controlPeer=nullptr,controlBind=nullptr,controlDisconnect=nullptr,controlStatus=nullptr,controlHome=nullptr,controlHelp=nullptr;
+    std::vector<ControlPeer> controlPeers;
+    std::wstring lastControlStatus;
+    std::string controlPhoneOverride;
+    bool controlDragging=false;
 
     // --selftest options
     int decoderOverride = -1;
@@ -218,6 +238,7 @@ bool StartServer(App& app) {
 
 // Applies settings that only take effect on a fresh server (and, for the decoder mode, a fresh video pipeline).
 void RestartService(App& app, bool restartVideo) {
+    app.control.Invalidate();
     LOGI("[CFG] Stop() begin");
     app.server.Stop();
     app.audio.StopPlayback();
@@ -228,6 +249,7 @@ void RestartService(App& app, bool restartVideo) {
         if (!app.video.Start(app.videoWindow, app.window, app.settings.decoderMode, app.settings.vsync)) {
             LOGE("video pipeline failed to restart");
         }
+        if (app.exportFrames) app.video.Frames().Start(!app.selfTestVideo.empty());
     }
     app.connections = 0;
     app.client = ClientInfo{};
@@ -266,7 +288,8 @@ void ToggleFullscreen(App& app) {
     }
 }
 
-// Resizes the window so the client area has exactly the picture's aspect ratio (no black bars).
+// Fit the picture and toolbar within this monitor; retain side bars if the
+// toolbar's minimum width is wider than a portrait image at maximum height.
 void FitWindowToVideo(App& app) {
     if (!app.hasPicture || app.pictureWidth <= 0 || app.pictureHeight <= 0 || app.fullscreen || IsZoomed(app.window)) {
         return;
@@ -278,29 +301,22 @@ void FitWindowToVideo(App& app) {
     const int workWidth = monitor.rcWork.right - monitor.rcWork.left;
     const int workHeight = monitor.rcWork.bottom - monitor.rcWork.top;
 
-    // Keep the current area roughly constant while changing the shape.
-    const double area = static_cast<double>(client.right) * client.bottom;
-    const double aspect = static_cast<double>(app.pictureWidth) / app.pictureHeight;
-    int width = static_cast<int>(sqrt(area * aspect));
-    int height = static_cast<int>(width / aspect);
-
-    RECT frame{0, 0, width, height};
+    RECT frame{0, 0, 0, 0};
     const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(app.window, GWL_STYLE));
     const DWORD exStyle = static_cast<DWORD>(GetWindowLongPtrW(app.window, GWL_EXSTYLE));
     AdjustWindowRectExForDpi(&frame, style, TRUE, exStyle, GetDpiForWindow(app.window));
-    const int chromeWidth = (frame.right - frame.left) - width;
-    const int chromeHeight = (frame.bottom - frame.top) - height;
-    if (width + chromeWidth > workWidth) {
-        width = workWidth - chromeWidth;
-        height = static_cast<int>(width / aspect);
-    }
-    if (height + chromeHeight > workHeight) {
-        height = workHeight - chromeHeight;
-        width = static_cast<int>(height * aspect);
-    }
+    const int chromeWidth = frame.right - frame.left;
+    const int chromeHeight = frame.bottom - frame.top;
+    const auto fitted=FitMirrorClient(client.right,client.bottom,app.pictureWidth,app.pictureHeight,
+        workWidth-chromeWidth,workHeight-chromeHeight,std::max(Scale(app.window,500),Scale(app.window,650)-chromeWidth),Scale(app.window,72));
+    if(!fitted)return;
+    const int width=fitted->first,height=fitted->second;
+    RECT current{};GetWindowRect(app.window,&current);
+    const int left=std::clamp(current.left,monitor.rcWork.left,monitor.rcWork.right-width-chromeWidth);
+    const int top=std::clamp(current.top,monitor.rcWork.top,monitor.rcWork.bottom-height-chromeHeight);
     LOGI("[FIT] resize -> %dx%d client for %dx%d content", width, height, app.pictureWidth, app.pictureHeight);
-    SetWindowPos(app.window, nullptr, 0, 0, width + chromeWidth, height + chromeHeight,
-                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(app.window, nullptr, left, top, width + chromeWidth, height + chromeHeight,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 HMENU BuildMenu() {
@@ -648,6 +664,7 @@ void Shutdown(App& app) {
         return;
     }
     app.shutDown = true;
+    app.control.Shutdown();
     app.selfTestStop = true;
     if (app.selfTestThread.joinable()) {
         app.selfTestThread.join();
@@ -670,6 +687,21 @@ void Shutdown(App& app) {
 // ---------------------------------------------------------------------------
 
 void OnCommand(App& app, UINT id) {
+    if(id==kHomeControl){
+        app.controlDragging=false;if(GetCapture()==app.videoWindow)ReleaseCapture();
+        app.control.Invalidate(); // the explicit global action replaces older queued input
+        SetFocus(app.videoWindow);app.control.Focus(true);
+        if(app.control.State().focused)app.control.Submit(ControlKind::Home);
+        else app.control.RejectInput("Home is available while the selected iPhone is visibly mirroring.");
+        return;
+    }
+    if (id==kPairControl) { app.control.Pair(); return; }
+    if (id==kDisconnectControl) { app.control.Disconnect(); return; }
+    if (id==kBindControl) {
+        const auto selected=SendMessageW(app.controlPeer,CB_GETCURSEL,0,0);
+        if(selected>=0 && size_t(selected)<app.controlPeers.size()) app.control.Bind(app.controlPeers[size_t(selected)].token);
+        return;
+    }
     Settings& settings = app.settings;
     const auto& qualities = VideoQualities();
     if (id >= IDM_QUALITY_FIRST && id < IDM_QUALITY_FIRST + qualities.size()) {
@@ -752,7 +784,139 @@ void OnCommand(App& app, UINT id) {
     }
 }
 
+void UpdateControlUi(App& app) {
+    const auto state=app.control.State();
+    if(!state.focused && app.controlDragging){app.controlDragging=false;if(GetCapture()==app.videoWindow)ReleaseCapture();}
+    if(state.ready && (state.bound!=app.settings.controlPhone || state.sender!=app.settings.controlSender)){
+        app.settings.controlPhone=state.bound;app.settings.controlSender=state.sender;app.settings.Save();
+    }
+    std::wstring text=state.focused ? L"Controlling iPhone - click elsewhere to return" : Utf8ToWide(state.message);
+    if(text!=app.lastControlStatus){SetWindowTextW(app.controlStatus,text.c_str());app.lastControlStatus=text;}
+    bool changed=state.peers.size()!=app.controlPeers.size();
+    if(!changed)for(size_t i=0;i<state.peers.size();++i)if(state.peers[i].token!=app.controlPeers[i].token || state.peers[i].name!=app.controlPeers[i].name)changed=true;
+    if(changed){
+        app.controlPeers=state.peers;SendMessageW(app.controlPeer,CB_RESETCONTENT,0,0);
+        for(const auto& peer:app.controlPeers){const auto label=Utf8ToWide(peer.name+" ["+peer.token+"]");SendMessageW(app.controlPeer,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str()));}
+        if(app.controlPeers.size()==1)SendMessageW(app.controlPeer,CB_SETCURSEL,0,0);
+    }
+    EnableWindow(app.controlBind,app.controlPeers.size()==1 && !state.ready);
+    EnableWindow(app.controlPair,!state.ready);
+    EnableWindow(app.controlDisconnect,state.published || state.ready);
+    EnableWindow(app.controlHome,state.ready && app.hasPicture && app.mirrorRunning);
+}
+
+void LayoutControls(App& app,int width,int height){
+    const int margin=Scale(app.window,8), row=Scale(app.window,26), top=Scale(app.window,72);
+    const int pair=Scale(app.window,106), bind=Scale(app.window,86), disconnect=Scale(app.window,94),home=Scale(app.window,66);
+    const int peer=std::max(Scale(app.window,100),width-pair-bind-disconnect-home-margin*6);
+    if(app.controlPair){
+        MoveWindow(app.controlPair,margin,margin,pair,row,TRUE);
+        MoveWindow(app.controlPeer,margin*2+pair,margin,peer,row*8,TRUE);
+        MoveWindow(app.controlBind,margin*3+pair+peer,margin,bind,row,TRUE);
+        MoveWindow(app.controlDisconnect,margin*4+pair+peer+bind,margin,disconnect,row,TRUE);
+        MoveWindow(app.controlHome,margin*5+pair+peer+bind+disconnect,margin,home,row,TRUE);
+        MoveWindow(app.controlStatus,margin,margin*2+row,std::max(1,width-margin*2),row,TRUE);
+    }
+    if(app.videoWindow){MoveWindow(app.videoWindow,0,top,width,std::max(1,height-top),FALSE);app.video.NotifyResize();}
+}
+
+void PasteToPhone(HWND window,App& app){
+    if(GetFocus()!=window || !app.control.State().focused)return;
+    if(!OpenClipboard(window)){app.control.RejectInput("Paste unavailable: clipboard is busy. Click the mirror to retry.");return;}
+    std::wstring text;
+    bool valid=false;
+    if(IsClipboardFormatAvailable(CF_UNICODETEXT)){
+        const auto data=GetClipboardData(CF_UNICODETEXT);
+        const auto bytes=data?GlobalSize(data):0;
+        const auto chars=static_cast<const wchar_t*>(data?GlobalLock(data):nullptr);
+        if(chars){
+            const size_t limit=std::min<size_t>(bytes/sizeof(wchar_t),2049);
+            size_t length=0;while(length<limit && chars[length])++length;
+            if(length<limit){text.assign(chars,length);valid=true;}
+            GlobalUnlock(data);
+        }
+    }
+    CloseClipboard();
+    const auto ascii=valid?PrintablePaste(text):std::optional<std::string>{};
+    if(!ascii){app.control.RejectInput("Paste rejected: use up to 1,024 US ASCII characters, tabs or newlines.");return;}
+    app.control.SubmitText(*ascii);
+}
+
 LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+    if(g_app){
+        if(message==WM_SETFOCUS)g_app->control.Focus(true);
+        if(message==WM_KILLFOCUS || message==WM_CANCELMODE || (message==WM_CAPTURECHANGED && g_app->controlDragging)){
+            g_app->controlDragging=false;if(GetCapture()==window)ReleaseCapture();g_app->control.Focus(false);
+        }
+        if(message==WM_RBUTTONDOWN || message==WM_RBUTTONDBLCLK || message==WM_RBUTTONUP){
+            RECT bounds{};GetClientRect(window,&bounds);
+            const auto point=MirrorPoint(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight);
+            if(point){
+                if(message==WM_RBUTTONUP){
+                    g_app->controlDragging=false;if(GetCapture()==window)ReleaseCapture();
+                    g_app->control.Invalidate(); // secondary/Home replaces earlier pending input
+                    SetFocus(window);g_app->control.Focus(true);
+                    g_app->control.Submit(ControlKind::Secondary,point->first,point->second);
+                }
+                return 0; // one pulse on release; never invoke the PC context menu here
+            }
+            if(message==WM_RBUTTONUP){
+                SetFocus(GetParent(window));g_app->control.Focus(false);
+                POINT screen{GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam)};ClientToScreen(window,&screen);
+                return SendMessageW(GetParent(window),WM_CONTEXTMENU,reinterpret_cast<WPARAM>(window),MAKELPARAM(screen.x,screen.y));
+            }
+            return 0;
+        }
+        if(message==WM_CONTEXTMENU){
+            POINT point{GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam)};
+            if(point.x!=-1 || point.y!=-1){
+                ScreenToClient(window,&point);RECT bounds{};GetClientRect(window,&bounds);
+                if(MirrorPoint(point.x,point.y,bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight))return 0;
+            }
+            return SendMessageW(GetParent(window),message,wParam,lParam);
+        }
+        if(message==WM_LBUTTONDOWN || message==WM_LBUTTONDBLCLK || message==WM_MOUSEMOVE || message==WM_LBUTTONUP){
+            const bool down=message==WM_LBUTTONDOWN || message==WM_LBUTTONDBLCLK;
+            if(GetFocus()==window || down){
+                RECT bounds{};GetClientRect(window,&bounds);
+                const auto point=MirrorPoint(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight);
+                if(down){
+                    if(point){SetFocus(window);g_app->control.Focus(true);
+                        if(g_app->control.State().focused){g_app->controlDragging=true;SetCapture(window);g_app->control.Submit(ControlKind::Down,point->first,point->second);}}
+                    else {SetFocus(GetParent(window));g_app->control.Focus(false);}
+                } else if(message==WM_LBUTTONUP){
+                    if(g_app->controlDragging)g_app->control.Submit(ControlKind::Up,point?point->first:-1,point?point->second:-1);
+                    g_app->controlDragging=false;if(GetCapture()==window)ReleaseCapture();
+                } else if(point)g_app->control.Submit(ControlKind::Point,point->first,point->second);
+            }
+            if(message!=WM_MOUSEMOVE)return 0;
+        }
+        if(message==WM_MOUSEWHEEL && GetFocus()==window){
+            POINT mouse{GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam)};ScreenToClient(window,&mouse);
+            RECT bounds{};GetClientRect(window,&bounds);
+            auto point=MirrorPoint(mouse.x,mouse.y,bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight);
+            if(point)g_app->control.Submit(GET_WHEEL_DELTA_WPARAM(wParam)>0?ControlKind::ScrollUp:ControlKind::ScrollDown,point->first,point->second);
+            return 0;
+        }
+        if(message==WM_CHAR){
+            if(wParam>=32 && wParam<=126)g_app->control.Submit(ControlKind::Text,0,0,static_cast<unsigned char>(wParam));
+            else if(wParam>=128)g_app->control.RejectInput("Text rejected: this keyboard currently supports US ASCII only.");
+            return 0;
+        }
+        if(message==WM_PASTE){PasteToPhone(window,*g_app);return 0;}
+        if(message==WM_KEYDOWN){
+            if(wParam=='V' && (GetKeyState(VK_CONTROL)&0x8000)){
+                if(!(lParam&(1LL<<30)))PasteToPhone(window,*g_app);
+                return 0;
+            }
+            if(wParam==VK_F11)return SendMessageW(GetParent(window),message,wParam,lParam);
+            unsigned char usage=0;
+            switch(wParam){case VK_RETURN:usage=40;break;case VK_BACK:usage=42;break;case VK_TAB:usage=43;break;
+                case VK_RIGHT:usage=79;break;case VK_LEFT:usage=80;break;case VK_DOWN:usage=81;break;case VK_UP:usage=82;break;}
+            if(usage){g_app->control.Submit(ControlKind::Key,0,0,usage);return 0;}
+        }
+        if(message==WM_SYSKEYDOWN && wParam==VK_RETURN)return SendMessageW(GetParent(window),message,wParam,lParam);
+    }
     switch (message) {
     case WM_ERASEBKGND:
         return 1;
@@ -762,16 +926,9 @@ LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
             g_app->video.RequestRedraw();
         }
         return 0;
-    // The video surface has no behavior of its own; the main window handles input.
-    case WM_LBUTTONDBLCLK:
+    // Keep parent cursor visibility bookkeeping while the child handles phone input.
     case WM_MOUSEMOVE:
         return SendMessageW(GetParent(window), message, wParam, lParam);
-    case WM_RBUTTONUP: {
-        POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-        ClientToScreen(window, &point);
-        return SendMessageW(GetParent(window), WM_CONTEXTMENU, reinterpret_cast<WPARAM>(window),
-                            MAKELPARAM(point.x, point.y));
-    }
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
@@ -783,16 +940,22 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
     }
     switch (message) {
     case WM_SIZE:
+        app->controlDragging=false;if(GetCapture()==app->videoWindow)ReleaseCapture();
+        app->control.Invalidate();
         if (app->videoWindow && wParam != SIZE_MINIMIZED) {
-            MoveWindow(app->videoWindow, 0, 0, LOWORD(lParam), HIWORD(lParam), FALSE);
-            app->video.NotifyResize();
+            LayoutControls(*app,LOWORD(lParam),HIWORD(lParam));
             InvalidateRect(window, nullptr, FALSE);
         }
         return 0;
     case WM_GETMINMAXINFO: {
         auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
-        info->ptMinTrackSize.x = Scale(window, 420);
+        info->ptMinTrackSize.x = Scale(window, 650);
         info->ptMinTrackSize.y = Scale(window, 300);
+        MONITORINFO monitor{sizeof(MONITORINFO)};
+        if(GetMonitorInfoW(MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST),&monitor)){
+            info->ptMinTrackSize.x=std::min(info->ptMinTrackSize.x,monitor.rcWork.right-monitor.rcWork.left);
+            info->ptMinTrackSize.y=std::min(info->ptMinTrackSize.y,monitor.rcWork.bottom-monitor.rcWork.top);
+        }
         return 0;
     }
     case WM_DPICHANGED: {
@@ -803,6 +966,13 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
     }
     case WM_ERASEBKGND:
         return 1;
+    case WM_ACTIVATEAPP:
+        if(!wParam){app->controlDragging=false;if(GetCapture()==app->videoWindow)ReleaseCapture();app->control.Focus(false);}
+        return 0;
+    case WM_ENTERMENULOOP:
+        app->controlDragging=false;if(GetCapture()==app->videoWindow)ReleaseCapture();
+        app->control.Focus(false);
+        return 0;
     case WM_PAINT: {
         PAINTSTRUCT paint;
         HDC dc = BeginPaint(window, &paint);
@@ -861,6 +1031,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         }
         break;
     case WM_TIMER:
+        if(wParam==kControlTimer){UpdateControlUi(*app);return 0;}
         if (wParam == kTickTimer) {
             if (app->server.WatchdogTick()) {
                 app->server.RestartListener();
@@ -887,6 +1058,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
     case WM_APP_CONNECTIONS:
         app->connections = static_cast<int>(wParam);
         if (app->connections == 0) {
+            app->control.Mirror(false);
             app->client = ClientInfo{};
             app->mirrorRunning = false;
         }
@@ -903,10 +1075,17 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
                                                    : ES_CONTINUOUS);
         InvalidateRect(window, nullptr, FALSE);
         return 0;
+    case WM_APP_CONTROL_FRAME:
+        if(static_cast<uint64_t>(wParam)==app->video.Frames().Stamp().generation){
+            app->pictureWidth=LOWORD(lParam);app->pictureHeight=HIWORD(lParam);
+            app->control.Picture(true,app->pictureWidth,app->pictureHeight,static_cast<uint64_t>(wParam));
+        }
+        return 0;
     case WM_APP_VIDEO_PICTURE:
         app->hasPicture = wParam != 0;
         app->pictureWidth = LOWORD(lParam);
         app->pictureHeight = HIWORD(lParam);
+        if(!app->hasPicture)app->control.Picture(false,0,0);
         ShowWindow(app->videoWindow, app->hasPicture ? SW_SHOWNA : SW_HIDE);
         if (app->hasPicture) {
             app->video.RequestRedraw();
@@ -922,6 +1101,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         return 0;
     case WM_DESTROY:
         KillTimer(window, kTickTimer);
+        KillTimer(window,kControlTimer);
         // Stop everything while the windows still exist; the swap chain needs its window.
         Shutdown(*app);
         PostQuitMessage(0);
@@ -940,6 +1120,12 @@ void ParseCommandLine(App& app) {
         const std::wstring arg = argv[i];
         if (arg == L"--debug") {
             app.debugLog = true;
+        } else if (arg == L"--frames") {
+            app.exportFrames = true;
+        } else if (arg == L"--control-phone" && i + 1 < argc) {
+            const auto token=WideToUtf8(argv[++i]);
+            if(token.size()==16 && token.find_first_not_of("0123456789abcdef")==std::string::npos)app.controlPhoneOverride=token;
+            else LOGW("[CONTROL] --control-phone requires 16 lowercase hexadecimal characters");
         } else if (arg == L"--selftest-audio") {
             app.selfTestAudio = true;
         } else if (arg == L"--selftest-tone") {
@@ -985,6 +1171,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
 
     app.settings.Load();
+    if(!app.controlPhoneOverride.empty()){app.settings.controlPhone=app.controlPhoneOverride;app.settings.controlSender.clear();app.settings.Save();}
     if (app.decoderOverride >= 0) {
         app.settings.decoderMode = static_cast<DecoderMode>(app.decoderOverride);
     }
@@ -1028,6 +1215,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     GetClientRect(app.window, &client);
     app.videoWindow = CreateWindowExW(0, kVideoClass, L"", WS_CHILD, 0, 0, client.right, client.bottom, app.window,
                                       nullptr, instance, nullptr);
+    const auto makeControl=[&](const wchar_t* kind,const wchar_t* text,DWORD style,int id){
+        auto handle=CreateWindowExW(0,kind,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,app.window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),instance,nullptr);
+        SendMessageW(handle,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return handle;
+    };
+    app.controlPair=makeControl(L"BUTTON",L"Pair Bluetooth",BS_PUSHBUTTON|WS_TABSTOP,kPairControl);
+    app.controlPeer=makeControl(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,kPeerControl);
+    app.controlBind=makeControl(L"BUTTON",L"Connect",BS_PUSHBUTTON|WS_TABSTOP,kBindControl);
+    app.controlDisconnect=makeControl(L"BUTTON",L"Disconnect",BS_PUSHBUTTON|WS_TABSTOP,kDisconnectControl);
+    app.controlHome=makeControl(L"BUTTON",L"Home",BS_PUSHBUTTON|WS_TABSTOP,kHomeControl);
+    app.controlHelp=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,WS_POPUP|TTS_ALWAYSTIP,
+        CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,app.window,nullptr,instance,nullptr);
+    if(app.controlHelp){
+        TOOLINFOW tip{sizeof(TOOLINFOW)};tip.uFlags=TTF_IDISHWND|TTF_SUBCLASS;tip.hwnd=app.window;
+        tip.uId=reinterpret_cast<UINT_PTR>(app.controlHome);
+        tip.lpszText=const_cast<wchar_t*>(L"One-time setup on iPhone: Settings > Accessibility > Touch > AssistiveTouch > Devices > this PC's Bluetooth name. Assign Button 2 to Home. This button sends that configured action.");
+        SendMessageW(app.controlHelp,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tip));
+        SendMessageW(app.controlHelp,TTM_SETMAXTIPWIDTH,0,Scale(app.window,420));
+        SendMessageW(app.controlHelp,TTM_SETDELAYTIME,TTDT_AUTOPOP,15000);
+    }
+    app.controlStatus=makeControl(L"STATIC",L"Bluetooth control disconnected",SS_LEFT,0);
+    LayoutControls(app,client.right,client.bottom);
+    app.control.Start(app.settings.controlPhone,app.settings.controlSender,!app.controlPhoneOverride.empty());
 
     if (!app.video.Start(app.videoWindow, app.window, app.settings.decoderMode, app.settings.vsync)) {
         MessageBoxW(app.window, L"Direct3D 11 could not be initialized, so video cannot be shown.", kAppTitle,
@@ -1036,7 +1245,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     if (!app.audio.Start()) {
         LOGE("audio pipeline failed to start");
     }
-    StartServer(app);
+    if (app.exportFrames && !app.video.Frames().Start(!app.selfTestVideo.empty())) {
+        LOGE("[FRAMES] could not start local frame interface");
+    }
+    if (app.selfTestVideo.empty() && !app.selfTestAudio && !app.selfTestTone) StartServer(app);
     UpdateTitle(app);
 
     if (app.settings.alwaysOnTop) {
@@ -1045,6 +1257,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     ShowWindow(app.window, showCommand);
     UpdateWindow(app.window);
     SetTimer(app.window, kTickTimer, 1000, nullptr);
+    SetTimer(app.window,kControlTimer,100,nullptr);
     if (app.exitAfterSeconds > 0) {
         SetTimer(app.window, kExitTimer, static_cast<UINT>(app.exitAfterSeconds) * 1000, nullptr);
     }

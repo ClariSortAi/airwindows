@@ -79,6 +79,7 @@ struct ShaderParams {
 struct Packet {
     std::vector<uint8_t> data;
     uint64_t pts = 0;
+    FrameStamp stamp;
 };
 
 void FfmpegLog(void*, int level, const char* fmt, va_list args) {
@@ -121,6 +122,8 @@ HRESULT CreateDevice(ComPtr<ID3D11Device>& device, ComPtr<ID3D11DeviceContext>& 
 }  // namespace
 
 struct VideoPipeline::Impl {
+    FrameServer frames;
+    uint64_t controlFrameGeneration = 0;
     HWND hwnd = nullptr;
     HWND notify = nullptr;
     DecoderMode mode = DecoderMode::Auto;
@@ -232,6 +235,7 @@ bool VideoPipeline::Start(HWND videoWindow, HWND notify, DecoderMode mode, bool 
 
 void VideoPipeline::Stop() {
     Impl& s = *impl_;
+    s.frames.Stop();
     if (s.thread.joinable()) {
         {
             std::lock_guard<std::mutex> lock(s.mutex);
@@ -279,6 +283,7 @@ void VideoPipeline::Stop() {
 
 bool VideoPipeline::SetCodec(bool h265) {
     Impl& s = *impl_;
+    s.frames.Invalidate();
     if (!avcodec_find_decoder(h265 ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264)) {
         LOGE("[VIDEO] no %s decoder in this FFmpeg build", h265 ? "H.265" : "H.264");
         return false;
@@ -294,6 +299,7 @@ bool VideoPipeline::SetCodec(bool h265) {
 void VideoPipeline::Push(const uint8_t* data, int size, uint64_t ptsNs) {
     Impl& s = *impl_;
     Packet pkt;
+    pkt.stamp = s.frames.Stamp();
     pkt.data.assign(data, data + size);
     pkt.pts = ptsNs;
     {
@@ -311,6 +317,7 @@ void VideoPipeline::Push(const uint8_t* data, int size, uint64_t ptsNs) {
 
 void VideoPipeline::Reset() {
     Impl& s = *impl_;
+    s.frames.Invalidate();
     {
         std::lock_guard<std::mutex> lock(s.mutex);
         s.queue.clear();
@@ -348,6 +355,8 @@ VideoStats VideoPipeline::Stats() const {
     std::lock_guard<std::mutex> lock(impl_->mutex);
     return impl_->stats;
 }
+
+FrameServer& VideoPipeline::Frames() { return impl_->frames; }
 
 bool VideoPipeline::HardwareHevcAvailable() {
     static const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
@@ -545,7 +554,7 @@ void VideoPipeline::Impl::OpenDecoder(bool h265) {
         return;
     }
     codec->opaque = this;
-    codec->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    codec->flags |= AV_CODEC_FLAG_LOW_DELAY | AV_CODEC_FLAG_COPY_OPAQUE;
     // Slice threads add no frame delay; frame threads would add one frame per thread.
     codec->thread_type = FF_THREAD_SLICE;
     codec->thread_count = 0;
@@ -647,6 +656,8 @@ void VideoPipeline::Impl::Decode(const Packet& pkt) {
     }
     memcpy(packet->data, pkt.data.data(), pkt.data.size());
     packet->pts = static_cast<int64_t>(pkt.pts);
+    packet->opaque_ref = av_buffer_alloc(sizeof(FrameStamp));
+    if (packet->opaque_ref) memcpy(packet->opaque_ref->data, &pkt.stamp, sizeof(FrameStamp));
     int result = avcodec_send_packet(codec, packet);
     av_packet_unref(packet);
     if (result < 0 && result != AVERROR(EAGAIN)) {
@@ -670,6 +681,15 @@ void VideoPipeline::Impl::Decode(const Packet& pkt) {
         const bool ok = frame->format == AV_PIX_FMT_D3D11 ? UploadHardwareFrame(frame) : UploadSoftwareFrame(frame);
         if (ok) {
             hasPicture = true;
+            if (frame->opaque_ref && frame->opaque_ref->size == sizeof(FrameStamp)) {
+                FrameStamp stamp;
+                memcpy(&stamp, frame->opaque_ref->data, sizeof(stamp));
+                frames.Publish(frame, stamp);
+                if(stamp.generation!=controlFrameGeneration && stamp.generation==frames.Stamp().generation) {
+                    controlFrameGeneration=stamp.generation;
+                    PostMessageW(notify,WM_APP_CONTROL_FRAME,static_cast<WPARAM>(stamp.generation),MAKELPARAM(frame->width,frame->height));
+                }
+            }
         }
         av_frame_unref(frame);
     }

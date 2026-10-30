@@ -1,83 +1,82 @@
 # AirWindows
 
-Private source archive for the Windows AirPlay receiver and experimental native
-AirDrop reception through the built-in MediaTek MT7922/RZ616. No WSL requirement.
+Mirror your iPhone on Windows, then click and type in the mirrored screen using the PC's mouse and keyboard.
 
-**AirDrop is not operational.** The native radio core, unsigned KMDF candidate,
-AWDL bridge and receiver have offline or loopback validation. The candidate has
-never run on the adapter. Neither appearance in the iOS AirDrop picker nor a file
-received from iOS has been demonstrated. Desktop approval UI and coordinated
-runtime startup remain unfinished.
+AirWindows receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
 
-| Component | Source and instructions | State |
-|---|---|---|
-| AirPlay desktop receiver | [app](app/README.md) | Existing application; see its version-specific test limits |
-| Native AirDrop investigation | [airdrop-native](airdrop-native/README.md) | Experimental, hardware validation pending |
-| Wi-Fi findings | [WIFI-FINDINGS.md](airdrop-native/WIFI-FINDINGS.md) | Evidence-qualified findings and potential impact |
-| Hardware trial | [HARDWARE-TRIAL.md](airdrop-native/HARDWARE-TRIAL.md) | Deferred; no permission to reboot or interrupt networking |
+This is experimental software. Screen mirroring, absolute pointing, clicks, text entry and list dragging have worked on a real iPhone. The user also confirmed clicking and typing through the Windows mirror and returning focus to the PC. Support across other Bluetooth adapters and iOS versions still needs testing.
 
-## Resume point: 2026-10-28
+## Get started
 
-The user has no Microsoft driver-signing account or service. The unsigned package
-passed INF and catalog generation checks; that does not make it loadable under
-the current Secure Boot policy. The signed stock Wi-Fi driver remains installed.
-No driver replacement, firmware loading, certificate trust or boot-security change
-has been performed. Publication does not authorize those actions.
+You need a 64-bit Windows PC, an iPhone on the same reachable network, and a Bluetooth adapter that supports BLE peripheral mode. The native control path has been tested on Windows 11 with a MediaTek adapter. Mirroring also supports iPad and Mac senders; Bluetooth input has been tested with an iPhone.
 
-When a maintenance window is available, review the hardware trial and verify the
-local recovery archive and encryption recovery readiness first. The proposed
-first trial is bounded stock-firmware boot/stop, not AWDL transmission. A reboot
-will interrupt Ethernet. Actual operating country must be established before any
-later radio trial. Keep memory integrity enabled.
-
-## Reproduce the safe checks
-
-Use native Windows x64, Python 3.10+, Git, OpenSSL on PATH, MSVC 14.29.30133 and
-Windows SDK 10.0.19041.0. The current core/bridge scripts use those toolchain paths.
-Driver builds use pinned WDK/SDK 10.0.26100.1 packages and KMDF 1.33. Other versions
-have not been qualified.
-
-From this repository root:
+The current integration is built from source. Older AirWindows downloads do not include these controls.
 
 ```powershell
-python scripts/bootstrap-references.py
-python airdrop-native/tools/build-mt7922-core.py airdrop-native/artifacts/core-local
-python airdrop-native/tools/build-mt7922-bridge.py airdrop-native/artifacts/bridge-local
-python airdrop-native/tools/verify-receiver.py airdrop-native/artifacts/receiver-local
+git clone https://github.com/ClariSortAi/airwindows.git
+cd airwindows\app
+.\scripts\bootstrap.ps1
+.\scripts\build.ps1 -Target AirWindowsNative
+.\build\Release\bin\AirWindowsNative.exe --frames
 ```
 
-Use new output directory names for each run. Core checks without `--firmware-dir`
-omit the optional real firmware-image cases. Bridge checks without `--awdld` omit
-the AWDL child-process integration test. Receiver verification binds only `::1`.
-These commands do not install or open a driver. See [native runtime details](airdrop-native/NATIVE-RUNTIME.md)
-and [driver bring-up](airdrop-native/DRIVER-BRINGUP.md) for the remaining builds.
-The LLVM acquisition helper downloads a pinned archive of about 943 MB into a
-local cache. The package validator requires a separately prepared, hash-receipted
-WDK tool cache; that local cache is not included in this archive.
+Install Visual Studio Build Tools with the C++ workload and Windows SDK, Git, CMake and Ninja first. The initial build also compiles FFmpeg, OpenSSL and libplist through pinned vcpkg sources. See [the build guide](app/README.md) for details.
 
-For AirPlay, run `app/scripts/bootstrap.ps1`, then `app/scripts/build.ps1` as
-described in its README. Dependency downloads and the first build can be large.
+1. Allow AirWindows through Windows Firewall on your private network.
+2. On the iPhone, open Control Center > Screen Mirroring and choose the receiver name shown in AirWindows.
+3. Turn on Settings > Accessibility > Touch > AssistiveTouch.
+4. In AirWindows, click **Pair Bluetooth**. Pair the PC from the iPhone's main Settings > Bluetooth screen, then select that phone in AirWindows and click **Connect**.
+5. Click a control inside the mirrored phone. You can now use the mouse and keyboard there.
 
-## Archive boundaries
+The app remembers the selected Bluetooth phone and its matching AirPlay sender. Run one receiver at a time. Pairing details and recovery steps are in [Native control](app/NATIVE-CONTROL.md).
 
-This repository includes owned source, tests, documentation, license notices,
-pinned upstream references and a [verification summary](provenance/VERIFICATION.md).
-Upstream sources are fetched by the bootstrap scripts, not copied here.
+## Using it
 
-Raw captures, device logs, driver-store backups, proprietary package contents,
-firmware blobs, compiled binaries, caches, generated certificates and private keys
-are excluded. Historical documents identify excluded evidence as **local-only**;
-those receipts remain in the original development workspace. Their absence from
-GitHub is intentional. Host-specific recovery tools retain exact device and receipt
-pins, require the excluded local backup, and are not general-purpose installers.
-Do not use `--restore` as a validation command.
+| Task | Control |
+|---|---|
+| Tap or select | Left-click inside the phone picture |
+| Type | Click a phone text field, then type |
+| Scroll a list | Drag with the left button held, then release |
+| Go Home | Use the Home button or right-click after assigning Button 2 to Home |
+| Return to Windows | Click another application |
+| Open AirWindows settings | Right-click outside the phone picture, in the bars or window chrome |
+| Full screen | F11 or Alt+Enter; Escape leaves full screen |
 
-[Source provenance](provenance/source-export.json) records original file hashes
-before publication documentation edits. The original workspace remains intact.
-The publication checkout is separate, so subsequent development changes must be
-made here or explicitly synchronized before another push.
+For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in AirWindows, then assign the detected Button 2 to **Home**. Bottom-edge mouse dragging was unreliable in testing, so use the assigned button for this action.
 
-Licensing is component-specific: AirPlay GPL-3.0-or-later, radio executable
-GPL-2.0-only, MT7922 core BSD-3-Clause-Clear, adapted Python receiver MIT.
-Consult each component's LICENSE, source headers and SOURCES/THIRD-PARTY notices.
-This archive makes no claim that upstream license obligations have disappeared.
+Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste, wheel input and the Home assignment still need their own live acceptance checks. Unicode input and general keyboard shortcuts are not supported.
+
+## Using a desktop agent
+
+An agent operates the same window you do. It reads the phone image and sends desktop mouse and keyboard input inside the picture. The phone's controls are pixels, so browser selectors and Windows accessibility element lookup cannot identify them.
+
+[The agent guide](app/CLAUDE-CONTROL.md) covers focus, coordinates, frame capture and failure diagnosis. The optional `--frames` interface supplies native-resolution images to programs running as the same Windows user. It is read-only; input still goes through the focused window. Agent-driven input has not yet passed a separate live test.
+
+## Development
+
+```powershell
+# From the repository root
+python -m pip install -r requirements-dev.txt
+.\scripts\check.ps1
+python -m pytest app/tests/test_frames.py
+python scripts/check-repository.py
+```
+
+GitHub Actions runs the policy checks, builds the receiver and tests the frame pipe on Windows. These checks do not pair a phone or prove a physical input result. [Contributing](CONTRIBUTING.md) explains the device tests and what to include in a bug report.
+
+The release script packages the executable, license notices, matching application and Bluetooth source, upstream library sources, and SHA-256 checksums. See [packaging instructions](app/README.md#packaging).
+
+## Project layout
+
+| Directory | Contents |
+|---|---|
+| `app` | Win32 receiver, renderer, control UI, tests and build scripts |
+| `native-ble-prototype` | Shared Windows BLE HID backend and descriptor notice |
+| `scripts` | Repository checks |
+| `airdrop-native` | Separate, unfinished AirDrop research; not needed for mirroring or control |
+
+AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). AirWindows also does not record the screen or receive video links from an app's cast button. Real-device audio, H.265 and recovery from an unexpected network drop still need testing.
+
+## License
+
+The application is GPL-3.0-or-later. It uses UxPlay, FFmpeg, OpenSSL and libplist, and an MIT-licensed absolute mouse descriptor adapted from iphone-use. See [licenses](LICENSE.md) and [third-party notices](app/THIRD-PARTY.md). AirPlay, iPhone, iPad and Mac are Apple trademarks; this project is not affiliated with Apple.
