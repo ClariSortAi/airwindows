@@ -2,6 +2,8 @@
 
 Use this guide for the native Windows Bluetooth build. The phone's image comes from AirPlay; mouse and keyboard input goes through the PC's BLE HID service. The ESP32 is not involved.
 
+For a new user or a fresh PC, complete [the setup runbook](../FOR-AGENTS.md) first. This document covers operating an existing setup.
+
 ## Start with the correct interface
 
 The iPhone controls are pixels inside a Windows video window. They are not browser DOM elements or Windows accessibility controls. Browser automation, UI Automation `SetValue`, and searching for an accessible iPhone “Settings” button will not operate them. Windows accessibility tools may expose the AirWindows toolbar itself.

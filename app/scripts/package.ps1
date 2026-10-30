@@ -71,6 +71,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $backend $name) -Destination $sourceBackend
     }
     Copy-Item -LiteralPath (Join-Path $repo 'requirements-dev.txt') -Destination $top
+    Copy-Item -LiteralPath (Join-Path $repo 'FOR-AGENTS.md') -Destination $top
     New-Item -ItemType Directory -Path (Join-Path $top 'scripts') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $repo 'scripts\check.ps1') -Destination (Join-Path $top 'scripts')
     @('# AirWindows source', '', 'Build from the app directory with scripts/bootstrap.ps1 and scripts/build.ps1 -Target AirWindowsNative.', 'See app/README.md for prerequisites, app/LICENSE for licensing and app/THIRD-PARTY.md for notices.', 'Keep app/ and native-ble-prototype/ beside each other. The archive includes the linked upstream sources.', 'The separate AirDrop research tree is not part of this application bundle.') |

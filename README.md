@@ -8,6 +8,8 @@ This is experimental software. Screen mirroring, absolute pointing, clicks, text
 
 ## Get started
 
+Setting this up with Claude Code or Codex? Start with [For agents: zero to ready iPhone control](FOR-AGENTS.md). It covers a fresh Windows PC, pairing, Home setup and the final agent-operated test.
+
 You need a 64-bit Windows PC, an iPhone on the same reachable network, and a Bluetooth adapter that supports BLE peripheral mode. The native control path has been tested on Windows 11 with a MediaTek adapter. Mirroring also supports iPad and Mac senders; Bluetooth input has been tested with an iPhone.
 
 The current integration is built from source. Older AirWindows downloads do not include these controls.
