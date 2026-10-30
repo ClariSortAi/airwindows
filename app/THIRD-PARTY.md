@@ -11,9 +11,10 @@ Everything below is compiled from source and linked statically into `AirWindows.
 | [FFmpeg](https://ffmpeg.org) | 9.0.2 | LGPL-2.1-or-later | `libavcodec`, `libavutil` and `libswresample`, built by the port in `vcpkg-ports/ffmpeg` |
 | [OpenSSL](https://www.openssl.org) | 3.6.5 | Apache-2.0 | `libcrypto` |
 | [libplist](https://github.com/libimobiledevice/libplist) | 2.8.0 | LGPL-2.1-or-later | Property list parsing |
+| [iphone-use](https://github.com/xhoantran/iphone-use) | absolute mouse report descriptor, adapted 2026-10-30 | MIT, Copyright 2026 NewWave AI | Absolute BLE mouse report3; notice in `../native-ble-prototype/LICENSE-iphone-use` |
 
 FFmpeg is configured with only the `h264`, `hevc`, `aac` and `alac` decoders and the D3D11VA hardware accelerators for H.264 and H.265. No GPL or nonfree FFmpeg components are enabled.
 
 OpenSSL, libplist and FFmpeg are built through [vcpkg](https://github.com/microsoft/vcpkg) at commit `e456309491fd875487bf02b8a0dca76c1b1b00cc`. The files in `vcpkg-ports/ffmpeg` are a modified copy of vcpkg's FFmpeg port and are MIT licensed (`vcpkg-ports/LICENSE-vcpkg.txt`).
 
-The LGPL asks that a user be able to relink the program against a changed copy of the library. This repository contains application source and build scripts that fetch the pinned dependencies. No binary release or bundled upstream source archive accompanies this private source publication. Any future binary release must supply the corresponding source and satisfy the applicable component licenses.
+The LGPL asks that a user be able to relink the program against a changed copy of the library. The complete source of this program and its build scripts are published, which makes that possible. Each release has a source archive with this project, UxPlay, and the upstream source archives of FFmpeg, OpenSSL and libplist.

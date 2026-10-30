@@ -26,6 +26,8 @@ struct Settings {
     bool alwaysOnTop = false;
     bool allowH265 = true;
     std::string macAddress;                  // "aa:bb:cc:dd:ee:ff"; AirPlay device id
+    std::string controlPhone;                // explicitly selected BLE peer fingerprint
+    std::string controlSender;               // matching AirPlay sender fingerprint
 
     void Load();
     void Save() const;

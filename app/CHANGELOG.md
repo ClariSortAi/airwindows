@@ -1,8 +1,22 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+- Native Windows BLE keyboard and absolute mouse control inside the AirPlay picture.
+- Focus returns to Windows when clicking another application; input cancels on focus, identity or stream changes.
+- Button 2 forwarding through right-click and a Home toolbar button, with one-time AssistiveTouch mapping.
+- Bounded ASCII typing and explicit paste, list dragging and wheel-to-swipe routing.
+- Local decoded-frame reader, desktop-agent instructions, policy checks and Windows CI.
+- Release archives include the sibling Bluetooth backend and its MIT descriptor notice.
+
+GUI clicking, typing and focus return were accepted on a real iPhone. Home mapping, paste, wheel and agent-driven input remain unqualified. Older downloads do not contain this integration.
+
 ## 0.2.0 (not yet released)
 
 The first version prepared for publication.
+
+- The 2026-10-30 source build adds optional `--frames` decoded-image access through a local user-only named pipe, with packet/decode timestamps and lifecycle invalidation. Real H.264 iPhone capture and a supervised ESP32 BLE click were observed. This does not add direct input to the receiver window or update older packaged downloads.
+- Self-test runs no longer advertise an AirPlay receiver.
 
 - The program is now named AirWindows. Version 0.1.0 was called AirPlay Receiver. The executable is `AirWindows.exe`, and settings and the log are in `%LOCALAPPDATA%\AirWindows`. Settings saved under the earlier name are not carried over.
 - FFmpeg 9.0.2 is built from source and linked into the executable. Only the H.264, H.265, AAC and ALAC decoders and the D3D11 hardware decoding path are compiled in. The program is now one file with no DLLs beside it.

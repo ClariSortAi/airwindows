@@ -27,10 +27,23 @@ function Invoke-Checked([scriptblock] $command, [string] $what) {
 }
 
 function Get-PinnedRepo([string] $url, [string] $commit, [string] $dir) {
+    $sourceMarker = Join-Path $dir 'AIRWINDOWS-UPSTREAM-COMMIT.txt'
+    if (-not (Test-Path (Join-Path $dir '.git')) -and (Test-Path -LiteralPath $sourceMarker)) {
+        $bundledCommit = (Get-Content -LiteralPath $sourceMarker -Raw).Trim()
+        if ($bundledCommit -ne $commit) { throw "Bundled source pin mismatch at $dir" }
+        Write-Host "$dir uses bundled source at $commit"
+        return
+    }
     if (Test-Path (Join-Path $dir '.git')) {
         $have = (git -C $dir rev-parse HEAD).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "Cannot read dependency commit at $dir" }
+        $dirty = git -C $dir status --porcelain
+        if ($LASTEXITCODE -ne 0 -or $dirty) { throw "Refusing a dirty dependency checkout at $dir" }
         if ($have -eq $commit) { Write-Host "$dir is already at $commit"; return }
     } else {
+        if ((Test-Path -LiteralPath $dir) -and @(Get-ChildItem -LiteralPath $dir -Force | Where-Object { $_.Name -ne 'downloads' }).Count) {
+            throw "Refusing a nonempty dependency directory without a source pin: $dir"
+        }
         New-Item -ItemType Directory -Force $dir | Out-Null
         Invoke-Checked { git -C $dir init --quiet } "git init $dir"
         Invoke-Checked { git -C $dir remote add origin $url } "git remote add $url"
