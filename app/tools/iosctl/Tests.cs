@@ -66,6 +66,10 @@ static class Tests {
         Check(!new Plan("snapshot 'idle image.png'").Input,"snapshot never takes input focus");
         Reject(()=>new Plan("snapshot idle.png; tap 1 2"),"retained snapshot cannot authorize input");
         Reject(()=>new Plan("tap 1 2; snapshot idle.png"),"retained snapshot cannot verify an action");
+        Check(new Plan("wake; tap 1 2").Input,"wake may precede input");
+        Reject(()=>new Plan("tap 1 2; wake"),"wake must come first");
+        Reject(()=>new Plan("wake 1 2"),"wake takes no arguments");
+        Reject(()=>new Plan("wake; snapshot idle.png"),"retained snapshot cannot follow wake");
         foreach(string script in new[]{"", "tap 1 2; typo", "tap NaN 3", "tap Infinity 0", "tap -1 0", "swipe 1 2 3 4 5000", "down 1 2", "up 1 2", "down 1 2; down 2 3; up 1 2", "down 1 2;wait 2000;up 1 2", "type 'snowman \u2603'", "type ''", "key escape", "tapv 1 2", "gov camera", "page right 4", "shot x.png 0", "shot x.jpg", "crop x.png 1 2 0 4", "type 'unterminated"})Reject(()=>new Plan(script),"reject "+script);
         Check(new Plan("down 1 2; move 2 3; wait 50; up 2 3").Commands.Count==4,"bounded drag primitives");
         Reject(()=>new Plan("down 1 2; settle; up 1 2"),"no blocking observation during held input");

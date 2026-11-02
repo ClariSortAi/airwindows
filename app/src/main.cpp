@@ -37,7 +37,8 @@ constexpr wchar_t kAppTitle[] = L"AirWindows";
 constexpr UINT_PTR kTickTimer = 1;
 constexpr UINT_PTR kExitTimer = 2;
 constexpr UINT_PTR kControlTimer = 3;
-constexpr int kPairControl=40001, kPeerControl=40002, kBindControl=40003, kDisconnectControl=40004, kHomeControl=40005;
+// Toolbar IDs share WM_COMMAND with the menu; keep them clear of the IDM_* range in resource.h.
+constexpr int kPairControl=41001, kPeerControl=41002, kBindControl=41003, kDisconnectControl=41004, kHomeControl=41005;
 constexpr COLORREF kBackground = RGB(0x2C, 0x2C, 0x2C);  // idle screen
 constexpr DWORD kCursorHideMs = 3000;
 
@@ -696,6 +697,7 @@ void OnCommand(App& app, UINT id) {
         else app.control.RejectInput("Home is available while the selected iPhone is visibly mirroring.");
         return;
     }
+    if (id==kPeerControl) return; // selector notifications; Connect reads the current selection
     if (id==kPairControl) { app.control.Pair(); return; }
     if (id==kDisconnectControl) { app.control.Disconnect(); return; }
     if (id==kBindControl) {

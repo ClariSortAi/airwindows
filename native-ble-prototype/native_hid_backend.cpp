@@ -564,7 +564,8 @@ void NativeHidBackend::Pointer(int x, int y, bool down, bool transition) {
         Bytes position{0,static_cast<uint8_t>(x),static_cast<uint8_t>(x>>8),static_cast<uint8_t>(y),static_cast<uint8_t>(y>>8)};
         if(down && transition) {
             impl_->Send("absolute",position);
-            std::this_thread::sleep_for(std::chrono::milliseconds(60));
+            // Let iOS hit-test the new position first; a 60 ms dwell missed a small send button.
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
         }
         position[0]=down?1:0; impl_->Send("absolute",position);
     } catch (...) { Stop(); throw; }

@@ -30,6 +30,9 @@ sealed class Desktop : IDisposable {
     [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll",SetLastError=true)] static extern uint SendInput(uint count,Input[] inputs,int size);
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from,uint to,bool attach);
+    [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr window);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     const uint MoveFlag=1,LeftDown=2,LeftUp=4,RightDown=8,RightUp=16,KeyUp=2,Unicode=4;
     readonly Process process;
     readonly long started;
@@ -104,6 +107,16 @@ sealed class Desktop : IDisposable {
         Emit(input);
     }
     internal void Move(double x,double y) { Guard(true);Pointer(MoveFlag,x,y); }
+    // Moves the phone's pointer with no button so a static screen produces new
+    // frames. The receiver forwards moves only while the video has focus.
+    internal void Wake() {
+        uint self=GetCurrentThreadId();
+        if(!AttachThreadInput(self,thread,true))throw new InvalidOperationException("Could not reach the receiver's input queue; no press was sent");
+        try { SetFocus(video); } finally { AttachThreadInput(self,thread,false); }
+        Guard(true);
+        Pointer(MoveFlag,width/2.0,height/2.0);Thread.Sleep(60);
+        Pointer(MoveFlag,width/2.0+16,height/2.0);
+    }
     internal void Down(double x,double y,bool right=false) {
         if(heldMouse!=0)throw new InvalidOperationException("A mouse button is already held");
         Pointer(MoveFlag,x,y);Thread.Sleep(40);
