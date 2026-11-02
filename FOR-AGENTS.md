@@ -114,7 +114,7 @@ Get-Content -LiteralPath "$env:LOCALAPPDATA\AirWindows\debug.txt" -Tail 100 |
 
 Readiness requires matching Bluetooth and AirPlay identities. An old `Ready=1` log entry or the phone's Connected label is insufficient. Do not copy device fingerprints or force saved identity settings.
 
-Select the intended phone explicitly if several subscribers appear. The receiver keeps notifications addressed to that selected device and remembers it for reconnection. If the connection is unstable, inspect the current binding and subscriptions; disconnect an unrelated subscriber only as a diagnostic. Preserve unrelated pairings.
+Select the intended phone explicitly if several subscribers appear. AirWindows does not check that the bound phone and the mirrored phone are the same device, so a different paired phone can bind and still report ready. Confirm the selection with the user before sending input. A bonded phone can take a minute or two to appear; keep Pair Bluetooth open and reopen it when it expires. Mirroring a different phone closes Bluetooth control. The receiver keeps notifications addressed to the selected device and remembers it for reconnection. If the connection is unstable, inspect the current binding and subscriptions; disconnect an unrelated subscriber only as a diagnostic. Preserve unrelated pairings.
 
 **Checkpoint:** the intended phone is selected, its picture is live and control remains ready.
 
@@ -157,7 +157,7 @@ if ($LASTEXITCODE -ne 0) { throw 'No fresh image. Do not use an older output fil
 
 Read the PNG with your image tool. Its JSON sidecar records receiver identity, dimensions and age. `preflight` checks fresh frames and current binding; it does not send input or prove a physical result. The helper uses .NET Framework 4.8, available on the tested Windows 11 setup.
 
-Inactive or older-than-one-second images are rejected. A static phone screen can age out; obtain a current view through a permitted desktop tool or wait for a visible update. Never treat an old PNG as a new observation.
+Inactive or older-than-one-second images are rejected. A static phone screen sends no frames and ages out within a second. Start the batch with `wake`, which moves the pointer without pressing and stops if no new frame arrives: `& $iosctlExe --pid $receiverPid 'wake; shot ".local\phone.png"'`. Never treat an old PNG as a new observation.
 
 For `iosctl` input, use coordinates from the native-size phone image. It calculates the displayed picture bounds. For another desktop tool, map those pixels to that tool's screenshot coordinate space; see [coordinate mapping](app/CLAUDE-CONTROL.md#coordinates).
 
@@ -205,6 +205,10 @@ An idle screen can exceed the normal one-second image limit. `iosctl --pid PID '
 | PC missing from Bluetooth discovery | Reopen the 120-second Pair Bluetooth window |
 | Connected on phone, selector empty | Use the main Bluetooth settings route; inspect current subscriptions/status |
 | Repeated disconnects | Inspect the selected phone and current subscriptions; isolate an unrelated subscriber if needed |
+| Control dropped and the phone does not return | Ask the user to remove the PC from the iPhone's Bluetooth list, and the phone from Windows Bluetooth settings if listed. Click Pair Bluetooth, re-pair from the iPhone, then select the phone and click Connect. This is a known issue with no established cause |
+| Wrong phone responds while status is ready | Disconnect, select the intended phone, click Connect and confirm with the user |
+| User's first click does nothing on the phone | Known issue: the first click focuses the window. Click again |
+| `Windows denied focus` from `iosctl` | Bring the agent's terminal to the foreground and retry. No press was sent |
 | Clicks miss | Recalculate picture bounds, DPI scale and overlay positions |
 | Typing stops or goes elsewhere | Restore the intended field and video focus, then inspect before continuing |
 | Home opens the PC menu | Use the toolbar or click inside the picture; verify Button 2 mapping |
