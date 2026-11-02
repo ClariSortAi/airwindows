@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.1-rc.3 (2026-11-02)
+
+- Separate toolbar IDs from menu IDs. In rc.2, using the phone selector could restart AirPlay and drop the mirror, and Rename, Open Log Folder and Exit ran Pair, Connect and Disconnect instead.
+- Hold the phone pointer at its new position for 150 ms before a press, up from 60 ms. One small send button was missed at 60 ms.
+- Add `iosctl wake`. A still phone screen sends no frames, so the helper refused input as stale. `wake` goes first in a batch, moves the pointer without pressing, and stops before any press if no new frame arrives.
+
+Tested on one iPhone16,2: 14 of 14 rapid helper clicks landed, and one live run navigated, typed and sent a message with the send landing on the first click. Toolbar Pair and Connect were used repeatedly. The helper self-test covers `wake` parsing and sends no desktop or Bluetooth input.
+
+Untested: a real mouse click on the selector while mirroring, the corrected Rename, Log and Exit menu items, clicks after a long idle (one sample only), and any phone model other than iPhone16,2.
+
+Known issues:
+
+- Bluetooth control can drop and may only return after you forget and re-pair the PC on the iPhone. The cause is not established.
+- The wrong paired phone can bind and still report ready. Check which phone is selected.
+- A person has to click once to focus the window before controlling the phone. That click also reaches the phone.
+
 ## 0.3.1-rc.2 (2026-10-30)
 
 - Accumulate fine-resolution wheel/trackpad events into bounded swipes instead of scrolling once per packet. Clear partial gestures on focus/picture changes and intervening clicks or text.

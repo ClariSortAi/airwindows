@@ -52,6 +52,14 @@ if ($LASTEXITCODE -ne 0) { throw 'No valid fresh phone frame was obtained.' }
 
 Open the PNG with your image-reading tool. The adjacent JSON records PID, instance, generation, sequence, dimensions and age. A failed capture may leave an older file on disk: do not mistake it for a new image. Normal readers reject inactive or older-than-one-second frames and accept only real AirPlay frames. For setup diagnosis, run `iosctl --doctor` (or `--doctor --pid PID` when several receivers exist). For idle-image inspection, use `iosctl --pid PID 'snapshot ".local\idle.png"'` alone. Its reported age is meaningful: it cannot distinguish a static screen from a stalled stream and cannot verify an action. Use a fresh `shot` or a permitted live desktop observation before input.
 
+## Act on a still screen
+
+- A still phone screen sends no frames, and `iosctl` refuses input when the newest frame is older than one second.
+- When the screen may be still, put `wake` first in the batch: `iosctl --pid PID 'wake; tap X Y; wait 800; shot ".local\after.png"'`.
+- `wake` moves the phone pointer with no button. If no new frame arrives it fails, and no press is sent.
+- `wake` is valid only as the first command in a batch.
+- Put a whole known sequence in one batch to save round trips, and stop to inspect only before an action that cannot be undone, such as sending a message.
+
 ## Coordinates
 
 A decoded PNG contains only the phone image. Its coordinates are not Windows desktop coordinates. Determine the picture rectangle anew after window movement, resize, rotation or display scaling changes.
@@ -94,7 +102,9 @@ For a desktop tool that exposes message-based operations: input belongs to the *
 | Right-click opens a PC menu | Check that the click lands inside the phone picture, the executable/hash is correct, and the tool sends mouse input rather than a context-menu command. |
 | Right-click reaches the phone but does not go Home | Verify this accessory's Button 2 assignment. A pulse is not evidence of the mapping. |
 | Repeated Ready=0/Ready=1 or reconnect entries | Treat as connection instability. Stop new input, wait for stable status, then re-observe. Do not spam Pair or replay clicks. |
-| Frame reader reports stale/inactive or wrong generation | Do not act on the previous PNG. Check mirroring and obtain a valid current observation. Recalculate coordinates after geometry changes. |
+| Frame reader reports stale/inactive or wrong generation | Do not act on the previous PNG. Check mirroring and obtain a valid current observation. Recalculate coordinates after geometry changes. If only the screen is still, start the batch with `wake`. |
+| `Windows denied focus` from `iosctl` | The terminal is not the foreground window. Bring it forward and retry. No press was sent. |
+| Status is ready but the wrong phone responds | Bluetooth binding and mirroring are not checked against each other. Confirm the selected phone in AirWindows before sending input. |
 | No desktop-input tool is available | State that observation works but GUI input is unavailable in this Claude session. Do not claim a phone or BLE failure. |
 
 ## Minimal qualification

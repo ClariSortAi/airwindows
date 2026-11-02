@@ -32,7 +32,7 @@ Follow your environment's tool restrictions. The phone's controls are pixels, no
 
 ## 2. Download and unpack
 
-Use the [Windows package](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.2/AirWindows-0.3.1-rc.2-win-x64.zip). It includes the receiver, launcher, compiled `iosctl` helper, frame reader, this runbook and operating guides. No compiler, GitHub account or source checkout is needed.
+Use the [Windows package](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.3/AirWindows-0.3.1-rc.3-win-x64.zip). It includes the receiver, launcher, compiled `iosctl` helper, frame reader, this runbook and operating guides. No compiler, GitHub account or source checkout is needed.
 
 Run this in PowerShell to download the package and check its SHA-256 checksum:
 
@@ -40,13 +40,13 @@ Run this in PowerShell to download the package and check its SHA-256 checksum:
 $ErrorActionPreference = 'Stop'
 $setupRoot = Join-Path $env:USERPROFILE 'AirWindowsSetup'
 $downloadDir = Join-Path $setupRoot 'downloads'
-$installDir = Join-Path $setupRoot '0.3.1-rc.2'
+$installDir = Join-Path $setupRoot '0.3.1-rc.3'
 if (Test-Path -LiteralPath $installDir) {
     throw 'This installation already exists. Reuse it, or choose a new installDir.'
 }
 New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
-$releaseUrl = 'https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.2'
-$zipName = 'AirWindows-0.3.1-rc.2-win-x64.zip'
+$releaseUrl = 'https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.3'
+$zipName = 'AirWindows-0.3.1-rc.3-win-x64.zip'
 Invoke-WebRequest "$releaseUrl/$zipName" -OutFile (Join-Path $downloadDir $zipName)
 Invoke-WebRequest "$releaseUrl/SHA256SUMS.txt" -OutFile (Join-Path $downloadDir 'SHA256SUMS.txt')
 $entry = @(Get-Content -LiteralPath (Join-Path $downloadDir 'SHA256SUMS.txt') |
@@ -65,7 +65,7 @@ Get-Item -LiteralPath $receiverExe | Select-Object FullName, Length
 
 Record `$packageRoot` and `$receiverExe` as full paths. Shell calls may start new processes, so recreate these variables when needed. A user who already extracted the ZIP can start here by supplying its `AirWindows` folder.
 
-The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.2) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
+The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.3) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
 
 **Checkpoint:** the verified package is extracted and its executable path is known.
 

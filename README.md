@@ -4,15 +4,17 @@ Mirror your iPhone on Windows, then click and type in the mirrored screen using 
 
 AirWindows receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
 
-Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper; live acceptance of the revised helper and wider adapter/iOS support is still pending.
+Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper. It has been run live on one iPhone16,2; wider adapter and iOS support is still pending.
 
 ## Get started
 
-**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.2/AirWindows-0.3.1-rc.2-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.2)
+**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.3/AirWindows-0.3.1-rc.3-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.3)
 
 Extract the ZIP and double-click **Start-AirWindows.cmd**. The package includes the receiver, `iosctl.exe`, frame reader, licenses and setup guides. No compiler or GitHub account is required.
 
-This candidate fixes three first-day problems:
+RC3 fixes the phone selector and menu commands, makes clicks on small buttons more reliable, and lets `iosctl` act on a still screen with `wake`. Its [changelog entry](app/CHANGELOG.md) lists what is still untested and the known issues, including a Bluetooth drop that may need a forget and re-pair.
+
+RC2 fixed three first-day problems:
 
 - **Trackpad overscroll:** small wheel events accumulate into one swipe instead of each launching a full swipe.
 - **Idle-screen inspection:** `iosctl --pid PID 'snapshot idle.png'` saves the retained picture with its age. Fresh capture and input checks remain strict.

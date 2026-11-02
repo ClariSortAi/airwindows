@@ -39,6 +39,7 @@ Output is one JSON object per result. `submitted` means Windows accepted the inp
 | `snapshot PATH [scale]` | Inspect the retained image while mirroring remains active; reports its age; must run alone |
 | `crop PATH X Y W H [zoom]` | Save a region in native source pixels |
 | `grid [threshold]` | Brightness-based row/column bands; does not identify apps |
+| `wake` | First in a batch only. Moves the phone's pointer with no button so a still screen sends new frames; fails if none arrive |
 | `tap X Y` | One left-button press and release |
 | `go NAME` | One tap using an explicitly supplied target map |
 | `home` | One right-button pulse; requires Button 2 mapped to Home |
@@ -86,7 +87,7 @@ Normal capture, input and verification reject images older than one second. For 
 
 `iosctl --doctor` finds a single running receiver and reports the next setup step without focus changes or input. It identifies a missing receiver, duplicate receivers, unavailable frame interface, stopped/paused mirroring, missing picture, stale control status, incomplete control connection, busy input and idle image. With several receivers, use `--doctor --pid PID` to inspect one explicitly. It does not alter pairing, firewall settings or processes. A `ready` result means software prerequisites passed; test actual click, text and Home behavior on the phone.
 
-Doctor and idle snapshots require the receiver from **0.3.1-rc.2 or later**. Older receivers still support fresh captures; upgrade both executables together for the new commands. `preflight` remains the three-observation check before input.
+`wake` requires the helper from **0.3.1-rc.3 or later**. Doctor and idle snapshots require the receiver from **0.3.1-rc.2 or later**. Older receivers still support fresh captures; upgrade both executables together for the new commands. `preflight` remains the three-observation check before input.
 
 ## Build and checks
 
