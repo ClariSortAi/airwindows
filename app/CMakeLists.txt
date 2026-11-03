@@ -7,7 +7,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # The one place the version is set. src/version.h.in carries it into the
 # executable's properties, the About box and the log.
 project(AirWindows VERSION 0.3.1 LANGUAGES C CXX)
-set(AIRWINDOWS_VERSION_SUFFIX "-rc.3")
+set(AIRWINDOWS_VERSION_SUFFIX "-rc.4")
 
 if(NOT WIN32 OR NOT MSVC)
   message(FATAL_ERROR "This project builds only for Windows with MSVC.")
