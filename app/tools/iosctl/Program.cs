@@ -157,7 +157,7 @@ static class Program {
         }
     }
     internal static int Execute(int pid,Plan plan,Targets targets,bool keep) {
-        var session=new FrameSession();Desktop desktop=null;byte[] baseline=null;int hold=300;bool submitted=false;
+        var session=new FrameSession();Desktop desktop=null;byte[] baseline=null;int hold=-1;bool submitted=false; // -1: per-gesture default (flick 40 ms, page 300 ms)
         var total=Stopwatch.StartNew();
         try {
             if(plan.Commands[0].Name=="snapshot") {
@@ -180,12 +180,21 @@ static class Program {
                     desktop=new Desktop(pid,keep);desktop.Prepare(idle);submitted=true;desktop.Wake();
                 }
                 // A new frame separates a static screen from a stalled stream.
-                var waited=Stopwatch.StartNew();bool awake=false;
+                // Require two consecutive idle probes: wake's second move can still be queued
+                // after the first, and the batch would then be refused as busy.
+                var waited=Stopwatch.StartNew();bool awake=false;int idleProbes=0;
                 while(!awake && waited.ElapsedMilliseconds<1500) {
-                    using(var probe=Frames.Read(pid,true))awake=Frames.Number(probe.Meta,"received_tick_ms")>before && !Frames.Flag(probe.Meta,"control_busy");
+                    using(var probe=Frames.Read(pid,true))
+                        idleProbes=Frames.Number(probe.Meta,"received_tick_ms")>before && !Frames.Flag(probe.Meta,"control_busy")?idleProbes+1:0;
+                    awake=idleProbes>=2;
                     if(!awake)Thread.Sleep(30);
                 }
-                if(!awake)throw new TimeoutException("No new frame after moving the pointer; the mirror may be stalled. No press was sent.");
+                if(!awake) {
+                    // Moves reach the phone only while control is on; say which layer failed.
+                    bool controlOn;using(var check=Frames.Read(pid,true))controlOn=Frames.Flag(check.Meta,"control_focused");
+                    throw new TimeoutException(controlOn?"No new frame after moving the pointer; the mirror may be stalled. No press was sent."
+                        :"Phone control is off, so the pointer did not move. Click the mirrored phone (or begin the batch with a tap) to turn it on. No press was sent.");
+                }
                 Output(new{command="wake",status="awake",waited_ms=waited.ElapsedMilliseconds,button_pressed=false});
             }
             using(var first=Read(pid,session,plan.Control)) {
@@ -242,9 +251,9 @@ static class Program {
                         case "move":desktop.Move(c.N(0),c.N(1));break;
                         case "down":desktop.Down(c.N(0),c.N(1));break;
                         case "up":desktop.Up(c.N(0),c.N(1));break;
-                        case "swipe":case "flick":desktop.Swipe(c.N(0),c.N(1),c.N(2),c.N(3),c.Args.Length==5?(int)c.N(4):c.Name=="flick"?180:400,c.Name=="flick"?hold:40,c.Name=="flick");break;
+                        case "swipe":case "flick":desktop.Swipe(c.N(0),c.N(1),c.N(2),c.N(3),c.Args.Length==5?(int)c.N(4):c.Name=="flick"?180:400,c.Name=="flick"?(hold<0?40:hold):40,c.Name=="flick");break; // a longer still press on a list row reads as a tap
                         case "page":
-                            bool right=c.Args[0]=="right";desktop.Swipe(frame.Width*(right?.88:.12),frame.Height*.78,frame.Width*(right?.12:.88),frame.Height*.78,180,hold,true);break;
+                            bool right=c.Args[0]=="right";desktop.Swipe(frame.Width*(right?.88:.12),frame.Height*.78,frame.Width*(right?.12:.88),frame.Height*.78,180,hold<0?300:hold,true);break; // Home Screen paging needs the dwell
                         case "type":desktop.Type(c.Args[0]);break;
                         case "key":desktop.Press(Plan.Key(c.Args[0]));break;
                     }
