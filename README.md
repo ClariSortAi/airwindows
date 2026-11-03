@@ -6,23 +6,15 @@ Mirror your iPhone on Windows, then click and type in the mirrored screen using 
 
 AirWindows receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
 
-Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper. It has been run live on one iPhone16,2; wider adapter and iOS support is still pending.
+Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper. RC3 was run live on an iPhone16,2 and RC4 on an iPhone15,2; wider adapter and iOS support is still pending.
 
 ## Get started
 
-**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.3/AirWindows-0.3.1-rc.3-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.3)
+**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.4/AirWindows-0.3.1-rc.4-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.4)
 
 Extract the ZIP and double-click **Start-AirWindows.cmd**. The package includes the receiver, `iosctl.exe`, frame reader, licenses and setup guides. No compiler or GitHub account is required.
 
-RC3 fixes the phone selector and menu commands, makes clicks on small buttons more reliable, and lets `iosctl` act on a still screen with `wake`. Its [changelog entry](app/CHANGELOG.md) lists what is still untested and the known issues, including a Bluetooth drop that may need a forget and re-pair.
-
-RC2 fixed three first-day problems:
-
-- **Trackpad overscroll:** small wheel events accumulate into one swipe instead of each launching a full swipe.
-- **Idle-screen inspection:** `iosctl --pid PID 'snapshot idle.png'` saves the retained picture with its age. Fresh capture and input checks remain strict.
-- **Setup diagnosis:** `iosctl --doctor` finds the receiver and reports the next step, including duplicate processes, missing mirroring and incomplete control connections. It sends no input.
-
-[Changes and verification](docs/DAY-ONE-RC2.md) cover compatibility, tests and remaining device checks.
+RC4 makes Bluetooth pairing reliable. A pairing could finish just after AirWindows stopped listening, leaving one that never worked until you forgot and re-paired. Taps, flicks and edge swipes now land the way they look on screen, and near-misses, fast scrolling, held keys and window resizes no longer turn control off. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
 
 Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md), also included in the ZIP. It walks through installation, pairing, Home setup and the final agent-operated test.
 

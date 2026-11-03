@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1-rc.4 (2026-11-03)
 
 - Pairing no longer races a two-minute timer. The input service now stays up while a phone is pairing or subscribed. Before, a pairing could finish just after the service closed; iOS then saved a pairing that never subscribed, and only forgetting and re-pairing fixed it. That is the cause of rc.3's "control drops and only returns after re-pairing" issue in the case we traced.
 - Taps after a long pointer move land as taps. iOS glides its pointer to a new position, and AirWindows now waits for it to arrive before pressing or releasing.
@@ -15,6 +15,13 @@
 Tested on one iPhone15,2 with Windows 11 and a MediaTek adapter: a fresh pairing subscribed within a second; 4 of 4 taps right after `wake` landed (all had failed before); 6 of 6 flicks with the new hold scrolled without opening rows; left-edge back and bottom-edge Home worked from the picture edge and from the bar; a far click in the bar left control on; an 8-step wheel burst and a 40-repeat held Backspace kept control on; Esc left full screen after a click; control stayed on through F11, Esc and a window resize; Home Screen paging worked both ways.
 
 Untested: paste, two phones at once, and any phone model other than iPhone15,2 and the rc.3 iPhone16,2.
+
+Known issues:
+
+- One cause of rc.3's "forget and re-pair" Bluetooth drop is fixed. Other causes have not been ruled out.
+- The wrong paired phone can bind and still report ready. Check which phone is selected.
+- A person has to click once to focus the window before controlling the phone. That click also reaches the phone.
+- With no text field focused, typing on the phone does not type: Space and Enter activate the focused control. Check for a cursor first.
 
 ## 0.3.1-rc.3 (2026-11-02)
 
