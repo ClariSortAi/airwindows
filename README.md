@@ -48,7 +48,7 @@ The app remembers the selected Bluetooth phone and its matching AirPlay sender. 
 | Open AirWindows settings | Right-click outside the phone picture, in the bars or window chrome |
 | Full screen | F11 or Alt+Enter; Escape leaves full screen |
 
-For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in AirWindows, then assign the detected Button 2 to **Home**. Bottom-edge mouse dragging was unreliable in testing, so use the assigned button for this action.
+For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in AirWindows, then assign the detected Button 2 to **Home**. Dragging up from the bottom edge also goes Home.
 
 Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste and wheel input still need separate live checks. Unicode input and general keyboard shortcuts are not supported. This candidate keeps input bound to the selected phone when another subscriber appears. The two-phone behavior still needs a live-device check.
 

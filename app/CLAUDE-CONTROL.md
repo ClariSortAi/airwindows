@@ -84,14 +84,15 @@ Use consistent units: if the desktop tool scales screenshots, follow its screens
 | Intent | Operation |
 |---|---|
 | Tap | Normal left-button down and up at a visible point inside the phone picture. |
-| Type | Click the phone's text field, then use ordinary keyboard text input. Printable US ASCII is supported; use short chunks initially and verify the full result. |
+| Type | Click the phone's text field and confirm a cursor is visible, then use ordinary keyboard text input. With no field focused, Space and Enter activate the focused control instead. Printable US ASCII is supported; verify the full result. |
 | Paste | Explicit Ctrl+V while the video has focus. At most 1,024 ASCII characters including tabs/newlines; Unicode is rejected. A tool that pastes automatically depends on this path. |
 | Editing/navigation keys | Enter, Backspace, Tab and arrow keys. Other shortcuts, including Ctrl+A and Cmd+H, are not established phone commands. |
-| Scroll | A smooth left-button drag within a list, then release. Start with roughly 0.5-0.9 seconds and modest travel. Wheel input is implemented as a short swipe but still needs its own physical check. |
+| Scroll | A left-button drag within a list, then release. Start moving at once: a press that rests on a row before moving opens the row. Wheel input becomes short swipes; extra steps are dropped while Bluetooth is busy rather than queued. |
+| Edge gesture | Start a drag at the picture edge, or up to 16 px into the bar beside it; the press snaps to the edge. Left edge goes back; bottom edge goes Home. |
 | Home | AirWindows **Home** toolbar button, or right-click inside the phone picture, after mapping accessory Button 2 to Home. |
-| Return to PC | Click outside AirWindows. No Enable step or Escape sequence is required. |
+| Return to PC | Click another application. A click far out in the bars sends nothing and leaves control on. No Enable step or Escape sequence is required. |
 
-Do not use a long bottom-edge drag for Home; the user found that unreliable. For list drags, send down, paced intermediate moves and up; a hover or single final move is not a complete drag. Always release. Avoid flooding mouse moves: the queue holds 32 actions, pointer actions expire after two seconds, and held input has idle/total time limits.
+Prefer the Home button for Home; a bottom-edge drag also works. For list drags, send down, paced intermediate moves and up; a hover or single final move is not a complete drag. Always release. Avoid flooding mouse moves: the queue holds 32 actions, pointer actions expire after two seconds, and held input has idle/total time limits.
 
 One-time Home setup on the iPhone: Settings > Accessibility > Touch > AssistiveTouch > Devices > your PC > Customize Additional Buttons. Trigger AirWindows Home or right-click inside the mirrored picture, then assign the detected Button 2 to **Home**. Test from an app. Right-click in the bars or chrome intentionally opens the PC menu. A keyboard context-menu command is not the same as right-button input inside the picture.
 

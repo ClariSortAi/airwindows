@@ -48,7 +48,7 @@ Output is one JSON object per result. `submitted` means Windows accepted the inp
 | `swipe X1 Y1 X2 Y2 [ms]` | Paced list drag; default 400 ms |
 | `flick X1 Y1 X2 Y2 [ms]` | Linear drag and immediate release; default 180 ms |
 | `page left\|right` | One horizontal flick toward the preceding/following page |
-| `hold MS` | Set flick's initial dwell, 0–350 ms; default 300 |
+| `hold MS` | Set the initial dwell for `flick` and `page`, 0–350 ms. Defaults: `flick` 40 ms (a longer still press on a list row opens the row), `page` 300 ms (Home Screen paging needs the dwell) |
 | `down X Y; move X Y; up X Y` | Bounded drag primitives; down/up must share a batch |
 | `wait MS` | Fixed wait, at most 5 seconds per command |
 | `changed` | Compare pixels with the frame before the last input |

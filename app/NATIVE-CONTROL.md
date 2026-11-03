@@ -11,7 +11,7 @@ AirWindows uses the PC's BLE keyboard and mouse service to control an iPhone whi
 
 The adapter must support BLE peripheral mode. A label saying Connected in AssistiveTouch alone does not prove that the phone subscribed to the HID reports. During the original test, pairing from the main Bluetooth settings established the encrypted link and report subscriptions.
 
-Click inside the picture to focus it and send input. Click another Windows application to return control to the PC. Letterbox bars are not phone coordinates. There is no separate Enable step or required Escape sequence. Disconnect releases input and withdraws this process's BLE services.
+Click inside the picture to focus it and send input. Click another Windows application to return control to the PC. A press within 16 px of the picture, in the bar beside it, snaps to the nearest phone edge, so edge swipes can start in the bar. A click further out in a bar sends nothing and leaves control on. There is no separate Enable step or required Escape sequence. Disconnect releases input and withdraws this process's BLE services.
 
 The application remembers `NativeControlPhone` and `NativeControlSender` in `%LOCALAPPDATA%\AirWindows\settings.ini`. On later starts, it advertises for 120 seconds and binds only the saved phone. While bound, publication stays active. A different AirPlay sender invalidates the association and requires selecting its corresponding phone. Run one controller process at a time.
 

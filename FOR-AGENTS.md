@@ -101,7 +101,7 @@ Have them open Settings and verify that the change appears in the mirror. If the
 
 1. Ask the user to turn on **Settings > Accessibility > Touch > AssistiveTouch**.
 2. Click **Pair Bluetooth** in AirWindows. Discovery stays open for 120 seconds. If it reports `BLE peripheral role is unavailable`, resolve the adapter or driver limitation first.
-3. Ask the user to open the iPhone's **main Settings > Bluetooth** page and select the PC under Other Devices. The PC's Bluetooth name can differ from the AirPlay receiver name.
+3. Ask the user to open the iPhone's **main Settings > Bluetooth** page and select the PC under Other Devices while discovery is still open. The PC's Bluetooth name can differ from the AirPlay receiver name. iOS can keep listing the PC after discovery closes; if pairing finishes then, iOS saves the pairing without AirWindows' input service.
 4. Complete any pairing prompt shown. The tested setup did not show a Windows code prompt; that alone is not a failure.
 5. Select the intended phone in AirWindows and click **Connect**, with that same phone still mirroring.
 
@@ -113,6 +113,8 @@ Get-Content -LiteralPath "$env:LOCALAPPDATA\AirWindows\debug.txt" -Tail 100 |
 ```
 
 Readiness requires matching Bluetooth and AirPlay identities. An old `Ready=1` log entry or the phone's Connected label is insufficient. Do not copy device fingerprints or force saved identity settings.
+
+iOS shows the PC as Connected for any Bluetooth link, including classic Bluetooth, so that label does not mean AirWindows has the phone. The phone appears in the selector only after it subscribes to the keyboard and mouse reports, usually within a second of pairing. After a good pairing the PC can appear twice under My Devices. If the selector is still empty a minute after pairing, ask the user to forget the PC on the iPhone and remove the iPhone in Windows Bluetooth settings, then click Pair Bluetooth and have them select the PC under Other Devices within the window.
 
 Select the intended phone explicitly if several subscribers appear. AirWindows does not check that the bound phone and the mirrored phone are the same device, so a different paired phone can bind and still report ready. Confirm the selection with the user before sending input. A bonded phone can take a minute or two to appear; keep Pair Bluetooth open and reopen it when it expires. Mirroring a different phone closes Bluetooth control. The receiver keeps notifications addressed to the selected device and remembers it for reconnection. If the connection is unstable, inspect the current binding and subscriptions; disconnect an unrelated subscriber only as a diagnostic. Preserve unrelated pairings.
 
@@ -129,7 +131,7 @@ Set up Home once:
 3. Assign the detected **Button 2** to **Home** on the phone.
 4. Open an app, click AirWindows Home again and verify the Home Screen appears.
 
-Right-click inside the phone picture invokes the same assigned action. Right-click in the bars or window chrome opens the PC menu. Use a left-button drag to scroll a list; release and verify movement. Use the assigned button for Home, since bottom-edge dragging was unreliable in testing.
+Right-click inside the phone picture invokes the same assigned action. Right-click in the bars or window chrome opens the PC menu. Use a left-button drag to scroll a list; release and verify movement. Use the assigned button for Home; it is one pulse and does not depend on gesture timing.
 
 **Checkpoint:** click, exact text, list drag, Home and return to PC all work on this phone.
 
@@ -179,6 +181,8 @@ Use `iosctl` where your environment permits its desktop input, or your supported
 
 Observe, act once, observe again. Allow roughly 600–700 ms initially; animations and longer text can take more time. Keep focus inside the video until input finishes. If the result is uncertain, inspect it before choosing the next action. Do not retry automatically or infer task success from changed pixels alone.
 
+Before typing, confirm the text field shows a cursor. With no field focused, iOS treats a hardware keyboard as a navigation keyboard: Space and Enter activate the focused control.
+
 Text supports US ASCII, Enter, Backspace, Tab and arrows. General shortcuts and Unicode are unsupported. Ctrl+V supports up to 1,024 ASCII characters; test paste and wheel separately if needed. Some agent tools type through the clipboard.
 
 Save a brief local handoff in `$packageRoot\.local`: executable path/version, adapter, phone model/iOS version, desktop tool, and each test's result. Keep device identifiers and phone screenshots out of public issues and commits.
@@ -205,7 +209,8 @@ An idle screen can exceed the normal one-second image limit. `iosctl --pid PID '
 | PC missing from Bluetooth discovery | Reopen the 120-second Pair Bluetooth window |
 | Connected on phone, selector empty | Use the main Bluetooth settings route; inspect current subscriptions/status |
 | Repeated disconnects | Inspect the selected phone and current subscriptions; isolate an unrelated subscriber if needed |
-| Control dropped and the phone does not return | Ask the user to remove the PC from the iPhone's Bluetooth list, and the phone from Windows Bluetooth settings if listed. Click Pair Bluetooth, re-pair from the iPhone, then select the phone and click Connect. This is a known issue with no established cause |
+| Control dropped and the phone does not return | Ask the user to remove the PC from the iPhone's Bluetooth list, and the phone from Windows Bluetooth settings if listed. Click Pair Bluetooth, re-pair from the iPhone within the window, then select the phone and click Connect. One confirmed cause: pairing finished after discovery closed, so the saved pairing has no input service |
+| iPhone lists the PC as Connected, selector stays empty | The link is classic Bluetooth only. Forget the PC on the iPhone, remove the iPhone in Windows, click Pair Bluetooth and re-pair within the window |
 | Wrong phone responds while status is ready | Disconnect, select the intended phone, click Connect and confirm with the user |
 | User's first click does nothing on the phone | Known issue: the first click focuses the window. Click again |
 | `Windows denied focus` from `iosctl` | Bring the agent's terminal to the foreground and retry. No press was sent |
