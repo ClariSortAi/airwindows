@@ -6,12 +6,13 @@
 - Taps after a long pointer move land as taps. iOS glides its pointer to a new position, and AirWindows now waits for it to arrive before pressing or releasing.
 - Drags reach the phone as a smooth path. Flicks scroll, a swipe in from the left edge goes back, and a swipe up from the bottom edge goes Home.
 - The black bars beside the phone act like its bezel. A press within 16 px of the picture starts at the screen edge, so edge swipes can begin in the bar. A click further out does nothing and no longer turns control off.
+- Resizing the window or entering and leaving full screen no longer turns control off, so typing afterwards still reaches the phone. Pending input is still dropped, because its coordinates no longer apply.
 - Fast scrolling and holding a key no longer stop control with "queued action expired". Wheel steps and key repeats that arrive while Bluetooth is busy are dropped instead of queued.
 - Esc leaves full screen after you click the phone. A one-run `--decoder` choice is no longer saved to settings. The log rotates while running instead of only at startup.
 - While pairing, the log records each Bluetooth step: subscriptions, reads, writes and errors.
 - `iosctl`: flicks use a 40 ms initial hold and `page` keeps 300 ms. `wake` no longer gets refused as busy right after its own moves, and it says when phone control is off instead of blaming the mirror.
 
-Tested on one iPhone15,2 with Windows 11 and a MediaTek adapter: a fresh pairing subscribed within a second; 4 of 4 taps right after `wake` landed (all had failed before); 6 of 6 flicks with the new hold scrolled without opening rows; left-edge back and bottom-edge Home worked from the picture edge and from the bar; a far click in the bar left control on; an 8-step wheel burst and a 40-repeat held Backspace kept control on; Esc left full screen after a click; Home Screen paging worked both ways.
+Tested on one iPhone15,2 with Windows 11 and a MediaTek adapter: a fresh pairing subscribed within a second; 4 of 4 taps right after `wake` landed (all had failed before); 6 of 6 flicks with the new hold scrolled without opening rows; left-edge back and bottom-edge Home worked from the picture edge and from the bar; a far click in the bar left control on; an 8-step wheel burst and a 40-repeat held Backspace kept control on; Esc left full screen after a click; control stayed on through F11, Esc and a window resize; Home Screen paging worked both ways.
 
 Untested: paste, two phones at once, and any phone model other than iPhone15,2 and the rc.3 iPhone16,2.
 
