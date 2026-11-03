@@ -247,16 +247,19 @@ void NativeControl::Picture(bool present,int width,int height,uint64_t generatio
     bool changed;
     {std::lock_guard<std::mutex> lock(impl_->mutex);if(present && !impl_->frameGate.Accept(generation))return;
       changed=present!=impl_->picture||width!=impl_->width||height!=impl_->height;
-      if(changed){impl_->DropInput();impl_->focused=false;}impl_->picture=present;impl_->width=width;impl_->height=height;impl_->RefreshFocus();}
+      if(changed)impl_->DropInput();impl_->picture=present;impl_->width=width;impl_->height=height;impl_->RefreshFocus();}
     if(changed)impl_->Cancel();
 }
 void NativeControl::AwaitPicture(uint64_t generation){
     {std::lock_guard<std::mutex> lock(impl_->mutex);if(!impl_->frameGate.Await(generation))return;
-      impl_->picture=false;impl_->DropInput();impl_->focused=false;}
+      impl_->picture=false;impl_->DropInput();impl_->RefreshFocus();}
     impl_->Cancel();
 }
+// Geometry and picture changes drop pending input (its coordinates are stale) but keep
+// control on while the phone window still has focus; input waits for a valid picture.
+// Failures and queue expiry still clear focus, so they need a fresh click.
 void NativeControl::Invalidate(){
-    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->DropInput();impl_->focused=false;}
+    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->DropInput();impl_->RefreshFocus();}
     impl_->Cancel();
 }
 void NativeControl::Submit(ControlKind kind,int x,int y,unsigned char key){
