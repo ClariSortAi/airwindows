@@ -1,3 +1,3 @@
 Pillow>=11.0,<13
 pytest>=9.1.1,<10
-cryptography>=43,<48
+cryptography>=50.0.2,<51
