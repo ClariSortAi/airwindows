@@ -175,6 +175,7 @@ struct VideoPipeline::Impl {
     bool codecIsH265 = false;
     bool usingHardware = false;
     unsigned decodeErrors = 0;
+    unsigned presentErrors = 0;
 
     ULONGLONG statsWindowStart = 0;
     unsigned statsFrames = 0;
@@ -943,8 +944,11 @@ void VideoPipeline::Impl::Render() {
     const bool sync = vsync.load();
     const HRESULT hr = swapChain->Present(sync ? 1 : 0, (!sync && tearingSupported) ? DXGI_PRESENT_ALLOW_TEARING : 0);
     if (FAILED(hr) && hr != DXGI_ERROR_WAS_STILL_DRAWING) {
-        if (decodeErrors++ < 5) {
-            LOGE("[VIDEO] Present failed hr=0x%08lX", hr);
+        // Own counter: decode errors before the first key frame would otherwise hide this.
+        // ponytail: a removed/reset GPU is logged, not recovered; reopen the stream to recover.
+        if (presentErrors++ < 5) {
+            LOGE("[VIDEO] Present failed hr=0x%08lX removedReason=0x%08lX", hr,
+                 static_cast<unsigned long>(device->GetDeviceRemovedReason()));
         }
     }
 }

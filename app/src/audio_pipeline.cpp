@@ -483,9 +483,9 @@ bool AudioPipeline::Impl::RenderSession() {
 
     bool healthy = true;
     while (!stop) {
-        if (WaitForSingleObject(event, 200) != WAIT_OBJECT_0) {
-            continue;
-        }
+        // An invalidated device stops signalling, so probe on timeouts too; the
+        // padding check then reports the loss and the device is reopened.
+        WaitForSingleObject(event, 200);
         UINT32 padding = 0;
         hr = client->GetCurrentPadding(&padding);
         if (FAILED(hr)) {

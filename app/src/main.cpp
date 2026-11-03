@@ -128,6 +128,11 @@ struct App {
     std::atomic<int> selfTestPushed{0};
 };
 
+// --decoder applies to this run only; settings keep the saved mode.
+DecoderMode Decoder(const App& app) {
+    return app.decoderOverride >= 0 ? static_cast<DecoderMode>(app.decoderOverride) : app.settings.decoderMode;
+}
+
 App* g_app = nullptr;
 
 // ---------------------------------------------------------------------------
@@ -228,11 +233,11 @@ bool StartServer(App& app) {
     config.refreshRate = 60;
     config.maxFps = app.settings.maxFps;
     // H.265 is only offered when the GPU can decode it.
-    config.supportsH265 = app.settings.allowH265 && app.hevcHardware && app.settings.decoderMode != DecoderMode::Software;
+    config.supportsH265 = app.settings.allowH265 && app.hevcHardware && Decoder(app) != DecoderMode::Software;
     config.debugLog = app.debugLog;
 
     LOGI("[CFG] Start() begin: serverName='%s' quality=%ls fps=%d decoderMode=%d vsync=%d", config.name.c_str(),
-         quality.name, config.maxFps, static_cast<int>(app.settings.decoderMode), app.settings.vsync ? 1 : 0);
+         quality.name, config.maxFps, static_cast<int>(Decoder(app)), app.settings.vsync ? 1 : 0);
     app.serverOk = app.server.Start(config, &app.router, app.window);
     LOGI("[CFG] Start() %s", app.serverOk ? "complete" : "FAILED");
     return app.serverOk;
@@ -248,7 +253,7 @@ void RestartService(App& app, bool restartVideo) {
     LOGI("[CFG] Stop() complete");
     if (restartVideo) {
         app.video.Stop();
-        if (!app.video.Start(app.videoWindow, app.window, app.settings.decoderMode, app.settings.vsync)) {
+        if (!app.video.Start(app.videoWindow, app.window, Decoder(app), app.settings.vsync)) {
             LOGE("video pipeline failed to restart");
         }
         if (app.exportFrames) app.video.Frames().Start(!app.selfTestVideo.empty());
@@ -376,11 +381,11 @@ void SyncMenu(App& app) {
     }
     CheckMenuItem(menu, IDM_FPS_30, app.settings.maxFps == 30 ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_FPS_60, app.settings.maxFps == 60 ? MF_CHECKED : MF_UNCHECKED);
-    CheckMenuItem(menu, IDM_DECODER_AUTO, app.settings.decoderMode == DecoderMode::Auto ? MF_CHECKED : MF_UNCHECKED);
+    CheckMenuItem(menu, IDM_DECODER_AUTO, Decoder(app) == DecoderMode::Auto ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_DECODER_HARDWARE,
-                  app.settings.decoderMode == DecoderMode::Hardware ? MF_CHECKED : MF_UNCHECKED);
+                  Decoder(app) == DecoderMode::Hardware ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_DECODER_SOFTWARE,
-                  app.settings.decoderMode == DecoderMode::Software ? MF_CHECKED : MF_UNCHECKED);
+                  Decoder(app) == DecoderMode::Software ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_VSYNC, app.settings.vsync ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_ALLOW_H265, app.settings.allowH265 ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_FULLSCREEN, app.fullscreen ? MF_CHECKED : MF_UNCHECKED);
@@ -747,6 +752,7 @@ void OnCommand(App& app, UINT id) {
         settings.decoderMode = id == IDM_DECODER_AUTO ? DecoderMode::Auto
                                : id == IDM_DECODER_HARDWARE ? DecoderMode::Hardware : DecoderMode::Software;
         settings.Save();
+        app.decoderOverride = -1;
         RestartService(app, true);
         break;
     case IDM_VSYNC:
@@ -925,7 +931,7 @@ LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
                 if(!(lParam&(1LL<<30)))PasteToPhone(window,*g_app);
                 return 0;
             }
-            if(wParam==VK_F11)return SendMessageW(GetParent(window),message,wParam,lParam);
+            if(wParam==VK_F11 || (wParam==VK_ESCAPE && g_app->fullscreen))return SendMessageW(GetParent(window),message,wParam,lParam);
             unsigned char usage=0;
             switch(wParam){case VK_RETURN:usage=40;break;case VK_BACK:usage=42;break;case VK_TAB:usage=43;break;
                 case VK_RIGHT:usage=79;break;case VK_LEFT:usage=80;break;case VK_DOWN:usage=81;break;case VK_UP:usage=82;break;}
@@ -1188,9 +1194,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     app.settings.Load();
     if(!app.controlPhoneOverride.empty()){app.settings.controlPhone=app.controlPhoneOverride;app.settings.controlSender.clear();app.settings.Save();}
-    if (app.decoderOverride >= 0) {
-        app.settings.decoderMode = static_cast<DecoderMode>(app.decoderOverride);
-    }
     if (app.settings.macAddress.empty()) {
         // The device id must stay stable between runs, so it is stored once chosen.
         app.settings.macAddress = AirPlayServer::FindMacAddress();
@@ -1254,7 +1257,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     LayoutControls(app,client.right,client.bottom);
     app.control.Start(app.settings.controlPhone,app.settings.controlSender,!app.controlPhoneOverride.empty());
 
-    if (!app.video.Start(app.videoWindow, app.window, app.settings.decoderMode, app.settings.vsync)) {
+    if (!app.video.Start(app.videoWindow, app.window, Decoder(app), app.settings.vsync)) {
         MessageBoxW(app.window, L"Direct3D 11 could not be initialized, so video cannot be shown.", kAppTitle,
                     MB_OK | MB_ICONERROR);
     }

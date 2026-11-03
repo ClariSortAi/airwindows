@@ -1185,14 +1185,16 @@ void mdnsd_stop(mdnsd_t *mdnsd)
     }
     MUTEX_UNLOCK(mdnsd->mutex);
 
+    /* Join first (select wakes within 250 ms) so the thread never holds a closed,
+       possibly reused, socket handle. */
+    if (thread) {
+        THREAD_JOIN(thread);
+    }
     if (fd4 != -1) {
         CLOSESOCKET(fd4);
     }
     if (fd6 != -1) {
         CLOSESOCKET(fd6);
-    }
-    if (thread) {
-        THREAD_JOIN(thread);
     }
 }
 

@@ -108,7 +108,12 @@ struct NativeControl::Impl {
                     state.bound=doBind; state.message="Click the mirrored phone to control it; click elsewhere to return";
                 }
                 current->Poll();
-                if (current->PublicationStopFailed()) throw std::runtime_error("Bluetooth publication could not stop; disconnecting");
+                if (current->PublicationStopFailed()) {
+                    // Throwing here repeated every 30 ms and never ended the backend.
+                    LOGW("[CONTROL] Bluetooth publication could not stop; disconnecting");
+                    Close(); std::lock_guard<std::mutex> lock(mutex);
+                    state.message="Bluetooth publication could not stop; disconnected"; continue;
+                }
                 if (GetTickCount64() >= inspectAt || !doBind.empty() || doPair) {
                     inspectAt=GetTickCount64()+250;
                     auto view=current->Inspect();

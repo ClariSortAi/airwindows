@@ -29,6 +29,7 @@ void Init(const std::wstring& path) {
         truncate = size > kMaxLogBytes;
     }
     g_file = _wfsopen(path.c_str(), truncate ? L"w" : L"a", _SH_DENYNO);
+    if (!g_file) OutputDebugStringW((L"[applog] could not open " + path + L"\n").c_str());
 }
 
 void Shutdown() {
@@ -58,6 +59,11 @@ void Write(const char* level, const char* fmt, ...) {
              level, message);
 
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_file && _ftelli64(g_file) > kMaxLogBytes) {
+        fclose(g_file);
+        g_file = _wfsopen(g_path.c_str(), L"w", _SH_DENYNO);
+        if (!g_file) OutputDebugStringA("[applog] could not reopen the log after rotation\n");
+    }
     if (g_file) {
         fputs(line, g_file);
         fflush(g_file);
