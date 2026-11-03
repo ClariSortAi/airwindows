@@ -1,5 +1,7 @@
 # AirWindows
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/jasontr)
+
 Mirror your iPhone on Windows, then click and type in the mirrored screen using the PC's mouse and keyboard.
 
 AirWindows receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
@@ -86,6 +88,12 @@ The release script packages the executable, license notices, matching applicatio
 | `airdrop-native` | Separate, unfinished AirDrop research; not needed for mirroring or control |
 
 AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). AirWindows also does not record the screen or receive video links from an app's cast button. Real-device audio, H.265 and recovery from an unexpected network drop still need testing.
+
+## Support the project
+
+AirWindows took a lot of time and thought to build. Getting AirPlay mirroring and Bluetooth input to work together on Windows meant plenty of testing on a real iPhone, and the AirDrop research is still unfinished. If AirWindows is useful to you, buying me a coffee helps keep the research going.
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/jasontr)
 
 ## License
 
