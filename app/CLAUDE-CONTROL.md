@@ -14,10 +14,14 @@ The decoded-frame pipe is read-only. `iosctl` reads it for observation and sends
 
 ## Locate the running receiver
 
-Run these read-only checks in PowerShell from the repository root:
+Run these read-only checks in PowerShell from the package folder or repository root:
 
 ```powershell
-$receiverPath = (Resolve-Path '.\app\build\Release\bin\AirWindowsNative.exe').Path
+# Package layout first, then a source build.
+$receiverPath = @('.\AirWindowsNative.exe', '.\app\build\Release\bin\AirWindowsNative.exe') |
+    Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1 | Resolve-Path | ForEach-Object Path
+if (-not $receiverPath) { throw 'Receiver executable not found; set $receiverPath to its location.' }
+$iosctlExe = Join-Path (Split-Path -Parent $receiverPath) 'iosctl.exe'
 $receivers = @(Get-CimInstance Win32_Process | Where-Object {
     $_.Name -eq 'AirWindowsNative.exe' -and $_.ExecutablePath -eq $receiverPath
 })
@@ -29,26 +33,28 @@ $receivers | Select-Object ProcessId, ExecutablePath, CommandLine
 Get-Content -LiteralPath "$env:LOCALAPPDATA\AirWindows\debug.txt" -Tail 60
 ```
 
-If using a packaged executable, set `$receiverPath` to its actual location. Discover the PID again after a restart. Start the receiver with `--frames` to enable decoded capture. Its window title shows the AirPlay receiver name; the PC's Bluetooth name may differ.
+For another location, set `$receiverPath` and `$iosctlExe` to the actual files. Discover the PID again after a restart. Start the receiver with `--frames` to enable decoded capture. Its window title shows the AirPlay receiver name; the PC's Bluetooth name may differ.
 
 Reuse the running receiver. Do not start a second copy, delete pairings or restart just to acquire focus. A restart interrupts Screen Mirroring. If disconnected, reconnect on the phone through Control Center > Screen Mirroring > the receiver name. Keep the phone unlocked with AssistiveTouch enabled. Use [Native control](NATIVE-CONTROL.md) for first-time pairing and select the intended phone explicitly.
 
 ## Observe, act once, observe again
 
-1. Bring the existing AirWindows window forward through your desktop tool. Obtain a fresh desktop screenshot and locate the actual phone picture. Exclude the title bar, control toolbar and letterbox bars.
+1. With iosctl, run `preflight` and `shot`. Its coordinates are phone pixels, and its input commands bring AirWindows forward themselves. With another desktop tool, bring the existing window forward, obtain a fresh desktop screenshot and locate the actual phone picture, excluding the title bar, control toolbar and letterbox bars.
 2. Check that the intended phone is mirroring and the control status is ready. `[CONTROL] Ready=1` means the BLE and AirPlay identities matched at that log timestamp; an old entry does not establish current readiness.
 3. Choose one visible target. A left click inside the picture both focuses the video and sends a phone click. It is not a harmless focus-only action. Choose the intended button or text field.
 4. Complete one click, text entry or bounded drag. Keep focus in the picture until it finishes. Switching focus to a terminal, chat, toolbar or another window cancels pending input.
 5. Allow about 600-700 ms as an initial observation delay, then inspect the result. Animations and longer text may need more time. Verify the expected screen or exact entered text before continuing.
 6. If the result is uncertain, observe again and inspect status/logs. Do not automatically repeat the action. A submitted HID report does not prove the phone performed it.
 
-For sharp phone-only images, use the existing reader. This command sends no input and can run without focusing a terminal window:
+For sharp phone-only images, use iosctl. This command sends no input and does not take focus:
 
 ```powershell
-# Install requirements-agent.txt once; run the discovery block first in this session.
-python .\app\scripts\observe-phone.py --pid $receiverPid --output .\.local\phone.png
+# Run the discovery block first in this session.
+& $iosctlExe --pid $receiverPid 'shot ".local\phone.png"'
 if ($LASTEXITCODE -ne 0) { throw 'No valid fresh phone frame was obtained.' }
 ```
+
+The Python reader (`app\scripts\observe-phone.py`, after installing `requirements-agent.txt`) produces the same output and is optional.
 
 Open the PNG with your image-reading tool. The adjacent JSON records PID, instance, generation, sequence, dimensions and age. A failed capture may leave an older file on disk: do not mistake it for a new image. Normal readers reject inactive or older-than-one-second frames and accept only real AirPlay frames. For setup diagnosis, run `iosctl --doctor` (or `--doctor --pid PID` when several receivers exist). For idle-image inspection, use `iosctl --pid PID 'snapshot ".local\idle.png"'` alone. Its reported age is meaningful: it cannot distinguish a static screen from a stalled stream and cannot verify an action. Use a fresh `shot` or a permitted live desktop observation before input.
 
@@ -111,6 +117,6 @@ For a desktop tool that exposes message-based operations: input belongs to the *
 
 Use the user's current task or a harmless Settings search. Record a fresh before image; click one visible target; verify the new screen; click Search and type `Bluetooth`; verify the exact text; click back into a PC window and verify input returns there. Test Home separately after its mapping. Stop at the first failed layer and report the tool used, intended action, before/after result, image dimensions and relevant `[CONTROL]` log lines.
 
-The user confirmed GUI clicking, typing and focus return. Claude Code's later session reports successful taps, list drags, Home and Camera workflows on that running integration build, with intermittent failures. Qualify the current phone and desktop tool through the test above. Paste and wheel still need separate live checks. The policy and helper tests exercise software behavior, not physical phone outcomes. Qualify the integrated helper on the current phone before claiming device acceptance.
+Clicking, typing, focus return, list drags and Home have worked on real phones, with intermittent failures. Paste and wheel still need separate live checks. The policy and helper tests exercise software behavior, not physical phone outcomes. Qualify the current phone and desktop tool with the test above before claiming device acceptance.
 
 See [native control details](NATIVE-CONTROL.md) and [frame protocol](FRAME-INTERFACE.md). Keep phone screenshots local; they may contain personal information.
