@@ -896,12 +896,15 @@ LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
             const bool down=message==WM_LBUTTONDOWN || message==WM_LBUTTONDBLCLK;
             if(GetFocus()==window || down){
                 RECT bounds{};GetClientRect(window,&bounds);
-                const auto point=MirrorPoint(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight);
+                // The bars next to the picture act as the phone's bezel: a press there snaps to
+                // the edge, and a drag stays pinned to the edge however far it goes.
+                const int bezel=g_app->controlDragging?bounds.right+bounds.bottom:Scale(window,16);
+                const auto point=MirrorPoint(GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),bounds.right,bounds.bottom,g_app->pictureWidth,g_app->pictureHeight,bezel);
                 if(down){
                     g_app->wheel.Reset();
                     if(point){SetFocus(window);g_app->control.Focus(true);
                         if(g_app->control.State().focused){g_app->controlDragging=true;SetCapture(window);g_app->control.Submit(ControlKind::Down,point->first,point->second);}}
-                    else {SetFocus(GetParent(window));g_app->control.Focus(false);}
+                    // Far out in a bar: not a target. Control stays on; clicking another app returns to Windows.
                 } else if(message==WM_LBUTTONUP){
                     if(g_app->controlDragging)g_app->control.Submit(ControlKind::Up,point?point->first:-1,point?point->second:-1);
                     g_app->controlDragging=false;if(GetCapture()==window)ReleaseCapture();
@@ -935,7 +938,12 @@ LRESULT CALLBACK VideoWindowProc(HWND window, UINT message, WPARAM wParam, LPARA
             unsigned char usage=0;
             switch(wParam){case VK_RETURN:usage=40;break;case VK_BACK:usage=42;break;case VK_TAB:usage=43;break;
                 case VK_RIGHT:usage=79;break;case VK_LEFT:usage=80;break;case VK_DOWN:usage=81;break;case VK_UP:usage=82;break;}
-            if(usage){g_app->control.Submit(ControlKind::Key,0,0,usage);return 0;}
+            if(usage){
+                // Auto-repeat outruns BLE (~30 keys/s vs ~10/s) and would expire the queue;
+                // skip repeats while earlier input is still being sent.
+                if(!((lParam&(1LL<<30)) && g_app->control.State().busy))g_app->control.Submit(ControlKind::Key,0,0,usage);
+                return 0;
+            }
         }
         if(message==WM_SYSKEYDOWN && wParam==VK_RETURN)return SendMessageW(GetParent(window),message,wParam,lParam);
     }

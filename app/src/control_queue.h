@@ -47,13 +47,24 @@ public:
     bool Armed() const { return armed_.load(); }
     bool Push(ControlAction action, uint64_t now) {
         if (!Armed()) return false;
-        action.epoch = epoch_.load(); action.deadline = now + (action.kind==ControlKind::Text?30000:2000);
+        // Text gets about 60 ms per character (two BLE reports each), never less than 30 s.
+        const auto textDeadline=[now](size_t bytes){return now+std::max<uint64_t>(30000,60*bytes);};
+        action.epoch = epoch_.load(); action.deadline = action.kind==ControlKind::Text?textDeadline(action.text.size()):now+2000;
         if(action.kind==ControlKind::Text){
             if(action.text.empty())action.text.assign(1,char(action.key));
             if(textBytes_+action.text.size()>1024){Focus(false);failure_=Failure::Capacity;return false;}
             textBytes_+=action.text.size();
-            if(!actions_.empty() && actions_.back().kind==ControlKind::Text){actions_.back().text+=action.text;return true;}
+            if(!actions_.empty() && actions_.back().kind==ControlKind::Text){
+                auto& back=actions_.back();back.text+=action.text;
+                back.deadline=std::max(back.deadline,textDeadline(back.text.size()));return true;
+            }
         }
+        // ponytail: a swipe takes ~0.5 s over BLE, so more than two pending in one
+        // direction would pass the 2 s deadline and stop control. Extra wheel steps
+        // are dropped instead; a fast flick scrolls less rather than disconnecting.
+        if((action.kind==ControlKind::ScrollUp || action.kind==ControlKind::ScrollDown) &&
+           std::count_if(actions_.begin(),actions_.end(),[&](const ControlAction& queued){return queued.kind==action.kind;})>=2)
+            return true;
         if (action.kind == ControlKind::Point && !actions_.empty() && actions_.back().kind == ControlKind::Point)
             actions_.back() = action;
         else {
@@ -116,13 +127,17 @@ inline std::optional<std::string> PrintablePaste(std::wstring_view input){
     return output;
 }
 
-// Aspect-fit geometry matches VideoPipeline's centered viewport. Bars are not targets.
-inline std::optional<std::pair<int,int>> MirrorPoint(int x, int y, int viewWidth, int viewHeight, int imageWidth, int imageHeight) {
+// Aspect-fit geometry matches VideoPipeline's centered viewport. A pixel is part of the
+// picture when its centre is inside it, which is how Direct3D draws it. Within `bezel`
+// pixels of the picture a point snaps to the nearest edge, like starting a gesture on
+// the phone's bezel; further out in the bars it is not a target.
+inline std::optional<std::pair<int,int>> MirrorPoint(int x, int y, int viewWidth, int viewHeight, int imageWidth, int imageHeight, int bezel = 0) {
     if (viewWidth <= 1 || viewHeight <= 1 || imageWidth <= 1 || imageHeight <= 1) return {};
     const double scale = std::min(double(viewWidth)/imageWidth,double(viewHeight)/imageHeight);
     const double width = imageWidth*scale, height = imageHeight*scale;
     const double left = (viewWidth-width)/2, top = (viewHeight-height)/2;
-    if (x < left || y < top || x >= left+width || y >= top+height) return {};
+    const double cx = x+.5, cy = y+.5;
+    if (cx < left-bezel || cy < top-bezel || cx >= left+width+bezel || cy >= top+height+bezel) return {};
     const auto normalize = [](double coordinate, double extent) {
         return std::clamp(int(coordinate * 32767 / std::max(1.0,extent-1) + .5),0,32767);
     };

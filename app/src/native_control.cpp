@@ -185,8 +185,10 @@ struct NativeControl::Impl {
                         if(command.x>=0 && command.y>=0){pointerX=command.x;pointerY=command.y;}
                         current->Pointer(pointerX,pointerY,false,false);held=false;LOGI("[CONTROL] Pointer released"); break;
                     case ControlKind::ScrollUp: case ControlKind::ScrollDown: {
-                        const int end=std::clamp(command.y+(command.kind==ControlKind::ScrollUp?7000:-7000),1000,31767);
-                        current->Swipe(command.x,command.y,command.x,end); break;
+                        // Keep the whole swipe off the top and bottom edges, which iOS reserves for
+                        // Notification Center and Home; an unclamped start could also reverse direction.
+                        const int start=std::clamp(command.y,8000,24767);
+                        current->Swipe(command.x,start,command.x,start+(command.kind==ControlKind::ScrollUp?7000:-7000)); break;
                     }
                     case ControlKind::Text: current->Type(command.text,false); break;
                     case ControlKind::Key: current->PressKey(command.key); break;

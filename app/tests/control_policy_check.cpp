@@ -31,6 +31,12 @@ int main(){
     const auto scaled=MirrorPoint(500,500,1000,1000,498,1080);
     check(scaled&&scaled->first>16300&&scaled->first<16500&&scaled->second>16300&&scaled->second<16500);
     check(!MirrorPoint(0,0,0,0,498,1080));
+    // A fitted window leaves a ~0.08 px "bar"; pixel 0 is drawn with phone content, so it is a target.
+    const auto fractional=MirrorPoint(0,0,433,938,886,1920);check(fractional&&fractional->first==0&&fractional->second==0);
+    // Bezel: in a 269 px side bar, 10 px from the picture snaps to the edge; 40 px does not.
+    const auto bezel=MirrorPoint(259,500,1000,1000,498,1080,16);check(bezel&&bezel->first==0);
+    check(!MirrorPoint(229,500,1000,1000,498,1080,16) && !MirrorPoint(259,500,1000,1000,498,1080));
+    const auto pinned=MirrorPoint(-500,-500,1000,1000,498,1080,2000);check(pinned&&pinned->first==0&&pinned->second==0);
     queue.Focus(true);
     for(int i=0;i<80;++i)check(queue.Push({ControlKind::Text,0,0,static_cast<unsigned char>('a'+i%26)},1000+i));
     check(queue.Size()==1); // an injected burst is one ordered text job, not80 actions
@@ -44,7 +50,11 @@ int main(){
     check(queue.LastFailure()==ControlQueue::Failure::Capacity && queue.Size()==0);
     queue.Focus(true);queue.Push(paste,2000);const auto part=queue.Pop(2100);check(part&&part->text.size()==4);
     queue.Focus(false);check(!queue.Valid(*part,2101) && queue.Size()==0);
-    queue.Focus(true);queue.Push(paste,3000);check(!queue.Pop(33001) && queue.LastFailure()==ControlQueue::Failure::Expired);
+    queue.Focus(true);queue.Push(paste,3000);check(queue.Pop(33001).has_value()); // 1,024 characters get 60 ms each, not a flat 30 s
+    check(!queue.Pop(3000+61441) && queue.LastFailure()==ControlQueue::Failure::Expired);
+    queue.Focus(true);for(int i=0;i<4;++i)check(queue.Push({ControlKind::ScrollDown,10,20},4000+i));
+    check(queue.Size()==2); // extra wheel steps are dropped, not left to expire
+    check(queue.Push({ControlKind::ScrollUp,10,20},4010) && queue.Size()==3);
     const auto normalized=PrintablePaste(L"first\r\nsecond\tline\rthird");check(normalized&&*normalized=="first\nsecond\tline\nthird");
     check(!PrintablePaste(L"caf\u00e9"));check(!PrintablePaste(std::wstring(1025,L'a')));
     check(PrintablePaste(std::wstring(1024,L'a'))->size()==1024);
