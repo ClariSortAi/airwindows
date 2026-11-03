@@ -11,6 +11,7 @@
 #include <winrt/Windows.Devices.Enumeration.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <algorithm>
+#include <cmath>
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -101,6 +102,14 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
     std::map<hstring, BluetoothLEDevice> peerDevices;
     bool persistentPublication = false;
     bool haveAbsolutePosition = false;
+    // iOS glides the AssistiveTouch pointer to each new absolute position instead of
+    // jumping. A button change sent before it arrives turns a tap into a drag or cuts a
+    // drag short, so Send holds button changes until a recent jump has had time to land.
+    static constexpr double kSettleMsPerUnit = 0.03; // ~560 ms for a centre-to-corner jump
+    static constexpr uint64_t kSettleCapMs = 800;
+    int lastAbsX = -1, lastAbsY = -1, lastAbsButtons = -1;
+    uint64_t settleUntil = 0;
+    std::function<void(const std::string&)> trace; // set before input starts; called on the sending thread
     std::function<bool()> inputGuard;
     std::atomic<bool> cancel{true};
 
@@ -144,7 +153,7 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
     void SubscriptionChanged() {
         const auto clients = Clients();
         std::lock_guard<std::mutex> lock(stateMutex);
-        ++subscriptionCallbacks;
+        ++subscriptionCallbacks; discovery.Extend(GetTickCount64(),30000);
         // A different phone subscribing must not cancel the selected phone.
         // Loss of that selected keyboard/mouse pair still invalidates input.
         if (bound.empty() || clients.find(bound) == clients.end()) {
@@ -156,7 +165,7 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
     void Read(const std::string& name, GattReadRequestedEventArgs const& args) {
         auto deferral = args.GetDeferral();
         try {
-            { std::lock_guard<std::mutex> lock(stateMutex); ++readCallbacks; ++readsByCharacteristic[name]; }
+            { std::lock_guard<std::mutex> lock(stateMutex); ++readCallbacks; ++readsByCharacteristic[name]; discovery.Extend(GetTickCount64(),30000); }
             auto request = args.GetRequestAsync().get();
             if (request) {
                 Bytes value;
@@ -190,7 +199,7 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
     void Write(const std::string& name, GattWriteRequestedEventArgs const& args) {
         auto deferral = args.GetDeferral();
         try {
-            { std::lock_guard<std::mutex> lock(stateMutex); ++writeCallbacks; }
+            { std::lock_guard<std::mutex> lock(stateMutex); ++writeCallbacks; discovery.Extend(GetTickCount64(),30000); }
             auto request = args.GetRequestAsync().get();
             if (request) {
                 const auto reader = DataReader::FromBuffer(request.Value());
@@ -286,6 +295,25 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
         }
         if (!client) throw std::runtime_error("Bound client lost report subscriptions; observe and bind again");
         if (value.size() > client.MaxNotificationSize()) throw std::runtime_error("Report exceeds notification size");
+        if (name == "absolute" && value.size() == 5) {
+            const int x = value[1] | value[2] << 8, y = value[3] | value[4] << 8;
+            const auto now = GetTickCount64();
+            const bool buttonChange = lastAbsButtons >= 0 && value[0] != lastAbsButtons;
+            const uint64_t waited = buttonChange && now < settleUntil ? settleUntil - now : 0;
+            if (waited) std::this_thread::sleep_for(std::chrono::milliseconds(waited));
+            if (lastAbsX >= 0) {
+                const double jump = std::hypot(double(x - lastAbsX), double(y - lastAbsY));
+                if (jump > 1000) settleUntil = std::max(settleUntil,
+                    GetTickCount64() + std::min<uint64_t>(kSettleCapMs, uint64_t(jump * kSettleMsPerUnit)));
+            }
+            // Trace presses, drags and releases (not hover) so a gesture can be read from the log.
+            if (trace && (value[0] || buttonChange)) {
+                std::ostringstream line;
+                line << "abs x=" << x << " y=" << y << " buttons=" << int(value[0]) << " settle_wait_ms=" << waited;
+                trace(line.str());
+            }
+            lastAbsX = x; lastAbsY = y; lastAbsButtons = value[0];
+        }
         {
             std::lock_guard<std::mutex> lock(stateMutex);
             values[name] = value;
@@ -381,11 +409,23 @@ void NativeHidBackend::Advertise(unsigned seconds) {
     impl_->provider.StartAdvertising(parameters);
     { std::lock_guard<std::mutex> lock(impl_->stateMutex); impl_->hidPublicationPending = true; }
 }
+void NativeHidBackend::SetTrace(std::function<void(const std::string&)> trace) {
+    std::lock_guard<std::mutex> serialized(impl_->sendMutex);
+    impl_->trace = std::move(trace);
+}
+void NativeHidBackend::ExtendDiscovery(unsigned seconds) {
+    std::lock_guard<std::mutex> lock(impl_->stateMutex);
+    impl_->discovery.Extend(GetTickCount64(), seconds * 1000ull);
+}
 void NativeHidBackend::Poll() {
     bool expired;
+    // Withdrawing the service destroys subscriptions, so keep it while any phone is
+    // subscribed and waiting to be selected; the phone's departure then ends discovery.
+    const bool subscribed = impl_->SubscriptionCount("keyboard") + impl_->SubscriptionCount("mouse") +
+        impl_->SubscriptionCount("absolute") > 0;
     {
         std::lock_guard<std::mutex> lock(impl_->stateMutex);
-        expired = impl_->discovery.ShouldAttempt(GetTickCount64()) &&
+        expired = impl_->discovery.ShouldAttempt(GetTickCount64()) && !subscribed &&
             !(impl_->persistentPublication && !impl_->bound.empty());
         if (impl_->enabled && GetTickCount64() > impl_->enableDeadline) impl_->enabled = false;
     }
@@ -562,6 +602,17 @@ void NativeHidBackend::Pointer(int x, int y, bool down, bool transition) {
     try {
         if(x<0 || x>32767 || y<0 || y>32767) throw std::invalid_argument("Pointer coordinates are 0..32767");
         Bytes position{0,static_cast<uint8_t>(x),static_cast<uint8_t>(x>>8),static_cast<uint8_t>(y),static_cast<uint8_t>(y>>8)};
+        if(down && !transition && impl_->lastAbsX >= 0) {
+            // A held move is a drag. One large jump with the button down is not a reliable
+            // drag on iOS (it can land as a tap where the press began), so send the path in
+            // steps of about 1,000 units, as a hand moving the mouse would.
+            const int fromX = impl_->lastAbsX, fromY = impl_->lastAbsY;
+            const int steps = std::min(12, int(std::hypot(double(x - fromX), double(y - fromY)) / 1000));
+            for (int i = 1; i < steps; ++i) {
+                const int sx = fromX + (x - fromX) * i / steps, sy = fromY + (y - fromY) * i / steps;
+                impl_->Send("absolute",Bytes{1,static_cast<uint8_t>(sx),static_cast<uint8_t>(sx>>8),static_cast<uint8_t>(sy),static_cast<uint8_t>(sy>>8)});
+            }
+        }
         if(down && transition) {
             impl_->Send("absolute",position);
             // Let iOS hit-test the new position first; a 60 ms dwell missed a small send button.

@@ -21,6 +21,8 @@ public:
 
     void Initialize(bool diagnosticReads = false); // local service only, never advertises
     void Advertise(unsigned seconds);   // bounded 1..120 second discovery
+    void ExtendDiscovery(unsigned seconds); // keep an open window at least this long; 10-minute cap
+    void SetTrace(std::function<void(const std::string&)> trace); // pointer reports with a button down or changing
     void Poll();                       // expire discovery; invoke at least 10 Hz
     bool PublicationStopFailed() const; // caller must end this backend/process
     std::string Status() const;         // JSON; no raw peer identifiers

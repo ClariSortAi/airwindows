@@ -11,6 +11,7 @@
 #include <sstream>
 #include <iomanip>
 #include <atomic>
+#include <regex>
 
 struct NativeControl::Impl {
     mutable std::mutex mutex;
@@ -29,6 +30,7 @@ struct NativeControl::Impl {
     int pointerX=0,pointerY=0;
     uint64_t pressedAt=0, holdExpires=0, holdLimit=0;
     uint64_t inspectAt=0;
+    std::string loggedStatus; // last backend status written to the log while pairing
     std::atomic<bool> processing{false};
 
     void RefreshFocus() { // mutex held
@@ -92,10 +94,16 @@ struct NativeControl::Impl {
                 if (doPair) {
                     if (!current) {
                         current=std::make_shared<NativeHidBackend>(); current->Initialize(true);
+                        current->SetTrace([](const std::string& line){LOGI("[BLE] %s",line.c_str());});
                         std::atomic_store(&backend,current);
                     }
-                    if (!current->Inspect().published) current->Advertise(120);
-                    LOGI("[CONTROL] Native Bluetooth publication opened for 120 seconds");
+                    if (!current->Inspect().published) {
+                        current->Advertise(120);
+                        LOGI("[CONTROL] Native Bluetooth publication opened for 120 seconds");
+                    } else {
+                        current->ExtendDiscovery(120);
+                        LOGI("[CONTROL] Native Bluetooth publication already open; extended to 120 seconds from now");
+                    }
                     std::lock_guard<std::mutex> lock(mutex);
                     state.message="Pair this PC in iPhone Settings > Bluetooth; select the phone below";
                 }
@@ -108,6 +116,14 @@ struct NativeControl::Impl {
                     state.bound=doBind; state.message="Click the mirrored phone to control it; click elsewhere to return";
                 }
                 current->Poll();
+                // While control is not ready, log every change in the backend's Bluetooth state
+                // (subscriptions, reads/writes, publication, diagnostics) so pairing is traceable.
+                bool ready; {std::lock_guard<std::mutex> lock(mutex); ready=state.ready;}
+                if (!ready) {
+                    static const std::regex volatileFields(R"re("(discovery_remaining_ms|battery_level|battery_present)":[^,]*,)re");
+                    auto status = std::regex_replace(current->Status(), volatileFields, "");
+                    if (status != loggedStatus) { loggedStatus = status; LOGI("[CONTROL] backend %s", status.c_str()); }
+                }
                 if (current->PublicationStopFailed()) {
                     // Throwing here repeated every 30 ms and never ended the backend.
                     LOGW("[CONTROL] Bluetooth publication could not stop; disconnecting");

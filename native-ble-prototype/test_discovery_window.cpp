@@ -37,11 +37,16 @@ int main() {
     assert(!window.Failed(310000));
     window.Start(400000, 1);
     assert(window.attempts == 0 && window.stopSince == 0);
+    // Phone activity extends an open window, never past the 10-minute cap or once stopping.
+    window.Start(500000, 120);
+    window.Extend(619000, 30000); assert(window.deadline == 649000 && !window.Due(640000));
+    window.Extend(1099000, 30000); assert(window.deadline == 1100000);
+    window.Attempt(1100000); window.Extend(1100100, 30000); assert(window.deadline == 1100000);
     assert(BatteryLevel(true,1,100) == 100);
     assert(BatteryLevel(true,2,45) == 45);
     assert(BatteryLevel(true,128,255) == 0); // explicitly no battery
     assert(!BatteryLevel(true,255,100)); // unknown flags, not a real measurement
     assert(!BatteryLevel(true,1,255));
     assert(!BatteryLevel(false,1,100));
-    std::cout << "discovery and battery policies: 19 assertions passed\n";
+    std::cout << "discovery and battery policies: 22 assertions passed\n";
 }
