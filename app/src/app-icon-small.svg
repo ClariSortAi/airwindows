@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AirWindows application icon for 16 to 32 pixels: the same tile, phone and
+     pointer as app-icon.svg with the fine detail left out and the shapes made
+     heavier, so they survive at taskbar and title-bar size. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="tile" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#7B6CFF"/>
+      <stop offset="0.5" stop-color="#3F7BFF"/>
+      <stop offset="1" stop-color="#1CCBEB"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="60" fill="url(#tile)"/>
+  <rect x="56" y="28" width="116" height="200" rx="28" fill="#FFFFFF"/>
+  <rect x="74" y="50" width="80" height="156" rx="10" fill="#1F2F8A"/>
+  <path d="M 128 120 L 128 228 L 156 204 L 174 246 L 200 235 L 182 194 L 218 194 Z"
+        fill="#FFFFFF" stroke="#16215C" stroke-width="16" stroke-linejoin="round"/>
+</svg>

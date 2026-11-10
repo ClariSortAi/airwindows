@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AirWindows application icon: a phone on a blue tile, its picture going out
+     over the air, and the PC's pointer on its screen. Sizes of 40 pixels and up
+     are rendered from this file; smaller sizes use app-icon-small.svg.
+     scripts/make-icon.py turns both into src/app.ico. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="tile" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#7B6CFF"/>
+      <stop offset="0.5" stop-color="#3F7BFF"/>
+      <stop offset="1" stop-color="#1CCBEB"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E6EEFF"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1A2466"/>
+      <stop offset="1" stop-color="#2B4FD6"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="170%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dy="6"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="lift" x="-40%" y="-40%" width="180%" height="190%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4"/>
+      <feOffset dx="2" dy="5"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="tileClip"><rect x="12" y="12" width="232" height="232" rx="56"/></clipPath>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="url(#tile)"/>
+  <g clip-path="url(#tileClip)">
+    <rect x="12" y="12" width="232" height="132" fill="url(#gloss)"/>
+  </g>
+
+  <!-- The picture leaving the phone -->
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-width="11">
+    <path d="M 181 46 A 30 30 0 0 1 211 76" stroke-opacity="0.95"/>
+    <path d="M 181 24 A 52 52 0 0 1 233 76" stroke-opacity="0.55"/>
+  </g>
+
+  <!-- Phone -->
+  <g filter="url(#soft)">
+    <rect x="70" y="46" width="98" height="176" rx="24" fill="url(#body)"/>
+  </g>
+  <rect x="79" y="56" width="80" height="156" rx="16" fill="url(#screen)"/>
+  <rect x="105" y="64" width="28" height="8" rx="4" fill="#0C1340"/>
+  <!-- A hint of a Home Screen -->
+  <g>
+    <rect x="89" y="84" width="24" height="24" rx="7" fill="#FF8F6B"/>
+    <rect x="125" y="84" width="24" height="24" rx="7" fill="#FFD166"/>
+    <rect x="89" y="120" width="24" height="24" rx="7" fill="#5EE6A8"/>
+    <rect x="125" y="120" width="24" height="24" rx="7" fill="#6BCBFF"/>
+  </g>
+
+  <!-- The PC's pointer, on the phone -->
+  <g filter="url(#lift)">
+    <path d="M 136 136 L 136 212 L 155 196 L 168 226 L 184 219 L 171 190 L 196 190 Z"
+          fill="#FFFFFF" stroke="#16215C" stroke-width="7" stroke-linejoin="round"/>
+  </g>
+</svg>
