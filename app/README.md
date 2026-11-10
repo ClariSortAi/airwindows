@@ -96,7 +96,7 @@ These checks cover discovery, `/info`, pair setup/verification and the first Fai
 
 For video self-tests, feed an Annex-B clip through `--selftest-video`. The log records decode counts and whether the GPU was used. Add `--selftest-screenshot`, `--selftest-record 4` and `--capture-dir <folder>` to exercise capture on the same clip; the log names each file written.
 
-`RecorderCheck` (`.\scripts\build.ps1 -Target RecorderCheck`) tests the recorder on its own with generated pictures and a tone, then reads the MP4 files back. It pushes pictures at the file's rate, at half of it, at twice it and not at all, and checks each time that every frame sits in its place. It needs the Windows H.264 encoder and runs in real time, so it is not part of CI. For a real phone, use [the agent guide's observation loop](CLAUDE-CONTROL.md) and record the visible result of each action.
+`RecorderCheck` (`.\scripts\build.ps1 -Target RecorderCheck`) tests the recorder on its own with generated pictures and a tone, then reads the MP4 files back. It pushes pictures at the file's rate in bunches of four, at half of it, at twice it and not at all, and checks each time that every frame sits in its place and that no bunched picture is lost. It needs the Windows H.264 encoder and runs in real time, so it is not part of CI. For a real phone, use [the agent guide's observation loop](CLAUDE-CONTROL.md) and record the visible result of each action.
 
 ## Packaging
 
