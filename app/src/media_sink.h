@@ -46,3 +46,4 @@ constexpr UINT WM_APP_SERVER_RESET = WM_APP + 3;    // wParam: reason from the p
 constexpr UINT WM_APP_MIRROR_RUNNING = WM_APP + 4;  // wParam: nonzero while a mirror stream runs
 constexpr UINT WM_APP_VIDEO_PICTURE = WM_APP + 5;   // wParam: nonzero once a frame is on screen
 constexpr UINT WM_APP_CONTROL_FRAME = WM_APP + 6;   // wParam: decoded generation; lParam: geometry
+constexpr UINT WM_APP_VIDEO_DEVICE_LOST = WM_APP + 7;  // the graphics device was removed or reset

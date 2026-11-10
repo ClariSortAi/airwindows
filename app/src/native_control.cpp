@@ -199,7 +199,10 @@ struct NativeControl::Impl {
             } catch (const winrt::hresult_error& error) {
                 const auto code=static_cast<uint32_t>(error.code());
                 LOGW("[CONTROL] Bluetooth failure hr=0x%08x; input stopped",code);
-                FailedAction(action,"Bluetooth action failed. Click the mirror to retry; actions are never replayed.");
+                // Opening the service fails like this when the radio is off; say so instead of blaming an action.
+                FailedAction(action,doPair && !action
+                    ? "Bluetooth could not start. Check that Bluetooth is on in Windows, then click Pair Bluetooth."
+                    : "Bluetooth action failed. Click the mirror to retry; actions are never replayed.");
             } catch (const std::exception& error) {
                 LOGW("[CONTROL] %s",error.what());
                 FailedAction(action,error.what());

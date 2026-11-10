@@ -373,7 +373,9 @@ void NativeHidBackend::Initialize(bool diagnosticReads) {
     auto& s = *impl_;
     s.diagnosticReads = diagnosticReads;
     auto adapter = BluetoothAdapter::GetDefaultAsync().get();
-    if (!adapter || !adapter.IsPeripheralRoleSupported()) throw std::runtime_error("BLE peripheral role is unavailable");
+    // These two reach the user as the status line, so they say what to do next.
+    if (!adapter) throw std::runtime_error("No Bluetooth adapter found. Turn Bluetooth on in Windows, then click Pair Bluetooth.");
+    if (!adapter.IsPeripheralRoleSupported()) throw std::runtime_error("This PC's Bluetooth adapter cannot act as a keyboard and mouse (no BLE peripheral role). Mirroring still works.");
     auto result = GattServiceProvider::CreateAsync(Uuid(0x1812)).get();
     if (result.Error() != BluetoothError::Success) throw std::runtime_error("HID service creation failed");
     s.provider = result.ServiceProvider();

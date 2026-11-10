@@ -16,6 +16,33 @@ std::mutex g_mutex;
 FILE* g_file = nullptr;
 std::wstring g_path;
 
+// debug.txt -> debug.old.txt
+std::wstring PreviousPath(const std::wstring& path) {
+    const size_t dot = path.find_last_of(L'.');
+    const size_t slash = path.find_last_of(L"\\/");
+    if (dot == std::wstring::npos || (slash != std::wstring::npos && dot < slash)) {
+        return path + L".old";
+    }
+    return path.substr(0, dot) + L".old" + path.substr(dot);
+}
+
+// Opens a fresh log and keeps the full one as the previous file, so the events
+// that led up to a problem survive the rotation. If the full file cannot be
+// moved (another program holds it open) it is emptied instead. Mutex held,
+// file closed.
+void OpenFresh() {
+    const bool kept = MoveFileExW(g_path.c_str(), PreviousPath(g_path).c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE;
+    g_file = _wfsopen(g_path.c_str(), kept ? L"a" : L"w", _SH_DENYNO);
+}
+
+void Format(char* line, size_t size, const char* level, const char* message) {
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+    snprintf(line, size, "[%04d-%02d-%02d %02d:%02d:%02d.%03d] [%s] %s\n",
+             now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds,
+             level, message);
+}
+
 }  // namespace
 
 void Init(const std::wstring& path) {
@@ -23,12 +50,16 @@ void Init(const std::wstring& path) {
     g_path = path;
 
     WIN32_FILE_ATTRIBUTE_DATA info{};
-    bool truncate = false;
+    bool full = false;
     if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info)) {
         const long long size = (static_cast<long long>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-        truncate = size > kMaxLogBytes;
+        full = size > kMaxLogBytes;
     }
-    g_file = _wfsopen(path.c_str(), truncate ? L"w" : L"a", _SH_DENYNO);
+    if (full) {
+        OpenFresh();
+    } else {
+        g_file = _wfsopen(path.c_str(), L"a", _SH_DENYNO);
+    }
     if (!g_file) OutputDebugStringW((L"[applog] could not open " + path + L"\n").c_str());
 }
 
@@ -51,23 +82,32 @@ void Write(const char* level, const char* fmt, ...) {
     vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
 
-    SYSTEMTIME now;
-    GetLocalTime(&now);
     char line[2200];
-    snprintf(line, sizeof(line), "[%04d-%02d-%02d %02d:%02d:%02d.%03d] [%s] %s\n",
-             now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds,
-             level, message);
+    Format(line, sizeof(line), level, message);
 
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_file && _ftelli64(g_file) > kMaxLogBytes) {
         fclose(g_file);
-        g_file = _wfsopen(g_path.c_str(), L"w", _SH_DENYNO);
+        OpenFresh();
         if (!g_file) OutputDebugStringA("[applog] could not reopen the log after rotation\n");
     }
     if (g_file) {
         fputs(line, g_file);
         fflush(g_file);
     }
+    OutputDebugStringA(line);
+}
+
+void Emergency(const char* message) {
+    char line[700];
+    Format(line, sizeof(line), "FATAL", message);
+    // The failing thread may be the one holding the lock, so never wait for it.
+    const bool locked = g_mutex.try_lock();
+    if (g_file) {
+        fputs(line, g_file);
+        fflush(g_file);
+    }
+    if (locked) g_mutex.unlock();
     OutputDebugStringA(line);
 }
 

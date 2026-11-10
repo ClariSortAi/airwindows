@@ -21,6 +21,7 @@
 
 #include "airplay_server.h"
 #include "audio_pipeline.h"
+#include "crash.h"
 #include "log.h"
 #include "media_sink.h"
 #include "resource.h"
@@ -37,9 +38,17 @@ constexpr wchar_t kAppTitle[] = L"AirWindows";
 constexpr UINT_PTR kTickTimer = 1;
 constexpr UINT_PTR kExitTimer = 2;
 constexpr UINT_PTR kControlTimer = 3;
+constexpr UINT_PTR kDeviceLossTimer = 4;  // --selftest-device-loss
+constexpr UINT_PTR kCrashTimer = 5;       // --selftest-crash
+// One receiver per desktop session: two would advertise the same AirPlay identity
+// and publish the same Bluetooth service. The window property marks the receiver
+// that holds the mutex, so a second launch can find it among self-test windows.
+constexpr wchar_t kInstanceMutex[] = L"Local\\AirWindows.Receiver";
+constexpr wchar_t kPrimaryProperty[] = L"AirWindows.Primary";
 // Toolbar IDs share WM_COMMAND with the menu; keep them clear of the IDM_* range in resource.h.
 constexpr int kPairControl=41001, kPeerControl=41002, kBindControl=41003, kDisconnectControl=41004, kHomeControl=41005;
 constexpr COLORREF kBackground = RGB(0x2C, 0x2C, 0x2C);  // idle screen
+constexpr int kToolbarHeight = 72;  // control row and status line above the picture, at 96 DPI
 constexpr DWORD kCursorHideMs = 3000;
 
 // Routes protocol callbacks to the two pipelines.
@@ -94,6 +103,12 @@ struct App {
     AirPlayServer server;
 
     bool serverOk = false;
+    bool videoOk = false;
+    ULONGLONG videoRecoverAt = 0;  // next attempt to rebuild video after the graphics device was lost
+    DWORD videoRecoverDelay = 0;
+    std::wstring notice;           // shown on the idle screen until the next connection
+    std::wstring addresses;        // local addresses on the idle screen, refreshed by the tick timer
+    HFONT uiFont = nullptr;
     bool hevcHardware = false;
     bool debugLog = false;
     bool exportFrames = false;
@@ -122,6 +137,8 @@ struct App {
     std::wstring selfTestVideo;
     bool selfTestAudio = false;
     bool selfTestTone = false;
+    int selfTestDeviceLossSeconds = 0;
+    std::wstring selfTestCrash;
     int exitAfterSeconds = 0;
     std::thread selfTestThread;
     std::atomic<bool> selfTestStop{false};
@@ -133,6 +150,19 @@ DecoderMode Decoder(const App& app) {
     return app.decoderOverride >= 0 ? static_cast<DecoderMode>(app.decoderOverride) : app.settings.decoderMode;
 }
 
+// Self-test runs feed the pipelines directly. They do not advertise a receiver,
+// take the single-instance slot or change saved settings.
+bool SelfTesting(const App& app) {
+    return !app.selfTestVideo.empty() || app.selfTestAudio || app.selfTestTone || !app.selfTestCrash.empty();
+}
+
+// Posted by a second launch to the receiver already running. wParam bit 0: the
+// new launch asked for --frames.
+UINT SecondLaunchMessage() {
+    static const UINT id = RegisterWindowMessageW(L"AirWindows.SecondLaunch");
+    return id;
+}
+
 App* g_app = nullptr;
 
 // ---------------------------------------------------------------------------
@@ -141,6 +171,31 @@ App* g_app = nullptr;
 
 int Scale(HWND window, int value) {
     return MulDiv(value, static_cast<int>(GetDpiForWindow(window)), 96);
+}
+
+// The toolbar uses the system message font at the window's DPI. The stock GUI
+// font it had before is a fixed pixel size and turns tiny on a scaled display.
+void ApplyUiFont(App& app) {
+    NONCLIENTMETRICSW metrics{};
+    metrics.cbSize = sizeof(metrics);
+    if (!SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, GetDpiForWindow(app.window))) {
+        LOGW("could not read the system message font (error %lu)", GetLastError());
+        return;
+    }
+    HFONT font = CreateFontIndirectW(&metrics.lfMessageFont);
+    if (!font) {
+        return;
+    }
+    for (HWND control : {app.controlPair, app.controlPeer, app.controlBind, app.controlDisconnect, app.controlHome,
+                         app.controlStatus}) {
+        if (control) {
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        }
+    }
+    if (app.uiFont) {
+        DeleteObject(app.uiFont);
+    }
+    app.uiFont = font;
 }
 
 std::vector<std::wstring> LocalIPv4Addresses() {
@@ -178,6 +233,14 @@ std::vector<std::wstring> LocalIPv4Addresses() {
         }
     }
     return result;
+}
+
+std::wstring NetworkSummary() {
+    std::wstring network;
+    for (const auto& address : LocalIPv4Addresses()) {
+        network += network.empty() ? address : L", " + address;
+    }
+    return network;
 }
 
 std::wstring QualityLabel(const VideoQuality& quality) {
@@ -243,6 +306,16 @@ bool StartServer(App& app) {
     return app.serverOk;
 }
 
+// Creates the graphics device and the decode/render thread. False while no
+// graphics device can be created, for example while its driver is being replaced.
+bool StartVideo(App& app) {
+    app.videoOk = app.video.Start(app.videoWindow, app.window, Decoder(app), app.settings.vsync);
+    if (app.exportFrames && !app.video.Frames().Start(!app.selfTestVideo.empty())) {
+        LOGE("[FRAMES] could not start local frame interface");
+    }
+    return app.videoOk;
+}
+
 // Applies settings that only take effect on a fresh server (and, for the decoder mode, a fresh video pipeline).
 void RestartService(App& app, bool restartVideo) {
     app.control.Invalidate();
@@ -253,17 +326,47 @@ void RestartService(App& app, bool restartVideo) {
     LOGI("[CFG] Stop() complete");
     if (restartVideo) {
         app.video.Stop();
-        if (!app.video.Start(app.videoWindow, app.window, Decoder(app), app.settings.vsync)) {
+        if (!StartVideo(app)) {
             LOGE("video pipeline failed to restart");
         }
-        if (app.exportFrames) app.video.Frames().Start(!app.selfTestVideo.empty());
     }
     app.connections = 0;
     app.client = ClientInfo{};
     app.mirrorRunning = false;
-    StartServer(app);
+    if (!SelfTesting(app)) {
+        StartServer(app);
+    }
     UpdateTitle(app);
     InvalidateRect(app.window, nullptr, TRUE);
+}
+
+// The graphics device went away: a driver update, a GPU reset, an adapter that
+// was unplugged. Nothing decoded or drawn on it survives and the sender will not
+// resend a key frame on its own, so the session ends and the pipeline is rebuilt
+// on a new device. The sender reconnects from Screen Mirroring.
+void RecoverVideo(App& app, bool lostNow) {
+    if (lostNow) {
+        LOGW("[VIDEO] graphics device lost; ending the session and rebuilding the video pipeline");
+        app.notice = L"The graphics device was reset, so mirroring stopped. Start Screen Mirroring again on your device.";
+        RestartService(app, true);
+    } else {
+        app.video.Stop();
+        // A sender that connected while there was no device has no decoder to feed; start it clean.
+        if (StartVideo(app) && app.connections > 0) {
+            RestartService(app, false);
+        }
+    }
+    if (app.videoOk) {
+        LOGI("[VIDEO] video pipeline rebuilt on a new graphics device");
+        app.videoRecoverAt = 0;
+        app.videoRecoverDelay = 0;
+    } else {
+        // The device can take a while to return during a driver install. Back off to 30 s.
+        app.videoRecoverDelay = std::clamp<DWORD>(app.videoRecoverDelay * 2, 2000, 30000);
+        app.videoRecoverAt = GetTickCount64() + app.videoRecoverDelay;
+        LOGW("[VIDEO] no graphics device yet; trying again in %lu ms", app.videoRecoverDelay);
+    }
+    InvalidateRect(app.window, nullptr, FALSE);
 }
 
 // ---------------------------------------------------------------------------
@@ -315,7 +418,7 @@ void FitWindowToVideo(App& app) {
     const int chromeWidth = frame.right - frame.left;
     const int chromeHeight = frame.bottom - frame.top;
     const auto fitted=FitMirrorClient(client.right,client.bottom,app.pictureWidth,app.pictureHeight,
-        workWidth-chromeWidth,workHeight-chromeHeight,std::max(Scale(app.window,500),Scale(app.window,650)-chromeWidth),Scale(app.window,72));
+        workWidth-chromeWidth,workHeight-chromeHeight,std::max(Scale(app.window,500),Scale(app.window,650)-chromeWidth),Scale(app.window,kToolbarHeight));
     if(!fitted)return;
     const int width=fitted->first,height=fitted->second;
     RECT current{};GetWindowRect(app.window,&current);
@@ -324,6 +427,40 @@ void FitWindowToVideo(App& app) {
     LOGI("[FIT] resize -> %dx%d client for %dx%d content", width, height, app.pictureWidth, app.pictureHeight);
     SetWindowPos(app.window, nullptr, left, top, width + chromeWidth, height + chromeHeight,
                  SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// Remembers where the window was, so it reopens on the same display at the same size.
+void SavePlacement(App& app) {
+    WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
+    if (app.fullscreen) {
+        placement = app.savedPlacement;  // full screen is not restored; keep the window it came from
+    } else if (!GetWindowPlacement(app.window, &placement)) {
+        return;
+    }
+    Settings& settings = app.settings;
+    settings.windowLeft = placement.rcNormalPosition.left;
+    settings.windowTop = placement.rcNormalPosition.top;
+    settings.windowRight = placement.rcNormalPosition.right;
+    settings.windowBottom = placement.rcNormalPosition.bottom;
+    settings.windowMaximized = placement.showCmd == SW_SHOWMAXIMIZED ||
+                               (placement.showCmd == SW_SHOWMINIMIZED && (placement.flags & WPF_RESTORETOMAXIMIZED));
+    settings.Save();
+}
+
+// Applies the saved position unless that spot is no longer on any display, which
+// happens when a monitor was unplugged. Returns true when the window should open maximized.
+bool RestorePlacement(App& app) {
+    const Settings& settings = app.settings;
+    RECT saved{settings.windowLeft, settings.windowTop, settings.windowRight, settings.windowBottom};
+    if (saved.right - saved.left < 200 || saved.bottom - saved.top < 150 ||
+        !MonitorFromRect(&saved, MONITOR_DEFAULTTONULL)) {
+        return false;
+    }
+    WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
+    placement.showCmd = SW_HIDE;  // position only; wWinMain shows the window
+    placement.rcNormalPosition = saved;
+    SetWindowPlacement(app.window, &placement);
+    return settings.windowMaximized;
 }
 
 HMENU BuildMenu() {
@@ -488,6 +625,10 @@ void PaintIdle(App& app, HDC target, const RECT& client) {
     HBRUSH background = CreateSolidBrush(kBackground);
     FillRect(dc, &client, background);
     DeleteObject(background);
+    // The controls and the status line sit on one strip in their own colour,
+    // instead of floating as light boxes on the dark idle screen.
+    const RECT toolbar{client.left, client.top, client.right, client.top + Scale(app.window, kToolbarHeight)};
+    FillRect(dc, &toolbar, GetSysColorBrush(COLOR_BTNFACE));
     SetBkMode(dc, TRANSPARENT);
 
     HFONT titleFont = MakeFont(app.window, 30, FW_SEMIBOLD);
@@ -496,23 +637,34 @@ void PaintIdle(App& app, HDC target, const RECT& client) {
     HFONT smallFont = MakeFont(app.window, 9, FW_NORMAL);
 
     const int margin = Scale(app.window, 32);
-    RECT area{client.left + margin, client.top + height / 6, client.right - margin, client.bottom};
+    // Start below the strip, so a short window never draws the name under the controls.
+    RECT area{client.left + margin, toolbar.bottom + (client.bottom - toolbar.bottom) / 8, client.right - margin,
+              client.bottom};
 
     DrawLine(dc, titleFont, RGB(0xFF, 0xFF, 0xFF), app.settings.serverName, area, Scale(app.window, 8));
 
     std::wstring status;
     COLORREF statusColor = RGB(0x8F, 0xD1, 0x8F);
-    if (!app.serverOk) {
+    if (!app.serverOk && !SelfTesting(app)) {
         status = L"The AirPlay service could not start. See the log (Receiver ▸ Open log folder).";
+        statusColor = RGB(0xFF, 0x8A, 0x80);
+    } else if (!app.videoOk) {
+        status = L"Video cannot be shown: no graphics device is available. See the log (Receiver ▸ Open log folder).";
         statusColor = RGB(0xFF, 0x8A, 0x80);
     } else if (app.connections > 0) {
         const std::wstring who = app.client.name.empty() ? L"a device" : Utf8ToWide(app.client.name);
         status = app.mirrorRunning ? L"Connected to " + who + L" — waiting for video…"
                                    : L"Connected to " + who + L". Ready to play.";
+    } else if (app.addresses.empty() && !SelfTesting(app)) {
+        status = L"Waiting for a network connection";
+        statusColor = RGB(0xFF, 0xD5, 0x80);
     } else {
         status = L"Ready to mirror";
     }
-    DrawLine(dc, headingFont, statusColor, status, area, Scale(app.window, 28));
+    DrawLine(dc, headingFont, statusColor, status, area, Scale(app.window, app.notice.empty() ? 28 : 10));
+    if (!app.notice.empty()) {
+        DrawLine(dc, bodyFont, RGB(0xFF, 0xD5, 0x80), app.notice, area, Scale(app.window, 24));
+    }
 
     const COLORREF bodyColor = RGB(0xD8, 0xD8, 0xD8);
     DrawLine(dc, bodyFont, bodyColor, L"1. Connect your iPhone, iPad or Mac to the same network as this PC.", area,
@@ -522,13 +674,8 @@ void PaintIdle(App& app, HDC target, const RECT& client) {
     DrawLine(dc, bodyFont, bodyColor, L"3. Pick “" + app.settings.serverName + L"” from the list.", area,
              Scale(app.window, 28));
 
-    std::wstring network;
-    for (const auto& address : LocalIPv4Addresses()) {
-        network += network.empty() ? address : L", " + address;
-    }
-    if (network.empty()) {
-        network = L"no network connection";
-    }
+    // With no network the receiver keeps running and joins one when it appears.
+    const std::wstring network = app.addresses.empty() ? L"no network yet (waiting for a connection)" : app.addresses;
     const VideoQuality& quality = FindVideoQuality(app.settings.videoQuality);
     const std::wstring details = L"Listening on " + network + L", port " + std::to_wstring(app.server.Port()) +
                                  L" · " + QualityLabel(quality) + L", up to " +
@@ -821,7 +968,7 @@ void UpdateControlUi(App& app) {
 }
 
 void LayoutControls(App& app,int width,int height){
-    const int margin=Scale(app.window,8), row=Scale(app.window,26), top=Scale(app.window,72);
+    const int margin=Scale(app.window,8), row=Scale(app.window,26), top=Scale(app.window,kToolbarHeight);
     const int pair=Scale(app.window,106), bind=Scale(app.window,86), disconnect=Scale(app.window,94),home=Scale(app.window,66);
     const int peer=std::max(Scale(app.window,100),width-pair-bind-disconnect-home-margin*6);
     if(app.controlPair){
@@ -968,6 +1115,24 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
     if (!app) {
         return DefWindowProcW(window, message, wParam, lParam);
     }
+    if (message == SecondLaunchMessage()) {
+        // AirWindows was started again. This receiver stays the only one; the new
+        // process has already brought this window forward and exited.
+        const bool wantsFrames = (wParam & 1) != 0;
+        LOGI("second launch%s handed over to this receiver", wantsFrames ? " (with --frames)" : "");
+        if (wantsFrames && !app->exportFrames) {
+            // Started without the launcher, then started again with it: give desktop
+            // agents the frame access the launcher asks for instead of a dead end.
+            app->exportFrames = app->video.Frames().Start(false);
+            if (app->exportFrames) {
+                // Start() marks a new interface idle; restore the running mirror's state.
+                app->video.Frames().SetActive(app->mirrorRunning);
+            } else {
+                LOGE("[FRAMES] could not start local frame interface");
+            }
+        }
+        return 0;
+    }
     switch (message) {
     case WM_SIZE:
         app->controlDragging=false;if(GetCapture()==app->videoWindow)ReleaseCapture();
@@ -992,6 +1157,11 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
         SetWindowPos(window, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                      suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+        // The toolbar font is sized for one DPI; rebuild it and lay the row out again.
+        ApplyUiFont(*app);
+        RECT client{};
+        GetClientRect(window, &client);
+        LayoutControls(*app, client.right, client.bottom);
         return 0;
     }
     case WM_ERASEBKGND:
@@ -1066,6 +1236,16 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             if (app->server.WatchdogTick()) {
                 app->server.RestartListener();
             }
+            if (app->videoRecoverAt && GetTickCount64() >= app->videoRecoverAt) {
+                RecoverVideo(*app, false);
+            }
+            // Discovery follows network changes by itself; keep the idle screen and the log in step.
+            std::wstring addresses = NetworkSummary();
+            if (addresses != app->addresses) {
+                LOGI("[NET] local addresses now: %ls", addresses.empty() ? L"none" : addresses.c_str());
+                app->addresses = std::move(addresses);
+                InvalidateRect(window, nullptr, FALSE);
+            }
             if (app->settings.showStatus && app->hasPicture) {
                 UpdateTitle(*app);
             }
@@ -1074,6 +1254,18 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             }
         } else if (wParam == kExitTimer) {
             PostMessageW(window, WM_CLOSE, 0, 0);
+        // The two self-test timers act only when their option was given: a timer
+        // message can be posted by any program running as this user.
+        } else if (wParam == kDeviceLossTimer && app->selfTestDeviceLossSeconds > 0) {
+            KillTimer(window, kDeviceLossTimer);
+            LOGI("[SELFTEST] simulating a lost graphics device");
+            app->video.SimulateDeviceLoss();
+        } else if (wParam == kCrashTimer && !app->selfTestCrash.empty()) {
+            KillTimer(window, kCrashTimer);
+            if (app->selfTestCrash == L"terminate") {
+                crash::TestTerminate();
+            }
+            crash::TestAccessViolation();
         }
         return 0;
 
@@ -1081,6 +1273,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         auto* info = reinterpret_cast<ClientInfo*>(lParam);
         app->client = *info;
         delete info;
+        app->notice.clear();
         UpdateTitle(*app);
         InvalidateRect(window, nullptr, FALSE);
         return 0;
@@ -1126,12 +1319,20 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         UpdateTitle(*app);
         return 0;
 
+    case WM_APP_VIDEO_DEVICE_LOST:
+        RecoverVideo(*app, true);
+        return 0;
+
     case WM_CLOSE:
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
         KillTimer(window, kTickTimer);
         KillTimer(window,kControlTimer);
+        if (!SelfTesting(*app)) {
+            SavePlacement(*app);
+        }
+        RemovePropW(window, kPrimaryProperty);
         // Stop everything while the windows still exist; the swap chain needs its window.
         Shutdown(*app);
         PostQuitMessage(0);
@@ -1162,6 +1363,12 @@ void ParseCommandLine(App& app) {
             app.selfTestTone = true;
         } else if (arg == L"--selftest-video" && i + 1 < argc) {
             app.selfTestVideo = argv[++i];
+        } else if (arg == L"--selftest-device-loss" && i + 1 < argc) {
+            // With --selftest-video: report the graphics device lost after this many seconds.
+            app.selfTestDeviceLossSeconds = _wtoi(argv[++i]);
+        } else if (arg == L"--selftest-crash" && i + 1 < argc) {
+            // Fail on purpose to exercise the crash report: "access" or "terminate".
+            app.selfTestCrash = argv[++i];
         } else if (arg == L"--exit-after" && i + 1 < argc) {
             app.exitAfterSeconds = _wtoi(argv[++i]);
         } else if (arg == L"--decoder" && i + 1 < argc) {
@@ -1171,6 +1378,38 @@ void ParseCommandLine(App& app) {
         }
     }
     LocalFree(argv);
+}
+
+BOOL CALLBACK FindPrimaryWindow(HWND window, LPARAM result) {
+    wchar_t name[64];
+    if (GetClassNameW(window, name, ARRAYSIZE(name)) && wcscmp(name, kMainClass) == 0 &&
+        GetPropW(window, kPrimaryProperty)) {
+        *reinterpret_cast<HWND*>(result) = window;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+// A receiver is already running: bring its window forward instead of starting a
+// second one beside it.
+void HandOverToRunningReceiver(bool wantsFrames) {
+    HWND primary = nullptr;
+    // The first receiver may still be creating its window.
+    for (int attempt = 0; attempt < 50 && !primary; ++attempt) {
+        EnumWindows(FindPrimaryWindow, reinterpret_cast<LPARAM>(&primary));
+        if (!primary) {
+            Sleep(100);
+        }
+    }
+    if (!primary) {
+        LOGW("another receiver holds the single-instance slot but its window was not found");
+        return;
+    }
+    if (IsIconic(primary)) {
+        ShowWindowAsync(primary, SW_RESTORE);
+    }
+    SetForegroundWindow(primary);
+    PostMessageW(primary, SecondLaunchMessage(), wantsFrames ? 1 : 0, 0);
 }
 
 }  // namespace
@@ -1183,6 +1422,25 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     applog::Init(AppDataDir() + L"\\debug.txt");
     LOGI("--- AirWindows " APP_VERSION_STRING " starting ---");
     ParseCommandLine(app);
+    // A run with --exit-after is unattended and must end on its own, so it saves
+    // the report without showing the dialog.
+    crash::Install(app.exitAfterSeconds == 0);
+
+    HANDLE instanceMutex = nullptr;
+    if (!SelfTesting(app)) {
+        instanceMutex = CreateMutexW(nullptr, FALSE, kInstanceMutex);
+        if (instanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+            LOGI("AirWindows is already running; bringing that receiver forward and exiting");
+            HandOverToRunningReceiver(app.exportFrames);
+            CloseHandle(instanceMutex);
+            applog::Shutdown();
+            g_app = nullptr;
+            return 0;
+        }
+        if (!instanceMutex) {
+            LOGW("could not create the single-instance mutex (error %lu)", GetLastError());
+        }
+    }
 
     // Use OpenSSL's built-in defaults: a system-wide openssl.cnf on the user's
     // PC must not change how pairing and decryption behave here.
@@ -1238,11 +1496,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         LOGE("CreateWindowEx failed (error %lu)", GetLastError());
         return 1;
     }
+    if (instanceMutex) {
+        SetPropW(app.window, kPrimaryProperty, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(1)));
+    }
+    const bool openMaximized = RestorePlacement(app);
     RECT client{};
     GetClientRect(app.window, &client);
     app.videoWindow = CreateWindowExW(0, kVideoClass, L"", WS_CHILD, 0, 0, client.right, client.bottom, app.window,
                                       nullptr, instance, nullptr);
     const auto makeControl=[&](const wchar_t* kind,const wchar_t* text,DWORD style,int id){
+        // Stock font until ApplyUiFont replaces it below, in case that fails.
         auto handle=CreateWindowExW(0,kind,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,app.window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),instance,nullptr);
         SendMessageW(handle,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return handle;
     };
@@ -1262,31 +1525,39 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         SendMessageW(app.controlHelp,TTM_SETDELAYTIME,TTDT_AUTOPOP,15000);
     }
     app.controlStatus=makeControl(L"STATIC",L"Bluetooth control disconnected",SS_LEFT,0);
+    ApplyUiFont(app);
     LayoutControls(app,client.right,client.bottom);
     app.control.Start(app.settings.controlPhone,app.settings.controlSender,!app.controlPhoneOverride.empty());
 
-    if (!app.video.Start(app.videoWindow, app.window, Decoder(app), app.settings.vsync)) {
+    if (!StartVideo(app)) {
         MessageBoxW(app.window, L"Direct3D 11 could not be initialized, so video cannot be shown.", kAppTitle,
                     MB_OK | MB_ICONERROR);
     }
     if (!app.audio.Start()) {
         LOGE("audio pipeline failed to start");
     }
-    if (app.exportFrames && !app.video.Frames().Start(!app.selfTestVideo.empty())) {
-        LOGE("[FRAMES] could not start local frame interface");
-    }
-    if (app.selfTestVideo.empty() && !app.selfTestAudio && !app.selfTestTone) StartServer(app);
+    app.addresses = NetworkSummary();
+    LOGI("[NET] local addresses: %ls", app.addresses.empty() ? L"none" : app.addresses.c_str());
+    if (!SelfTesting(app)) StartServer(app);
     UpdateTitle(app);
 
     if (app.settings.alwaysOnTop) {
         SetWindowPos(app.window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
-    ShowWindow(app.window, showCommand);
+    // A shortcut set to open minimized or maximized still wins over the saved state.
+    const bool defaultShow = showCommand == SW_SHOWNORMAL || showCommand == SW_SHOWDEFAULT;
+    ShowWindow(app.window, openMaximized && defaultShow ? SW_SHOWMAXIMIZED : showCommand);
     UpdateWindow(app.window);
     SetTimer(app.window, kTickTimer, 1000, nullptr);
     SetTimer(app.window,kControlTimer,100,nullptr);
     if (app.exitAfterSeconds > 0) {
         SetTimer(app.window, kExitTimer, static_cast<UINT>(app.exitAfterSeconds) * 1000, nullptr);
+    }
+    if (app.selfTestDeviceLossSeconds > 0) {
+        SetTimer(app.window, kDeviceLossTimer, static_cast<UINT>(app.selfTestDeviceLossSeconds) * 1000, nullptr);
+    }
+    if (!app.selfTestCrash.empty()) {
+        SetTimer(app.window, kCrashTimer, 1000, nullptr);
     }
     if (app.selfTestAudio || app.selfTestTone || !app.selfTestVideo.empty()) {
         app.selfTestThread = std::thread([&app] { RunSelfTest(app); });
@@ -1300,6 +1571,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     // Normally already done in WM_DESTROY; repeated here in case the window was never created.
     Shutdown(app);
+    if (app.uiFont) {
+        DeleteObject(app.uiFont);
+    }
+    if (instanceMutex) {
+        CloseHandle(instanceMutex);
+    }
     WSACleanup();
     CoUninitialize();
     LOGI("--- AirWindows exiting ---");

@@ -176,6 +176,8 @@ struct VideoPipeline::Impl {
     bool usingHardware = false;
     unsigned decodeErrors = 0;
     unsigned presentErrors = 0;
+    bool deviceLost = false;                  // video thread only
+    std::atomic<bool> simulateLoss{false};    // --selftest-device-loss
 
     ULONGLONG statsWindowStart = 0;
     unsigned statsFrames = 0;
@@ -195,6 +197,7 @@ struct VideoPipeline::Impl {
     void ResizeSwapChain();
     void Render();
     void ClearPicture();
+    bool CheckDeviceLost(HRESULT hr);
     void UpdateStats(size_t packetBytes, bool frameShown);
     static AVPixelFormat GetFormat(AVCodecContext* ctx, const AVPixelFormat* formats);
 };
@@ -215,6 +218,9 @@ bool VideoPipeline::Start(HWND videoWindow, HWND notify, DecoderMode mode, bool 
     s.mode = mode;
     s.vsync = vsync;
     s.stop = false;
+    s.deviceLost = false;
+    s.simulateLoss = false;
+    s.presentErrors = 0;
 
     av_log_set_level(AV_LOG_WARNING);
     av_log_set_callback(FfmpegLog);
@@ -345,6 +351,11 @@ void VideoPipeline::RequestRedraw() {
         s.redrawPending = true;
     }
     s.wake.notify_all();
+}
+
+void VideoPipeline::SimulateDeviceLoss() {
+    impl_->simulateLoss = true;
+    RequestRedraw();
 }
 
 void VideoPipeline::SetVSync(bool vsync) {
@@ -615,6 +626,11 @@ void VideoPipeline::Impl::Loop() {
                 skipRender = queue.size() >= kRenderBacklogLimit;
             }
         }
+        if (deviceLost) {
+            // Nothing can be decoded or drawn on a lost device. The host has been
+            // told and will stop this pipeline; until then, drop what arrives.
+            continue;
+        }
         if (doReset) {
             CloseDecoder();
             ClearPicture();
@@ -666,6 +682,8 @@ void VideoPipeline::Impl::Decode(const Packet& pkt) {
         if (decodeErrors++ < 5) {
             LOGW("[VIDEO] avcodec_send_packet failed (%d)", result);
         }
+        // A hardware decoder also fails like this once its device is gone.
+        CheckDeviceLost(S_OK);
         return;
     }
     for (;;) {
@@ -879,6 +897,7 @@ void VideoPipeline::Impl::ResizeSwapChain() {
                                                 tearingSupported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
     if (FAILED(hr)) {
         LOGE("[VIDEO] ResizeBuffers(%ux%u) failed hr=0x%08lX", width, height, hr);
+        CheckDeviceLost(hr);
         return;
     }
     backWidth = width;
@@ -942,15 +961,34 @@ void VideoPipeline::Impl::Render() {
     }
 
     const bool sync = vsync.load();
-    const HRESULT hr = swapChain->Present(sync ? 1 : 0, (!sync && tearingSupported) ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    HRESULT hr = swapChain->Present(sync ? 1 : 0, (!sync && tearingSupported) ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    if (simulateLoss.exchange(false)) {
+        hr = DXGI_ERROR_DEVICE_REMOVED;
+    }
     if (FAILED(hr) && hr != DXGI_ERROR_WAS_STILL_DRAWING) {
         // Own counter: decode errors before the first key frame would otherwise hide this.
-        // ponytail: a removed/reset GPU is logged, not recovered; reopen the stream to recover.
         if (presentErrors++ < 5) {
             LOGE("[VIDEO] Present failed hr=0x%08lX removedReason=0x%08lX", hr,
                  static_cast<unsigned long>(device->GetDeviceRemovedReason()));
         }
+        CheckDeviceLost(hr);
     }
+}
+
+// A removed or reset device stays unusable: every later call fails the same way.
+// Tell the host once so it can rebuild the pipeline on a new device.
+bool VideoPipeline::Impl::CheckDeviceLost(HRESULT hr) {
+    if (deviceLost) {
+        return true;
+    }
+    if (hr != DXGI_ERROR_DEVICE_REMOVED && hr != DXGI_ERROR_DEVICE_RESET && SUCCEEDED(device->GetDeviceRemovedReason())) {
+        return false;
+    }
+    deviceLost = true;
+    LOGE("[VIDEO] graphics device lost (hr=0x%08lX, reason=0x%08lX)", hr,
+         static_cast<unsigned long>(device->GetDeviceRemovedReason()));
+    PostMessageW(notify, WM_APP_VIDEO_DEVICE_LOST, 0, 0);
+    return true;
 }
 
 void VideoPipeline::Impl::ClearPicture() {

@@ -66,8 +66,10 @@ with zipfile.ZipFile(source) as archive:
     for name in (
         "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "requirements-agent.txt", "app/packaging/Start-AirWindows.cmd",
         "app/CMakeLists.txt", "app/src/CMakeLists.txt", "app/src/main.cpp",
-        "app/src/frame_server.cpp", "app/src/control_queue.h",
+        "app/src/frame_server.cpp", "app/src/control_queue.h", "app/src/crash.cpp", "app/src/crash.h",
+        "app/src/mdnsd_win.c",
         "app/tests/frame_server_check.cpp", "app/tests/control_policy_check.cpp", "app/tests/test_frames.py",
+        "app/tests/mdns_refresh_check.c",
         "app/scripts/bootstrap.ps1", "app/scripts/package.ps1", "app/scripts/observe-phone.py",
         "app/scripts/airwindows_frames.py", "native-ble-prototype/native_hid_backend.cpp",
         "native-ble-prototype/native_hid_backend.h", "native-ble-prototype/absolute_buttons.h",

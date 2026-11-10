@@ -28,6 +28,9 @@ struct Settings {
     std::string macAddress;                  // "aa:bb:cc:dd:ee:ff"; AirPlay device id
     std::string controlPhone;                // explicitly selected BLE peer fingerprint
     std::string controlSender;               // matching AirPlay sender fingerprint
+    // Window position from the last run; all zero until one has been saved.
+    int windowLeft = 0, windowTop = 0, windowRight = 0, windowBottom = 0;
+    bool windowMaximized = false;
 
     void Load();
     void Save() const;

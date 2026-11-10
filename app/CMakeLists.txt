@@ -22,6 +22,15 @@ set(CMAKE_C_STANDARD 11)
 add_compile_options(/guard:cf)
 add_link_options(/guard:cf)
 
+# Release builds also write a .pdb beside each executable. It is not shipped;
+# scripts/package.ps1 archives it, because a crash report (crashes\*.dmp) can
+# only be read with the symbols of the exact build that wrote it. /OPT restores
+# the linker optimizations /DEBUG turns off, and /PDBALTPATH keeps the build
+# directory out of the executable.
+add_compile_options("$<$<CONFIG:Release>:/Zi>")
+add_link_options("$<$<CONFIG:Release>:/DEBUG>" "$<$<CONFIG:Release>:/OPT:REF>" "$<$<CONFIG:Release>:/OPT:ICF>"
+                 "$<$<CONFIG:Release>:/PDBALTPATH:%_PDB%>")
+
 set(UXPLAY_DIR "${CMAKE_SOURCE_DIR}/third_party/UxPlay" CACHE PATH "UxPlay source checkout")
 
 if(NOT EXISTS "${UXPLAY_DIR}/lib/raop.h")

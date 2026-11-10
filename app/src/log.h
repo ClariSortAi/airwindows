@@ -13,6 +13,10 @@ const std::wstring& Path();
 // printf-style, thread-safe. `level` is a short tag such as "INFO".
 void Write(const char* level, const char* fmt, ...);
 
+// One line from the crash handler. Does not wait for the log lock, which the
+// failing thread may hold.
+void Emergency(const char* message);
+
 }  // namespace applog
 
 #define LOGD(...) ::applog::Write("DEBUG", __VA_ARGS__)

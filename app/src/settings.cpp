@@ -115,6 +115,11 @@ void Settings::Load() {
     if(controlPhone.size()!=16 || controlPhone.find_first_not_of("0123456789abcdef")!=std::string::npos)controlPhone.clear();
     controlSender = WideToUtf8(ReadString(path, L"NativeControlSender", L""));
     if(controlSender.size()!=16 || controlSender.find_first_not_of("0123456789abcdef")!=std::string::npos)controlSender.clear();
+    windowLeft = ReadInt(path, L"WindowLeft", 0);
+    windowTop = ReadInt(path, L"WindowTop", 0);
+    windowRight = ReadInt(path, L"WindowRight", 0);
+    windowBottom = ReadInt(path, L"WindowBottom", 0);
+    windowMaximized = ReadInt(path, L"WindowMaximized", 0) != 0;
 }
 
 void Settings::Save() const {
@@ -131,6 +136,11 @@ void Settings::Save() const {
     WriteString(path, L"MacAddress", Utf8ToWide(macAddress));
     WriteString(path, L"NativeControlPhone", Utf8ToWide(controlPhone));
     WriteString(path, L"NativeControlSender", Utf8ToWide(controlSender));
+    WriteString(path, L"WindowLeft", std::to_wstring(windowLeft));
+    WriteString(path, L"WindowTop", std::to_wstring(windowTop));
+    WriteString(path, L"WindowRight", std::to_wstring(windowRight));
+    WriteString(path, L"WindowBottom", std::to_wstring(windowBottom));
+    WriteString(path, L"WindowMaximized", windowMaximized ? L"1" : L"0");
 }
 
 std::string WideToUtf8(const std::wstring& text) {

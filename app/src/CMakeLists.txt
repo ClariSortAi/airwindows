@@ -8,6 +8,7 @@ set(AIRWINDOWS_SOURCES
   audio_pipeline.cpp
   settings.cpp
   log.cpp
+  crash.cpp
   native_control.cpp
   ../../native-ble-prototype/native_hid_backend.cpp
   app.rc
@@ -26,7 +27,7 @@ target_compile_definitions(${APP_TARGET} PRIVATE
 target_compile_options(${APP_TARGET} PRIVATE /W4 /permissive- /utf-8 /wd5105)
 target_link_libraries(${APP_TARGET} PRIVATE
   uxplay_core ffmpeg
-  d3d11 dxgi dxguid d3dcompiler ole32 avrt user32 gdi32 shell32 comctl32 iphlpapi ws2_32 advapi32 windowsapp)
+  d3d11 dxgi dxguid d3dcompiler ole32 avrt user32 gdi32 shell32 comctl32 iphlpapi ws2_32 advapi32 dbghelp windowsapp)
 
 set_target_properties(${APP_TARGET} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

@@ -32,10 +32,14 @@ foreach ($source in $licenses.Values) {
 $appDir = Join-Path $OutDir 'AirWindows'
 $binaryZip = Join-Path $OutDir "AirWindows-$version-win-x64.zip"
 $sourceZip = Join-Path $OutDir "AirWindows-$version-source.zip"
+$symbolsZip = Join-Path $OutDir "AirWindows-$version-symbols.zip"
 $sumsPath = Join-Path $OutDir 'SHA256SUMS.txt'
-foreach ($targetPath in @($appDir, $binaryZip, $sourceZip, $sumsPath)) {
+foreach ($targetPath in @($appDir, $binaryZip, $sourceZip, $symbolsZip, $sumsPath)) {
     if (Test-Path -LiteralPath $targetPath) { throw "Output exists; choose a new -OutDir: $targetPath" }
 }
+# A crash report can only be read with the symbols of the build that wrote it.
+$symbols = Join-Path $root "build\$Config\bin\$Target.pdb"
+if ($Release -and -not (Test-Path -LiteralPath $symbols)) { throw "Symbols missing: $symbols. Rebuild $Target before packaging a release." }
 $upstream = @()
 if ($Release) {
     $downloads = Join-Path $root '.deps\vcpkg\downloads'
@@ -129,4 +133,7 @@ $sums = foreach ($file in @($binaryZip, $sourceZip)) {
     '{0}  {1}' -f (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path -Leaf $file)
 }
 $sums | Set-Content -LiteralPath $sumsPath -Encoding ascii
+# Kept by whoever publishes the release; not part of the download or its checksums.
+Compress-Archive -LiteralPath $symbols -DestinationPath $symbolsZip
 Write-Host "Release archives and SHA256SUMS.txt are in $OutDir"
+Write-Host "Keep $(Split-Path -Leaf $symbolsZip) with this release: it reads crash reports from this exact build."
