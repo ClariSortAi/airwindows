@@ -6,22 +6,24 @@ AirWindows uses the PC's BLE keyboard and mouse service to control an iPhone whi
 
 1. Start `AirWindowsNative.exe --frames` and connect the phone through Screen Mirroring.
 2. Enable AssistiveTouch on the iPhone.
-3. Click **Pair Bluetooth** in AirWindows. In the phone's main Settings > Bluetooth screen, select the PC's Bluetooth name. Its name may differ from a renamed AirPlay receiver.
-4. Select the intended subscribed phone in AirWindows and click **Connect**. Wait for matching Bluetooth and AirPlay identities before sending input.
+3. Click the phone button at the left of the button row. It reads **Pair Bluetooth** until a phone is paired. In the phone's main Settings > Bluetooth screen, select the PC's Bluetooth name. Its name may differ from a renamed AirPlay receiver.
+4. Click the phone button again and choose the phone you are mirroring. Its dot turns green when the Bluetooth and AirPlay identities match. Wait for that before sending input.
+
+The first launch opens a setup guide beside the picture. It follows these steps and ticks each one off when the receiver sees it happen. Reopen it from Menu > Help > Setup guide. In 0.3.1-rc.4 and earlier, steps 3 and 4 are a **Pair Bluetooth** button, a phone list and a **Connect** button, and there is no guide.
 
 The adapter must support BLE peripheral mode. A label saying Connected in AssistiveTouch alone does not prove that the phone subscribed to the HID reports. During the original test, pairing from the main Bluetooth settings established the encrypted link and report subscriptions.
 
-Click inside the picture to focus it and send input. Click another Windows application to return control to the PC. A press within 16 px of the picture, in the bar beside it, snaps to the nearest phone edge, so edge swipes can start in the bar. A click further out in a bar sends nothing and leaves control on. There is no separate Enable step or required Escape sequence. Disconnect releases input and withdraws this process's BLE services.
+Click inside the picture to focus it and send input. Click another Windows application to return control to the PC. A press within 16 px of the picture, in the bar beside it, snaps to the nearest phone edge, so edge swipes can start in the bar. A click further out in a bar sends nothing and leaves control on. There is no separate Enable step or required Escape sequence. **Disconnect**, in the phone button's menu, releases input and withdraws this process's BLE services.
 
 The application remembers `NativeControlPhone` and `NativeControlSender` in `%LOCALAPPDATA%\AirWindows\settings.ini`. On later starts, it advertises for 120 seconds and binds only the saved phone. While bound, publication stays active. A different AirPlay sender invalidates the association and requires selecting its corresponding phone. Run one controller process at a time.
 
-The diagnostic `--control-phone <fingerprint>` option binds the first observed AirPlay sender to that explicitly selected phone. Normal pairing uses the toolbar; do not copy another machine's fingerprint or use the option on routine launches.
+The diagnostic `--control-phone <fingerprint>` option binds the first observed AirPlay sender to that explicitly selected phone. Normal pairing uses the phone button; do not copy another machine's fingerprint or use the option on routine launches.
 
 ## Home and scrolling
 
 On the iPhone, open Settings > Accessibility > Touch > AssistiveTouch > Devices > your PC > Customize Additional Buttons. Click the AirWindows **Home** button, then assign the detected Button 2 to **Home**.
 
-After that assignment, the toolbar Home button or a right-click inside the phone picture invokes Home. Right-click in the bars or chrome opens the PC menu. The keyboard context-menu key also opens the PC menu. The Home control sends an 80 ms Button 2 pulse and releases at the same position; it does not require a descriptor or pairing change.
+After that assignment, the Home button or a right-click inside the phone picture invokes Home. A right-click in the bars beside the picture opens the AirWindows menu, as do the Menu button and the Alt key. The Home control sends an 80 ms Button 2 pulse and releases at the same position; it does not require a descriptor or pairing change.
 
 A left-button drag scrolls a list. Mouse-wheel and vertical trackpad input accumulate to one swipe per 120 Windows wheel units, so small trackpad packets no longer each launch a full swipe. Multiple notches are preserved up to four per event. Remainders expire after 500 ms and reset on focus loss, outside-picture scrolling or picture-generation changes. This follows [Windows wheel-delta guidance](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel). Horizontal trackpad scrolling is not implemented. A mouse drag from the bottom edge did not reliably reproduce Home; use the assigned button instead.
 
@@ -39,6 +41,6 @@ The 2026-10-30 bench observed native typing, relative movement, absolute coordin
 
 The receiver now selects by the intended fingerprint rather than total subscriber count. An additional subscriber does not by itself withdraw the service. Notifications and control writes stay scoped to the bound device; loss of that device does not select another one. Multi-peer policy tests pass, but two-phone hardware acceptance remains to be completed for this candidate. Preserve unrelated bonds.
 
-Logs are in `%LOCALAPPDATA%\AirWindows\debug.txt`; look for recent `[CONTROL]` entries and the current toolbar status. Repeated Ready=0/Ready=1 transitions indicate instability: stop new input, wait for a stable connection and observe the current screen before continuing.
+Logs are in `%LOCALAPPDATA%\AirWindows\debug.txt`; look for recent `[CONTROL]` entries and the status bar at the bottom of the window. Repeated Ready=0/Ready=1 transitions indicate instability: stop new input, wait for a stable connection and observe the current screen before continuing.
 
 [The agent guide](CLAUDE-CONTROL.md) gives the operating loop, coordinate mapping and capture commands. [The frame protocol](FRAME-INTERFACE.md) describes the read-only named pipe. Policy tests cover queue cancellation, text ordering, generation changes, letterbox mapping and Button 2 reports; they do not replace a real-phone test.

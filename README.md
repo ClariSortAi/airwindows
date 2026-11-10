@@ -16,6 +16,8 @@ Extract the ZIP and double-click **Start-AirWindows.cmd**. The package includes 
 
 RC4 makes Bluetooth pairing reliable. A pairing could finish just after AirWindows stopped listening, leaving one that never worked until you forgot and re-paired. Taps, flicks and edge swipes now land the way they look on screen, and near-misses, fast scrolling, held keys and window resizes no longer turn control off. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
 
+The next release is on `main` and is not in that download yet. It has a redesigned window with a first-run setup guide, screenshots (F8) and MP4 recording with sound (F9). It also keeps working through network changes and graphics driver resets, and saves a crash report if it stops. Build it from source to try it. Its [changelog entry](app/CHANGELOG.md) says what has and has not been tested. The steps below describe the rc.4 download; in the next release, step 4 is one phone button.
+
 Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md), also included in the ZIP. It walks through installation, pairing, Home setup and the final agent-operated test.
 
 You need a 64-bit Windows PC, an iPhone on the same reachable network, and a Bluetooth adapter that supports BLE peripheral mode. The native control path has been tested on Windows 11 with a MediaTek adapter. Mirroring also supports iPad and Mac senders; Bluetooth input has been tested with an iPhone.
@@ -79,7 +81,7 @@ The release script packages the executable, license notices, matching applicatio
 | `scripts` | Repository checks |
 | `airdrop-native` | Separate, unfinished AirDrop research; not needed for mirroring or control |
 
-AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). AirWindows also does not record the screen or receive video links from an app's cast button. Real-device audio, H.265 and recovery from an unexpected network drop still need testing.
+AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). The rc.4 download does not record the screen; the next release does. AirWindows does not receive video links from an app's cast button. Real-device audio, H.265 and recovery from an unexpected network drop still need testing.
 
 ## Support the project
 

@@ -9,9 +9,14 @@ enabled for desktop agents. Manual use needs no Python or build tools.
 Allow it through Windows Firewall on your private network. On the phone,
 open Control Center > Screen Mirroring and choose the receiver's name.
 
-For input, enable AssistiveTouch on the iPhone. Click Pair Bluetooth in
-AirWindows, pair the PC from the phone's main Settings > Bluetooth screen,
-then select the intended phone in AirWindows and click Connect.
+A first launch opens a setup guide beside the picture. It walks through
+the steps below and ticks each one off as it happens. Reopen it any time
+from Menu > Help > Setup guide.
+
+For input, enable AssistiveTouch on the iPhone. Click the phone button at
+the left of the button row (it reads Pair Bluetooth), pair the PC from the
+phone's main Settings > Bluetooth screen, then click the phone button
+again and choose your phone. Its dot turns green when it is connected.
 
 Click inside the phone picture to control it. Click another Windows app
 to return focus to the PC. Text input supports US ASCII. Ctrl+V accepts
@@ -20,7 +25,12 @@ up to 1,024 ASCII characters. Unicode and general shortcuts are unsupported.
 For Home, open AssistiveTouch > Devices > your PC > Customize Additional
 Buttons. Click Home in AirWindows, then assign the detected Button 2 to
 Home on the phone. Right-click inside the phone picture invokes the same
-assigned action. Right-click in the bars or chrome opens the PC menu.
+assigned action. Right-click outside the picture, the Menu button or the
+Alt key opens the AirWindows menu.
+
+Screenshot (F8) saves the phone's picture as a PNG in Pictures\AirWindows
+and copies it to the clipboard. Record (F9) saves an MP4 with the phone's
+sound in Videos\AirWindows; press it again to stop. F11 is full screen.
 
 Starting AirWindows again brings the running window forward; it does not
 open a second receiver. For Claude Code or Codex, start with FOR-AGENTS.md.

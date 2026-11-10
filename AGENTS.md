@@ -17,6 +17,9 @@ In a source checkout, run these before pushing (CI runs the same on Windows):
 - `python scripts/check-repository.py`
 - `./app/tools/iosctl/build.ps1`, then `./app/build/Release/bin/iosctl.exe --self-test`
 - For receiver or backend changes: `./app/scripts/build.ps1 -Target AirWindowsNative`, `-Target FrameServerCheck` and `-Target MdnsRefreshCheck`, then run `./app/build/Release/bin/FrameServerCheck.exe` and `./app/build/Release/bin/MdnsRefreshCheck.exe`
+- For changes to `app/src/recorder.cpp`: `./app/scripts/build.ps1 -Target RecorderCheck`, then run `./app/build/Release/bin/RecorderCheck.exe` (local only; CI does not run it). It prints `SKIP` and exits 0 on a PC without an H.264 encoder.
+- For window, capture or menu changes: run the receiver on a clip with `--selftest-video <clip.h264> --selftest-screenshot --selftest-record 4 --capture-dir <new folder> --exit-after 10` and check the `[CAPTURE]` and `[RECORD]` log lines and the two files. Make a clip with `ffmpeg -f lavfi -i testsrc2=size=1170x2532:rate=30 -t 2 -c:v libx264 -pix_fmt yuv420p -bsf:v h264_mp4toannexb -f h264 clip.h264`.
+- When the icon drawing changes: edit `app/src/app-icon.svg` and `app/src/app-icon-small.svg`, run `python app/scripts/make-icon.py` (needs Inkscape 1.x), then touch `app/src/app.rc` so the next build embeds the new `app.ico`.
 
 Rules:
 

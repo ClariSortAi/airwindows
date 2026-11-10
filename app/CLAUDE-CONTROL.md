@@ -39,7 +39,7 @@ Reuse the running receiver. Do not start a second copy, delete pairings or resta
 
 ## Observe, act once, observe again
 
-1. With iosctl, run `preflight` and `shot`. Its coordinates are phone pixels, and its input commands bring AirWindows forward themselves. With another desktop tool, bring the existing window forward, obtain a fresh desktop screenshot and locate the actual phone picture, excluding the title bar, control toolbar and letterbox bars.
+1. With iosctl, run `preflight` and `shot`. Its coordinates are phone pixels, and its input commands bring AirWindows forward themselves. With another desktop tool, bring the existing window forward, obtain a fresh desktop screenshot and locate the actual phone picture, excluding the title bar, the button row above the picture, the status bar below it, the setup guide panel on the right when it is open, and letterbox bars.
 2. Check that the intended phone is mirroring and the control status is ready. `[CONTROL] Ready=1` means the BLE and AirPlay identities matched at that log timestamp; an old entry does not establish current readiness.
 3. Choose one visible target. A left click inside the picture both focuses the video and sends a phone click. It is not a harmless focus-only action. Choose the intended button or text field.
 4. Complete one click, text entry or bounded drag. Keep focus in the picture until it finishes. Switching focus to a terminal, chat, toolbar or another window cancels pending input.
@@ -89,7 +89,9 @@ Use consistent units: if the desktop tool scales screenshots, follow its screens
 | Editing/navigation keys | Enter, Backspace, Tab and arrow keys. Other shortcuts, including Ctrl+A and Cmd+H, are not established phone commands. |
 | Scroll | A left-button drag within a list, then release. Start moving at once: a press that rests on a row before moving opens the row. Wheel input becomes short swipes; extra steps are dropped while Bluetooth is busy rather than queued. |
 | Edge gesture | Start a drag at the picture edge, or up to 16 px into the bar beside it; the press snaps to the edge. Left edge goes back; bottom edge goes Home. |
-| Home | AirWindows **Home** toolbar button, or right-click inside the phone picture, after mapping accessory Button 2 to Home. |
+| Home | AirWindows **Home** button in the button row, or right-click inside the phone picture, after mapping accessory Button 2 to Home. |
+| Save the phone's picture | **Screenshot** button or F8: a native-size PNG in `Pictures\AirWindows`, also copied to the clipboard. For observation keep using `iosctl shot`, which does not touch the clipboard. |
+| Record | **Record** button or F9 starts and stops an MP4 with the phone's sound in `Videos\AirWindows`. The status bar shows `REC` and a clock while it runs. |
 | Return to PC | Click another application. A click far out in the bars sends nothing and leaves control on. No Enable step or Escape sequence is required. |
 
 Prefer the Home button for Home; a bottom-edge drag also works. For list drags, send down, paced intermediate moves and up; a hover or single final move is not a complete drag. Always release. Avoid flooding mouse moves: the queue holds 32 actions, pointer actions expire after two seconds, and held input has idle/total time limits.

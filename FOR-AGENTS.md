@@ -83,9 +83,20 @@ $receiverPid = $receiverProcess.Id
 $receiverProcess | Select-Object Id, Path
 ```
 
-Keep the window visible. It has Pair Bluetooth, a phone selector, Connect, Disconnect and Home controls. Allow this executable through Windows Firewall on the trusted private network in use. Keep the receiver and agent in the same normal Windows user session.
+Keep the window visible. Builds after 0.3.1-rc.4 have one button row: the phone button (pair, choose a phone, disconnect), Home, Screenshot, Record, Full screen and Menu, with a status bar at the bottom. A first launch also opens a setup guide beside the picture that ticks off the steps below as they happen. 0.3.1-rc.4 and earlier have Pair Bluetooth, a phone selector, Connect, Disconnect and Home controls. Map the steps below with this table:
 
-If an existing receiver lacks `--frames`, finish any active operation before restarting it. A restart interrupts Screen Mirroring. Rediscover its PID afterward.
+| Step says | Builds after 0.3.1-rc.4 | 0.3.1-rc.4 and earlier |
+|---|---|---|
+| Click **Pair Bluetooth** | Click the phone button while it reads **Pair Bluetooth**; otherwise phone button > **Pair Bluetooth** | **Pair Bluetooth** button |
+| Select the phone and click **Connect** | Phone button > the phone's name | Choose it in the selector, then **Connect** |
+| The selector | The phone names at the top of the phone button's menu | The drop-down list |
+| **Disconnect** | Phone button > **Disconnect** | **Disconnect** button |
+| The status line | Status bar at the bottom of the window | Line under the buttons |
+| The PC menu | **Menu** button, Alt, or right-click outside the picture | Menu bar, or right-click outside the picture |
+
+Allow this executable through Windows Firewall on the trusted private network in use. Keep the receiver and agent in the same normal Windows user session.
+
+If an existing receiver lacks `--frames`: on builds after 0.3.1-rc.4, run `Start-AirWindows.cmd` again; the second launch turns frame access on in the running receiver and exits, and Screen Mirroring continues. On 0.3.1-rc.4 and earlier, finish any active operation, then restart the receiver. That restart interrupts Screen Mirroring. Rediscover its PID afterward.
 
 **Checkpoint:** one visible receiver, known PID, `--frames` enabled.
 
