@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <clocale>
 #include <cstdarg>
 #include <cstdio>
 #include <mutex>
@@ -15,6 +16,14 @@ constexpr long long kMaxLogBytes = 4 * 1024 * 1024;
 std::mutex g_mutex;
 FILE* g_file = nullptr;
 std::wstring g_path;
+
+// Wide strings (%ls) are written as UTF-8. With the default "C" locale a
+// receiver, phone or folder name outside ASCII would cut the line short.
+// Null on a Windows version without UTF-8 locales, where the default is used.
+_locale_t Utf8Locale() {
+    static const _locale_t locale = _create_locale(LC_CTYPE, ".UTF8");
+    return locale;
+}
 
 // debug.txt -> debug.old.txt
 std::wstring PreviousPath(const std::wstring& path) {
@@ -79,7 +88,13 @@ void Write(const char* level, const char* fmt, ...) {
     char message[2048];
     va_list args;
     va_start(args, fmt);
-    vsnprintf(message, sizeof(message), fmt, args);
+    if (const _locale_t utf8 = Utf8Locale()) {
+        // Not the _s form: that one ends the program on a line it cannot format.
+        _vsnprintf_l(message, sizeof(message) - 1, fmt, utf8, args);
+        message[sizeof(message) - 1] = '\0';
+    } else {
+        vsnprintf(message, sizeof(message), fmt, args);
+    }
     va_end(args);
 
     char line[2200];

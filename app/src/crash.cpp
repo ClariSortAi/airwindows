@@ -34,6 +34,13 @@ struct Report {
     const char* reason;
 };
 
+// Paths go into the log as UTF-8, so a profile folder outside ASCII does not cut the line short.
+void Narrow(const wchar_t* text, char* out, int size) {
+    if (!WideCharToMultiByte(CP_UTF8, 0, text, -1, out, size, nullptr, nullptr)) {
+        out[0] = 0;
+    }
+}
+
 // Describes where the failure happened as module+offset, which stays meaningful
 // across runs even though the load address changes.
 void DescribeAddress(const void* address, char* text, size_t size) {
@@ -44,7 +51,9 @@ void DescribeAddress(const void* address, char* text, size_t size) {
                            static_cast<LPCWSTR>(address), &module) &&
         GetModuleFileNameW(module, path, ARRAYSIZE(path))) {
         const wchar_t* name = wcsrchr(path, L'\\');
-        snprintf(text, size, "%ls+0x%llX", name ? name + 1 : path,
+        char module8[MAX_PATH * 3];
+        Narrow(name ? name + 1 : path, module8, sizeof(module8));
+        snprintf(text, size, "%s+0x%llX", module8,
                  static_cast<unsigned long long>(static_cast<const char*>(address) - reinterpret_cast<const char*>(module)));
     } else {
         snprintf(text, size, "%p", address);
@@ -74,16 +83,18 @@ DWORD WINAPI WriteReport(LPVOID parameter) {
         if (!written) DeleteFileW(path);
     }
 
-    char where[320] = "";
-    char line[640];
+    char where[900] = "";
+    char line[2000];
+    char path8[MAX_PATH * 3];
+    Narrow(path, path8, sizeof(path8));
     if (report.exception && report.exception->ExceptionRecord) {
         DescribeAddress(report.exception->ExceptionRecord->ExceptionAddress, where, sizeof(where));
-        snprintf(line, sizeof(line), "[CRASH] %s: exception 0x%08lX at %s on thread %lu; report %s: %ls", report.reason,
+        snprintf(line, sizeof(line), "[CRASH] %s: exception 0x%08lX at %s on thread %lu; report %s: %s", report.reason,
                  report.exception->ExceptionRecord->ExceptionCode, where, report.threadId,
-                 written ? "saved" : "could not be saved", path);
+                 written ? "saved" : "could not be saved", path8);
     } else {
-        snprintf(line, sizeof(line), "[CRASH] %s on thread %lu; report %s: %ls", report.reason, report.threadId,
-                 written ? "saved" : "could not be saved", path);
+        snprintf(line, sizeof(line), "[CRASH] %s on thread %lu; report %s: %s", report.reason, report.threadId,
+                 written ? "saved" : "could not be saved", path8);
     }
     applog::Emergency(line);
 
