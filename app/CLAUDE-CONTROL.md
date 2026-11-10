@@ -91,7 +91,7 @@ Use consistent units: if the desktop tool scales screenshots, follow its screens
 | Edge gesture | Start a drag at the picture edge, or up to 16 px into the bar beside it; the press snaps to the edge. Left edge goes back; bottom edge goes Home. |
 | Home | AirWindows **Home** button in the button row, or right-click inside the phone picture, after mapping accessory Button 2 to Home. |
 | Save the phone's picture | **Screenshot** button or F8: a native-size PNG in `Pictures\AirWindows`, also copied to the clipboard. For observation keep using `iosctl shot`, which does not touch the clipboard. |
-| Record | **Record** button or F9 starts and stops an MP4 with the phone's sound in `Videos\AirWindows`. The status bar shows `REC` and a clock while it runs. |
+| Record | **Record** button or F9 starts and stops an MP4 with the phone's sound in `Videos\AirWindows`. The status bar shows `REC` and a clock while it runs. The file has a constant frame rate (Video > Frame rate, default 60); a still screen is filled with repeats. |
 | Return to PC | Click another application. A click far out in the bars sends nothing and leaves control on. No Enable step or Escape sequence is required. |
 
 Prefer the Home button for Home; a bottom-edge drag also works. For list drags, send down, paced intermediate moves and up; a hover or single final move is not a complete drag. Always release. Avoid flooding mouse moves: the queue holds 32 actions, pointer actions expire after two seconds, and held input has idle/total time limits.

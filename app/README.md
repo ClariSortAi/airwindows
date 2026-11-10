@@ -35,7 +35,7 @@ The window has one row of buttons above the picture and a status bar below it. F
 | Action | Control |
 |---|---|
 | Screenshot | Screenshot button or F8. Saves the phone's picture at its own size as a PNG in `Pictures\AirWindows` and copies it to the clipboard |
-| Record | Record button or F9; press again to stop. Saves an MP4 (H.264 video, AAC sound) in `Videos\AirWindows`. A new file starts if the phone rotates |
+| Record | Record button or F9; press again to stop. Saves an MP4 (H.264 video at a constant frame rate, AAC sound) in `Videos\AirWindows`. A new file starts if the phone rotates |
 | Full screen | Full screen button, F11 or Alt+Enter; Escape leaves. The buttons and status bar hide while it is on |
 | Menu | Menu button, the Alt key, or a right-click outside the picture |
 | Setup guide | Opens beside the picture on a first launch; Help > Setup guide brings it back |
@@ -47,7 +47,7 @@ The window has one row of buttons above the picture and a status bar below it. F
 
 Rename, Resolution, Frame rate, Decoder and the H.265 setting restart the AirPlay service, which ends a session in progress. The idle screen then says so; start Screen Mirroring again.
 
-Recording uses the H.264 and AAC encoders that come with Windows. It encodes on the GPU when the PC has a hardware encoder. A file is complete only after Record is pressed again or AirWindows is closed normally. Windows N editions need the Media Feature Pack for recording; everything else works without it.
+Recording uses the H.264 and AAC encoders that come with Windows. It encodes on the GPU when the PC has a hardware encoder. A recording has a constant frame rate: the one set under Video > Frame rate, 60 unless changed. A phone sends a picture only when its screen changes, so the recorder repeats the last picture until the next one arrives. Every frame in the file is then the same length, which video editors expect. A file is complete only after Record is pressed again or AirWindows is closed normally. Windows N editions need the Media Feature Pack for recording; everything else works without it.
 
 Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt` in the same folder. Receiver > Open log folder opens it. At 4 MB the log is renamed `debug.old.txt` and a new one starts. If AirWindows stops unexpectedly, it saves a crash report in the `crashes` folder there, keeps the five newest and shows a message with the location. Reports stay on the PC unless you send one. The window reopens where you left it. The executable is unsigned, so Windows may show a SmartScreen notice for downloaded copies. Check the source and checksum before running a download.
 
@@ -96,7 +96,7 @@ These checks cover discovery, `/info`, pair setup/verification and the first Fai
 
 For video self-tests, feed an Annex-B clip through `--selftest-video`. The log records decode counts and whether the GPU was used. Add `--selftest-screenshot`, `--selftest-record 4` and `--capture-dir <folder>` to exercise capture on the same clip; the log names each file written.
 
-`RecorderCheck` (`.\scripts\build.ps1 -Target RecorderCheck`) tests the recorder on its own with generated pictures and a tone, then reads the MP4 files back. It needs the Windows H.264 encoder and runs in real time, so it is not part of CI. For a real phone, use [the agent guide's observation loop](CLAUDE-CONTROL.md) and record the visible result of each action.
+`RecorderCheck` (`.\scripts\build.ps1 -Target RecorderCheck`) tests the recorder on its own with generated pictures and a tone, then reads the MP4 files back. It pushes pictures at the file's rate, at half of it, at twice it and not at all, and checks each time that every frame sits in its place. It needs the Windows H.264 encoder and runs in real time, so it is not part of CI. For a real phone, use [the agent guide's observation loop](CLAUDE-CONTROL.md) and record the visible result of each action.
 
 ## Packaging
 

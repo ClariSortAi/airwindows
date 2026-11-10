@@ -30,7 +30,9 @@ Alt key opens the AirWindows menu.
 
 Screenshot (F8) saves the phone's picture as a PNG in Pictures\AirWindows
 and copies it to the clipboard. Record (F9) saves an MP4 with the phone's
-sound in Videos\AirWindows; press it again to stop. F11 is full screen.
+sound in Videos\AirWindows; press it again to stop. Recordings have a
+constant frame rate: the one under Video > Frame rate, 60 unless changed.
+F11 is full screen.
 
 Starting AirWindows again brings the running window forward; it does not
 open a second receiver. For Claude Code or Codex, start with FOR-AGENTS.md.
