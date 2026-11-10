@@ -136,6 +136,7 @@ struct App {
     COLORREF phoneDot = CLR_INVALID;
     bool iconOnly = false;            // the window is too narrow for labels on the right-hand buttons
     std::wstring toast;               // short confirmation shown in the status bar
+    std::string lastControlMessage;   // Bluetooth status as of the last tick, to notice when it changes
     ULONGLONG toastUntil = 0;
     std::wstring statusDetail;        // right side of the status bar: stream details
     std::wstring statusClock;         // and the recording clock
@@ -1229,7 +1230,7 @@ void DrawStatus(const App& app, const DRAWITEMSTRUCT& item) {
     const NativeControlState& state = app.controlState;
     const COLORREF dot = toast ? ui::kAccent
                          : state.focused ? ui::kAccent
-                         : state.ready ? ui::kGood
+                         : (state.ready && app.hasPicture) ? ui::kGood  // green only while that phone is on screen
                          : (!state.bound.empty() || state.published || !app.controlPeers.empty()) ? ui::kWarn
                          : ui::kTextOff;
     int left = margin;
@@ -1500,9 +1501,9 @@ void OnCommand(App& app, UINT id) {
     }
     Settings& settings = app.settings;
     // These settings take effect on a fresh service, which ends a session in progress.
-    const auto restart = [&](bool video) {
+    const auto restart = [&](bool video, const wchar_t* what = L"The setting was applied") {
         if (app.connections > 0) {
-            app.notice = L"The setting was applied, which stopped mirroring. Start Screen Mirroring again on your device.";
+            app.notice = std::wstring(what) + L", which stopped mirroring. Start Screen Mirroring again on your device.";
         }
         RestartService(app, video);
     };
@@ -1522,12 +1523,12 @@ void OnCommand(App& app, UINT id) {
             settings.serverName = name;
             LOGI("[CFG] SetAirPlayServerName('%s')", WideToUtf8(name).c_str());
             settings.Save();
-            restart(false);
+            restart(false, L"The receiver was renamed");
         }
         break;
     }
     case IDM_RESTART:
-        restart(false);
+        restart(false, L"The AirPlay service was restarted");
         break;
     case IDM_OPEN_LOG_FOLDER:
         ShellExecuteW(app.window, L"open", AppDataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1616,12 +1617,18 @@ void UpdateControlUi(App& app) {
     app.controlState=state;
 
     // Status bar: a confirmation for a few seconds, otherwise what Bluetooth control is doing.
+    // News from Bluetooth is newer than the confirmation, so it takes the line back at once.
+    if(state.message!=app.lastControlMessage){
+        app.lastControlMessage=state.message;
+        app.toastUntil=0;
+    }
     const bool toast=GetTickCount64()<app.toastUntil;
     const std::wstring text=toast ? app.toast : state.focused ? L"Controlling iPhone - click elsewhere to return" : Utf8ToWide(state.message);
     const std::wstring detail=StatusDetail(app);
     const std::wstring clock=RecordClock(app);
-    if(text!=app.lastControlStatus || detail!=app.statusDetail || clock!=app.statusClock || state.ready!=app.statusReady || state.focused!=app.statusFocused){
-        app.lastControlStatus=text;app.statusDetail=detail;app.statusClock=clock;app.statusReady=state.ready;app.statusFocused=state.focused;
+    const bool usable=state.ready && app.hasPicture;  // decides the dot's colour, so a change repaints
+    if(text!=app.lastControlStatus || detail!=app.statusDetail || clock!=app.statusClock || usable!=app.statusReady || state.focused!=app.statusFocused){
+        app.lastControlStatus=text;app.statusDetail=detail;app.statusClock=clock;app.statusReady=usable;app.statusFocused=state.focused;
         SetWindowTextW(app.controlStatus,text.c_str());
         InvalidateRect(app.controlStatus,nullptr,FALSE);
     }
@@ -1632,7 +1639,8 @@ void UpdateControlUi(App& app) {
     const auto boundPeer=std::find_if(app.controlPeers.begin(),app.controlPeers.end(),[&](const ControlPeer& peer){return peer.token==state.bound;});
     if(state.ready || !state.bound.empty()){
         label=boundPeer!=app.controlPeers.end() ? PhoneName(app,*boundPeer) : L"iPhone";
-        dot=state.ready ? ui::kGood : ui::kWarn;
+        // Green means usable now: connected, and that phone is the one on screen.
+        dot=state.ready && app.hasPicture ? ui::kGood : ui::kWarn;
     }else if(!app.controlPeers.empty()){
         label=L"Choose phone";dot=ui::kWarn;
     }else if(state.published){
@@ -1644,6 +1652,7 @@ void UpdateControlUi(App& app) {
         app.phoneLabel=label;app.phoneDot=dot;
         SetWindowTextW(app.controlPeer,label.c_str());
         RelayoutWindow(app);
+        InvalidateRect(app.controlPeer,nullptr,FALSE);  // the dot can change while the name stays the same
     }
 
     const bool wasRecordLabel=app.recordLabelStop;

@@ -22,6 +22,7 @@ struct NativeControl::Impl {
     NativeControlState state;
     bool quitting=false, pair=false, disconnect=false, stop=false;
     bool focused=false, mirror=false, paused=false, picture=false;
+    bool live=false; // the chosen phone was on screen, unpaused, at the last inspection
     int width=0,height=0;
     ControlFrameGate frameGate;
     std::string bind, expected, sender, expectedSender;
@@ -35,6 +36,8 @@ struct NativeControl::Impl {
 
     void RefreshFocus() { // mutex held
         const bool usable = focused && mirror && !paused && picture && state.ready;
+        // Taking control again clears an earlier complaint ("Paste rejected...") from the status line.
+        if (usable && !queue.Armed()) state.message="Click the mirrored phone to control it; click elsewhere to return";
         if (usable != queue.Armed()) {
             queue.Focus(usable);
             if (!usable) stop=true;
@@ -155,8 +158,15 @@ struct NativeControl::Impl {
                         state.ready=ready;
                         state.sender=state.ready?expectedSender:"";
                         lost=!state.bound.empty()&&!subscribed;
+                        // "Live": the chosen phone is the one on screen right now. The status line follows
+                        // that rather than the identity match alone, which outlives a mirror that stopped.
+                        const bool nowLive=state.ready && mirror && picture && !paused;
+                        const bool becameLive=nowLive && !live;
+                        live=nowLive;
                         if (lost) state.message="Phone disconnected. Waiting for the saved phone.";
-                        else if(subscribed && !state.ready)state.message="Bluetooth connected; mirror the selected iPhone";
+                        else if(becameLive)state.message="Click the mirrored phone to control it; click elsewhere to return";
+                        else if(subscribed && state.ready && mirror && paused)state.message="Mirroring is paused. Unlock the iPhone to continue.";
+                        else if(subscribed && !nowLive)state.message="Bluetooth connected; mirror the selected iPhone";
                         // A phone has paired and nothing is chosen yet: say what the next click is.
                         else if(state.bound.empty() && !state.peers.empty())state.message="iPhone paired. Click the phone button and choose it to connect.";
                         else if (!view.published) state.message="Pairing closed after two minutes. Click the phone button to open it again.";
