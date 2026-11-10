@@ -37,6 +37,8 @@ public:
     // parameters AirPlay uses, and queues a short tone for the render thread.
     bool SelfTestDecoders();
     void PushTestTone(double seconds, double frequencyHz);
+    // Self-test: behave as if Windows reported a new default playback device.
+    void SimulateDefaultDeviceChange();
 
 private:
     struct Impl;

@@ -71,6 +71,59 @@ bool LooksValid(uint8_t ct, uint8_t firstByte) {
     }
 }
 
+// Hears from Windows when the default playback device changes. A stream stays on
+// the device it was opened on, so without this, sound would keep coming from the
+// speakers after headphones are plugged in. Lives on the render thread's stack
+// for as long as it is registered, so reference counting has nothing to free.
+class DefaultDeviceWatcher final : public IMMNotificationClient {
+public:
+    STDMETHODIMP QueryInterface(REFIID id, void** out) override {
+        if (!out) {
+            return E_POINTER;
+        }
+        if (id == __uuidof(IUnknown) || id == __uuidof(IMMNotificationClient)) {
+            *out = static_cast<IMMNotificationClient*>(this);
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return 2; }
+    STDMETHODIMP_(ULONG) Release() override { return 1; }
+    // Called on a Windows thread; it only records the new device for the render loop.
+    STDMETHODIMP OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR deviceId) override {
+        if (flow == eRender && role == eConsole) {
+            Set(deviceId ? deviceId : L"");
+        }
+        return S_OK;
+    }
+    STDMETHODIMP OnDeviceAdded(LPCWSTR) override { return S_OK; }
+    STDMETHODIMP OnDeviceRemoved(LPCWSTR) override { return S_OK; }
+    STDMETHODIMP OnDeviceStateChanged(LPCWSTR, DWORD) override { return S_OK; }
+    STDMETHODIMP OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override { return S_OK; }
+
+    void Set(const std::wstring& deviceId) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        deviceId_ = deviceId;
+        changed_ = true;
+    }
+    // True once per change, with the device that is now the default (empty when unknown).
+    bool Take(std::wstring& deviceId) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!changed_) {
+            return false;
+        }
+        changed_ = false;
+        deviceId = deviceId_;
+        return true;
+    }
+
+private:
+    std::mutex mutex_;
+    std::wstring deviceId_;
+    bool changed_ = false;
+};
+
 AVCodecContext* OpenDecoderFor(uint8_t ct) {
     const AVCodecID id = ct == 2 ? AV_CODEC_ID_ALAC : AV_CODEC_ID_AAC;
     const uint8_t* extra = ct == 2 ? kAlacCookie : (ct == 4 ? kAacLcConfig : kAacEldConfig);
@@ -130,6 +183,7 @@ struct AudioPipeline::Impl {
     std::atomic<float> gain{1.0f};
     std::atomic<bool> stop{false};
     std::atomic<Recorder*> recorder{nullptr};
+    DefaultDeviceWatcher deviceWatcher;  // declared before the thread that registers it
     std::thread renderThread;
 
     void CloseDecoder();
@@ -138,7 +192,7 @@ struct AudioPipeline::Impl {
     size_t Dequeue(float* out, size_t count);
     void ClearBuffer();
     void RenderLoop();
-    bool RenderSession();
+    bool RenderSession(IMMDeviceEnumerator* enumerator);
 };
 
 AudioPipeline::AudioPipeline() : impl_(std::make_unique<Impl>()) {}
@@ -273,6 +327,11 @@ void AudioPipeline::SetGain(double gain) {
 
 void AudioPipeline::SetRecorder(Recorder* recorder) {
     impl_->recorder = recorder;
+}
+
+void AudioPipeline::SimulateDefaultDeviceChange() {
+    // An empty id never matches the open device, so the render loop reopens.
+    impl_->deviceWatcher.Set(L"");
 }
 
 double AudioPipeline::BufferedMs() const {
@@ -420,29 +479,43 @@ void AudioPipeline::Impl::RenderLoop() {
         LOGW("[AUDIO] MMCSS unavailable, falling back to TIME_CRITICAL");
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     }
-    // A session ends when the device goes away (unplugged, default changed); then open the new default.
-    while (!stop) {
-        if (!RenderSession() && !stop) {
+    ComPtr<IMMDeviceEnumerator> enumerator;
+    const HRESULT created = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
+    if (FAILED(created)) {
+        LOGE("[AUDIO] MMDeviceEnumerator failed hr=0x%08lX; there will be no sound", created);
+    }
+    bool watching = false;
+    if (enumerator) {
+        const HRESULT registered = enumerator->RegisterEndpointNotificationCallback(&deviceWatcher);
+        watching = SUCCEEDED(registered);
+        if (!watching) {
+            LOGW("[AUDIO] cannot watch for a new default playback device (hr=0x%08lX); sound stays on the first one", registered);
+        }
+    }
+    // A session ends when its device goes away or stops being the default; then open the new default.
+    while (!stop && enumerator) {
+        if (!RenderSession(enumerator.Get()) && !stop) {
             Sleep(500);
         }
     }
+    if (watching) {
+        enumerator->UnregisterEndpointNotificationCallback(&deviceWatcher);
+    }
+    enumerator.Reset();
     if (mmcss) {
         AvRevertMmThreadCharacteristics(mmcss);
     }
     CoUninitialize();
 }
 
-bool AudioPipeline::Impl::RenderSession() {
-    ComPtr<IMMDeviceEnumerator> enumerator;
+bool AudioPipeline::Impl::RenderSession(IMMDeviceEnumerator* enumerator) {
     ComPtr<IMMDevice> device;
     ComPtr<IAudioClient> client;
     ComPtr<IAudioRenderClient> render;
-    HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
-    if (FAILED(hr)) {
-        LOGE("[AUDIO] MMDeviceEnumerator failed hr=0x%08lX", hr);
-        return false;
-    }
-    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+    // Changes reported before this point are covered by opening the current default now.
+    std::wstring changedTo;
+    deviceWatcher.Take(changedTo);
+    HRESULT hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
     if (FAILED(hr)) {
         static bool logged = false;
         if (!logged) {
@@ -450,6 +523,13 @@ bool AudioPipeline::Impl::RenderSession() {
             logged = true;
         }
         return false;
+    }
+    // Remembered so a notice about the device already in use does not interrupt the sound.
+    std::wstring openId;
+    LPWSTR rawId = nullptr;
+    if (SUCCEEDED(device->GetId(&rawId)) && rawId) {
+        openId = rawId;
+        CoTaskMemFree(rawId);
     }
     hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, &client);
     if (FAILED(hr)) {
@@ -495,6 +575,11 @@ bool AudioPipeline::Impl::RenderSession() {
         // An invalidated device stops signalling, so probe on timeouts too; the
         // padding check then reports the loss and the device is reopened.
         WaitForSingleObject(event, 200);
+        if (deviceWatcher.Take(changedTo) && changedTo != openId) {
+            // Not a failure: reopen at once on the new default, without the retry pause.
+            LOGI("[AUDIO] the default playback device changed; moving the sound to it");
+            break;
+        }
         UINT32 padding = 0;
         hr = client->GetCurrentPadding(&padding);
         if (FAILED(hr)) {

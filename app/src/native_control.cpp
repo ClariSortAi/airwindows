@@ -105,7 +105,7 @@ struct NativeControl::Impl {
                         LOGI("[CONTROL] Native Bluetooth publication already open; extended to 120 seconds from now");
                     }
                     std::lock_guard<std::mutex> lock(mutex);
-                    state.message="Pair this PC in iPhone Settings > Bluetooth; select the phone below";
+                    state.message="Pairing is open for two minutes: on the iPhone, open Settings > Bluetooth and tap this PC";
                 }
                 if (!current) continue;
                 if (!doBind.empty()) {
@@ -157,7 +157,9 @@ struct NativeControl::Impl {
                         lost=!state.bound.empty()&&!subscribed;
                         if (lost) state.message="Phone disconnected. Waiting for the saved phone.";
                         else if(subscribed && !state.ready)state.message="Bluetooth connected; mirror the selected iPhone";
-                        else if (!view.published) state.message="Pairing window expired. Click Pair to reopen.";
+                        // A phone has paired and nothing is chosen yet: say what the next click is.
+                        else if(state.bound.empty() && !state.peers.empty())state.message="iPhone paired. Click the phone button and choose it to connect.";
+                        else if (!view.published) state.message="Pairing closed after two minutes. Click the phone button to open it again.";
                         RefreshFocus();
                     }
                     if (lost) { Close(); std::lock_guard<std::mutex> lock(mutex); focused=false; pair=!expected.empty(); continue; }

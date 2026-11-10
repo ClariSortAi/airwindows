@@ -149,6 +149,7 @@ struct App {
     bool selfTestMenu = false;
     bool selfTestScreenshot = false;
     bool selfTestCaptureArmed = false;
+    bool selfTestCaptureUsed = false;  // the capture self-test runs once, not again after a picture returns
     bool hevcHardware = false;
     bool debugLog = false;
     bool exportFrames = false;
@@ -179,6 +180,7 @@ struct App {
     std::wstring selfTestVideo;
     bool selfTestAudio = false;
     bool selfTestTone = false;
+    bool selfTestAudioSwitch = false;
     int selfTestDeviceLossSeconds = 0;
     std::wstring selfTestCrash;
     int exitAfterSeconds = 0;
@@ -195,7 +197,8 @@ DecoderMode Decoder(const App& app) {
 // Self-test runs feed the pipelines directly. They do not advertise a receiver,
 // take the single-instance slot or change saved settings.
 bool SelfTesting(const App& app) {
-    return !app.selfTestVideo.empty() || app.selfTestAudio || app.selfTestTone || !app.selfTestCrash.empty();
+    return !app.selfTestVideo.empty() || app.selfTestAudio || app.selfTestTone || app.selfTestAudioSwitch ||
+           !app.selfTestCrash.empty();
 }
 
 // Posted by a second launch to the receiver already running. wParam bit 0: the
@@ -934,6 +937,16 @@ void RunSelfTest(App& app) {
         // The render thread is the only consumer, so an empty buffer means the device took the samples.
         LOGI("[SELFTEST] audio tone: %.0f ms still queued after the last packet, %.0f ms after a further 400 ms",
              queued, app.audio.BufferedMs());
+    }
+    if (app.selfTestAudioSwitch) {
+        // Muted, so the check makes no sound: it only watches the stream move to the "new" device.
+        app.audio.SetGain(0.0);
+        app.audio.PushTestTone(0.5, 440.0);
+        LOGI("[SELFTEST] simulating a new default playback device");
+        app.audio.SimulateDefaultDeviceChange();
+        app.audio.PushTestTone(0.8, 440.0);
+        Sleep(400);
+        LOGI("[SELFTEST] audio after the device change: %.0f ms still queued", app.audio.BufferedMs());
     }
     if (app.selfTestVideo.empty()) {
         return;
@@ -1992,7 +2005,8 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         ShowWindow(app->videoWindow, app->hasPicture ? SW_SHOWNA : SW_HIDE);
         if (app->hasPicture) {
             app->video.RequestRedraw();
-            if ((app->selfTestScreenshot || app->selfTestRecordSeconds > 0) && !app->selfTestCaptureArmed) {
+            if ((app->selfTestScreenshot || app->selfTestRecordSeconds > 0) && !app->selfTestCaptureUsed) {
+                app->selfTestCaptureUsed = true;
                 app->selfTestCaptureArmed = true;
                 SetTimer(window, kSelfTestCaptureTimer, 700, nullptr);
             }
@@ -2055,6 +2069,9 @@ void ParseCommandLine(App& app) {
             app.selfTestAudio = true;
         } else if (arg == L"--selftest-tone") {
             app.selfTestTone = true;
+        } else if (arg == L"--selftest-audio-switch") {
+            // Silent: behave as if the default playback device changed and watch the stream reopen.
+            app.selfTestAudioSwitch = true;
         } else if (arg == L"--selftest-video" && i + 1 < argc) {
             app.selfTestVideo = argv[++i];
         } else if (arg == L"--selftest-device-loss" && i + 1 < argc) {
@@ -2304,7 +2321,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     if (!app.selfTestCrash.empty()) {
         SetTimer(app.window, kCrashTimer, 1000, nullptr);
     }
-    if (app.selfTestAudio || app.selfTestTone || !app.selfTestVideo.empty()) {
+    if (app.selfTestAudio || app.selfTestTone || app.selfTestAudioSwitch || !app.selfTestVideo.empty()) {
         app.selfTestThread = std::thread([&app] { RunSelfTest(app); });
     }
 
