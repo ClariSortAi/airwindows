@@ -31,6 +31,16 @@
 #define MDNS_MAX_PACKET 1500
 #define MDNS_COMBINED_PACKET_MAX 1200
 #define MDNS_TTL_HOST 120
+#define MDNS_MAX_INTERFACES 32
+
+/* How often the adapter list is compared with the one in use, and how long an
+ * address-change event is left to settle before the groups are rejoined. */
+#ifndef MDNS_INTERFACE_POLL_MS
+#define MDNS_INTERFACE_POLL_MS 2000
+#endif
+#ifndef MDNS_CHANGE_SETTLE_MS
+#define MDNS_CHANGE_SETTLE_MS 1000
+#endif
 
 #define DNS_TYPE_A 1
 #define DNS_TYPE_AAAA 28
@@ -54,6 +64,11 @@ typedef enum {
     MDNS_FAMILY_IPV6
 } mdns_family_t;
 
+typedef struct {
+    uint32_t addr;
+    unsigned int index;
+} mdns_interface_t;
+
 struct mdnsd_s {
     char host_name[MDNSD_MAX_NAME];
     mdnsd_service_t airplay;
@@ -67,9 +82,15 @@ struct mdnsd_s {
     int running;
     thread_handle_t thread;
     mutex_handle_t mutex;
-    struct { uint32_t addr; unsigned int index; } interfaces[32];
+    /* Adapters whose mDNS group this socket has joined, and the list last seen
+     * on the PC. They differ only when a join failed. */
+    mdns_interface_t interfaces[MDNS_MAX_INTERFACES];
     int interface_count;
+    mdns_interface_t seen[MDNS_MAX_INTERFACES];
+    int seen_count;
     LPFN_WSARECVMSG recvmsg_fn;
+    HANDLE change_handle;
+    volatile LONG change_pending;
 };
 
 static int mdns_put_u8(mdns_packet_t *packet, unsigned int value)
@@ -480,39 +501,85 @@ static int mdns_get_default_ipv6(unsigned char addr[16], unsigned int *scope_id)
 }
 
 /* One socket joins each physical LAN. IP_PKTINFO identifies the receiving LAN,
- * so each reply contains that LAN's address rather than an unrelated one. */
-static void mdns_get_interfaces(mdnsd_t *mdnsd)
+ * so each reply contains that LAN's address rather than an unrelated one.
+ * Returns the number of usable adapters, or -1 when the list cannot be read. */
+static int mdns_list_interfaces(mdns_interface_t *out, int max)
 {
+    int count = 0;
     ULONG size = 16384;
     IP_ADAPTER_ADDRESSES *adapters = malloc(size);
-    if (!adapters) return;
+    if (!adapters) return -1;
+    memset(out, 0, (size_t) max * sizeof(*out));
     ULONG rc = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
                                     GAA_FLAG_SKIP_DNS_SERVER, NULL, adapters, &size);
     if (rc == ERROR_BUFFER_OVERFLOW) {
         free(adapters);
         adapters = malloc(size);
-        if (!adapters) return;
+        if (!adapters) return -1;
         rc = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
                                   GAA_FLAG_SKIP_DNS_SERVER, NULL, adapters, &size);
     }
-    if (rc == NO_ERROR) {
-        for (IP_ADAPTER_ADDRESSES *a = adapters; a && mdnsd->interface_count < 32; a = a->Next) {
-            if (a->OperStatus != IfOperStatusUp ||
-                (a->IfType != IF_TYPE_ETHERNET_CSMACD && a->IfType != IF_TYPE_IEEE80211) ||
-                (a->Flags & IP_ADAPTER_NO_MULTICAST) ||
-                wcsstr(a->Description, L"Hyper-V") || wcsstr(a->Description, L"Virtual")) continue;
-            for (IP_ADAPTER_UNICAST_ADDRESS *u = a->FirstUnicastAddress; u; u = u->Next) {
-                struct sockaddr_in *v4 = (struct sockaddr_in *)u->Address.lpSockaddr;
-                uint32_t host = ntohl(v4->sin_addr.s_addr);
-                if ((host & 0xffff0000u) == 0xa9fe0000u || !host) continue;
-                int n = mdnsd->interface_count++;
-                mdnsd->interfaces[n].addr = v4->sin_addr.s_addr;
-                mdnsd->interfaces[n].index = a->IfIndex;
-                break;
-            }
+    if (rc == ERROR_NO_DATA) {
+        /* No adapter has an address yet, which is a valid, empty list. */
+        free(adapters);
+        return 0;
+    }
+    if (rc != NO_ERROR) {
+        free(adapters);
+        return -1;
+    }
+    for (IP_ADAPTER_ADDRESSES *a = adapters; a && count < max; a = a->Next) {
+        if (a->OperStatus != IfOperStatusUp ||
+            (a->IfType != IF_TYPE_ETHERNET_CSMACD && a->IfType != IF_TYPE_IEEE80211) ||
+            (a->Flags & IP_ADAPTER_NO_MULTICAST) ||
+            wcsstr(a->Description, L"Hyper-V") || wcsstr(a->Description, L"Virtual")) continue;
+        for (IP_ADAPTER_UNICAST_ADDRESS *u = a->FirstUnicastAddress; u; u = u->Next) {
+            struct sockaddr_in *v4 = (struct sockaddr_in *)u->Address.lpSockaddr;
+            uint32_t host = ntohl(v4->sin_addr.s_addr);
+            if ((host & 0xffff0000u) == 0xa9fe0000u || !host) continue;
+            out[count].addr = v4->sin_addr.s_addr;
+            out[count].index = a->IfIndex;
+            count++;
+            break;
         }
     }
     free(adapters);
+    return count;
+}
+
+/* Joins or leaves the mDNS group on one adapter. The adapter is named by its
+ * index (0.0.0.<index>), which stays valid when its address changes. */
+static int mdns_membership(int fd, unsigned int index, int join)
+{
+    struct ip_mreq mreq;
+    memset(&mreq, 0, sizeof(mreq));
+    inet_pton(AF_INET, MDNS_ADDR4, &mreq.imr_multiaddr);
+    mreq.imr_interface.s_addr = htonl(index);
+    return setsockopt(fd, IPPROTO_IP, join ? IP_ADD_MEMBERSHIP : IP_DROP_MEMBERSHIP,
+                      (const char *) &mreq, sizeof(mreq));
+}
+
+/* Replaces the joined adapters with `fresh`. Every old group is left first:
+ * Windows refuses a second join on an adapter, and only a new join is certain
+ * to be live after the adapter went away and came back. Mutex held. */
+static void mdns_join_interfaces_locked(mdnsd_t *mdnsd, int fd,
+                                        const mdns_interface_t *fresh, int count)
+{
+    int joined = 0;
+    for (int i = 0; i < mdnsd->interface_count; i++) {
+        /* Fails when the adapter is gone, which already ended the membership. */
+        mdns_membership(fd, mdnsd->interfaces[i].index, 0);
+    }
+    for (int i = 0; i < count; i++) {
+        if (mdns_membership(fd, fresh[i].index, 1) == 0) {
+            mdnsd->interfaces[joined++] = fresh[i];
+        }
+    }
+    mdnsd->interface_count = joined;
+    mdnsd->ipv4_addr = joined ? mdnsd->interfaces[0].addr : 0;
+    memset(mdnsd->seen, 0, sizeof(mdnsd->seen));
+    memcpy(mdnsd->seen, fresh, (size_t) count * sizeof(*fresh));
+    mdnsd->seen_count = count;
 }
 
 static int mdns_open_socket4(mdnsd_t *mdnsd)
@@ -522,7 +589,8 @@ static int mdns_open_socket4(mdnsd_t *mdnsd)
     unsigned char ttl = 255;
     unsigned char loop = 1;
     struct sockaddr_in addr;
-    struct ip_mreq mreq;
+    mdns_interface_t fresh[MDNS_MAX_INTERFACES];
+    int count;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
@@ -553,22 +621,11 @@ static int mdns_open_socket4(mdnsd_t *mdnsd)
         return -error;
     }
 
-    int joined = 0;
-    for (int i = 0; i < mdnsd->interface_count; i++) {
-        memset(&mreq, 0, sizeof(mreq));
-        inet_pton(AF_INET, MDNS_ADDR4, &mreq.imr_multiaddr);
-        mreq.imr_interface.s_addr = mdnsd->interfaces[i].addr;
-        if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP,
-                       (const char *) &mreq, sizeof(mreq)) == 0) {
-            mdnsd->interfaces[joined++] = mdnsd->interfaces[i];
-        }
-    }
-    mdnsd->interface_count = joined;
-    if (!joined) {
-        int error = SOCKET_GET_ERROR();
-        CLOSESOCKET(fd);
-        return error ? -error : -1;
-    }
+    /* With no adapter up yet the socket still opens. The responder thread joins
+     * each network when it appears, so the receiver need not be restarted. */
+    count = mdns_list_interfaces(fresh, MDNS_MAX_INTERFACES);
+    mdnsd->interface_count = 0;
+    mdns_join_interfaces_locked(mdnsd, fd, fresh, count > 0 ? count : 0);
 
     return fd;
 }
@@ -971,9 +1028,44 @@ static void mdns_handle_query(mdnsd_t *mdnsd, const unsigned char *bytes,
     MUTEX_UNLOCK(mdnsd->mutex);
 }
 
+/* Windows calls this on one of its own threads when an IPv4 address is added,
+ * removed or changed. The responder thread does the work. */
+static VOID NETIOAPI_API_ mdns_address_changed(PVOID context, PMIB_UNICASTIPADDRESS_ROW row,
+                                               MIB_NOTIFICATION_TYPE type)
+{
+    (void) row;
+    (void) type;
+    InterlockedExchange(&((mdnsd_t *) context)->change_pending, 1);
+}
+
+/* Follows the PC's networks while the receiver runs: Wi-Fi reconnecting, a new
+ * DHCP address, a cable plugged in, or a network that was not up at launch.
+ * `force` rejoins even when the list looks the same, because an adapter can
+ * drop and return between two looks. */
+static void mdns_refresh_interfaces(mdnsd_t *mdnsd, int force)
+{
+    mdns_interface_t fresh[MDNS_MAX_INTERFACES];
+    int count = mdns_list_interfaces(fresh, MDNS_MAX_INTERFACES);
+
+    if (count < 0) {
+        return; /* The list could not be read; keep what works now. */
+    }
+
+    MUTEX_LOCK(mdnsd->mutex);
+    if (mdnsd->running && mdnsd->sock_fd4 != -1 &&
+        (force || count != mdnsd->seen_count ||
+         memcmp(fresh, mdnsd->seen, (size_t) count * sizeof(*fresh)))) {
+        mdns_join_interfaces_locked(mdnsd, mdnsd->sock_fd4, fresh, count);
+        mdns_announce_locked(mdnsd, MDNSD_TTL_SERVICE);
+    }
+    MUTEX_UNLOCK(mdnsd->mutex);
+}
+
 static THREAD_RETVAL mdns_thread(void *arg)
 {
     mdnsd_t *mdnsd = arg;
+    ULONGLONG next_poll = GetTickCount64() + MDNS_INTERFACE_POLL_MS;
+    ULONGLONG settle_at = 0;
 
     for (;;) {
         fd_set rfds;
@@ -983,6 +1075,7 @@ static THREAD_RETVAL mdns_thread(void *arg)
         int max_fd = -1;
         int running;
         int ret;
+        ULONGLONG now;
 
         MUTEX_LOCK(mdnsd->mutex);
         fd4 = mdnsd->sock_fd4;
@@ -992,6 +1085,19 @@ static THREAD_RETVAL mdns_thread(void *arg)
 
         if (!running || (fd4 == -1 && fd6 == -1)) {
             break;
+        }
+
+        now = GetTickCount64();
+        if (InterlockedExchange(&mdnsd->change_pending, 0)) {
+            settle_at = now + MDNS_CHANGE_SETTLE_MS;
+        }
+        if (settle_at && now >= settle_at) {
+            settle_at = 0;
+            next_poll = now + MDNS_INTERFACE_POLL_MS;
+            mdns_refresh_interfaces(mdnsd, 1);
+        } else if (now >= next_poll) {
+            next_poll = now + MDNS_INTERFACE_POLL_MS;
+            mdns_refresh_interfaces(mdnsd, 0);
         }
 
         FD_ZERO(&rfds);
@@ -1111,8 +1217,6 @@ int mdnsd_start(mdnsd_t *mdnsd)
     int error4 = 0;
     int error6 = 0;
 
-    mdns_get_interfaces(mdnsd);
-    mdnsd->ipv4_addr = mdnsd->interface_count ? mdnsd->interfaces[0].addr : 0;
     mdns_get_default_ipv6(mdnsd->ipv6_addr, &mdnsd->ipv6_scope_id);
 
     mdnsd->sock_fd4 = mdns_open_socket4(mdnsd);
@@ -1159,6 +1263,13 @@ int mdnsd_start(mdnsd_t *mdnsd)
         return -1;
     }
 
+    /* Without the notification the periodic comparison still finds changes. */
+    mdnsd->change_pending = 0;
+    if (NotifyUnicastIpAddressChange(AF_INET, mdns_address_changed, mdnsd, FALSE,
+                                     &mdnsd->change_handle) != NO_ERROR) {
+        mdnsd->change_handle = NULL;
+    }
+
     MUTEX_UNLOCK(mdnsd->mutex);
     return 0;
 }
@@ -1168,6 +1279,7 @@ void mdnsd_stop(mdnsd_t *mdnsd)
     int fd4 = -1;
     int fd6 = -1;
     thread_handle_t thread = 0;
+    HANDLE change_handle = NULL;
 
     if (!mdnsd) {
         return;
@@ -1179,11 +1291,19 @@ void mdnsd_stop(mdnsd_t *mdnsd)
         fd4 = mdnsd->sock_fd4;
         fd6 = mdnsd->sock_fd6;
         thread = mdnsd->thread;
+        change_handle = mdnsd->change_handle;
         mdnsd->sock_fd4 = -1;
         mdnsd->sock_fd6 = -1;
         mdnsd->thread = 0;
+        mdnsd->change_handle = NULL;
     }
     MUTEX_UNLOCK(mdnsd->mutex);
+
+    /* Returns once no callback is running, so none can touch freed memory.
+       Called outside the mutex: the callback itself never takes it. */
+    if (change_handle) {
+        CancelMibChangeNotify2(change_handle);
+    }
 
     /* Join first (select wakes within 250 ms) so the thread never holds a closed,
        possibly reused, socket handle. */

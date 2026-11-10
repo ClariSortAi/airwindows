@@ -36,6 +36,16 @@ add_executable(ControlPolicyCheck EXCLUDE_FROM_ALL ../tests/control_policy_check
 target_include_directories(ControlPolicyCheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../../native-ble-prototype")
 set_target_properties(ControlPolicyCheck PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+# The check compiles mdnsd_win.c into itself with the adapter list scripted, so it
+# needs the same headers and prelude as uxplay_core but none of its objects.
+add_executable(MdnsRefreshCheck EXCLUDE_FROM_ALL ../tests/mdns_refresh_check.c)
+target_include_directories(MdnsRefreshCheck PRIVATE
+  "${UXPLAY_DIR}/lib" "${UXPLAY_DIR}/lib/mdnsd" "${CMAKE_SOURCE_DIR}/compat/msvc")
+target_compile_definitions(MdnsRefreshCheck PRIVATE WIN32 _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS)
+target_compile_options(MdnsRefreshCheck PRIVATE /FImsvc_prelude.h /W3 /we4013 /wd4244 /wd4267 /wd4018 /wd4996 /wd5105)
+target_link_libraries(MdnsRefreshCheck PRIVATE ws2_32 iphlpapi)
+set_target_properties(MdnsRefreshCheck PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 add_executable(FrameServerCheck EXCLUDE_FROM_ALL ../tests/frame_server_check.cpp frame_server.cpp log.cpp)
 target_include_directories(FrameServerCheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(FrameServerCheck PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
