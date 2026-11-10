@@ -60,6 +60,7 @@ Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt
 | `--selftest-video <file>` | Feed an H.264/H.265 Annex-B file through the video pipeline |
 | `--selftest-audio` | Open the AAC-ELD, AAC-LC and ALAC decoders with AirPlay parameters |
 | `--selftest-tone` | Play a one-second output test tone |
+| `--selftest-audio-switch` | Silently report a new default playback device and log the stream moving to it |
 | `--selftest-device-loss <seconds>` | Report the graphics device lost after this long, to exercise recovery |
 | `--selftest-crash access\|terminate` | Fail on purpose, to exercise the crash report |
 | `--selftest-screenshot` | With `--selftest-video`: save one screenshot once the picture is up (not copied to the clipboard) |
@@ -67,7 +68,7 @@ Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt
 | `--selftest-menu` | Write the menu's labels, check marks and grey-outs to the log when command 41200 is posted to the window |
 | `--exit-after <seconds>` | Exit after a bounded run; a failure then saves its report without a dialog |
 
-H.265 is offered only when the GPU can decode it; otherwise the sender uses H.264. If the graphics device is reset or removed, by a driver update for example, the session ends and the receiver rebuilds its video path. Start Screen Mirroring again to continue. Video is drawn after decoding. Audio uses a roughly 60-80 ms buffer and can trail the picture. Real-device sound, H.265 and unexpected network-drop recovery remain untested. Video-link casting, an audio-only now-playing display and additional languages are not implemented.
+H.265 is offered only when the GPU can decode it; otherwise the sender uses H.264. If the graphics device is reset or removed, by a driver update for example, the session ends and the receiver rebuilds its video path. Start Screen Mirroring again to continue. Video is drawn after decoding. Audio uses a roughly 60-80 ms buffer and can trail the picture. It plays on Windows' default playback device and moves when that changes, for example when headphones are plugged in. Real-device sound, H.265 and unexpected network-drop recovery remain untested. Video-link casting, an audio-only now-playing display and additional languages are not implemented.
 
 ## Checks
 

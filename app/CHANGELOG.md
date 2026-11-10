@@ -11,13 +11,14 @@
 - New icon, drawn as SVG (`src/app-icon.svg`) with a simpler drawing for 16 to 32 pixels.
 - Log lines no longer break on a receiver, phone or folder name outside ASCII.
 - AirWindows follows network changes while it runs. Discovery used to join only the networks that were up at launch. After Wi-Fi reconnected or the PC's address changed, the receiver dropped out of the iPhone's Screen Mirroring list until it was restarted, and a receiver started before the network was up never appeared at all. It now joins a network within a few seconds of it appearing and can start with none.
+- Sound follows Windows' default playback device. Plugging in headphones used to leave the phone's sound on the speakers until mirroring restarted.
 - A graphics device reset no longer leaves a black picture. After a driver update or GPU reset, the session ends, the receiver rebuilds its video path on the new device and the idle screen says what happened. Start Screen Mirroring again to continue.
 - Starting AirWindows twice no longer runs two receivers with the same name and the same Bluetooth service. The second launch brings the running window forward and exits. If it asked for `--frames` and the running receiver did not have it, frame access turns on there.
 - If AirWindows stops unexpectedly, it saves a crash report in `%LOCALAPPDATA%\AirWindows\crashes` and shows where it is. The window used to just close. The five newest reports are kept and nothing is uploaded. Release builds keep their debug symbols, and `package.ps1 -Release` archives them beside the release so a report can be read.
 - A full log is kept as `debug.old.txt` when a new one starts. It used to be emptied, which lost the events that led up to a problem.
 - The window reopens at its last position and size. The toolbar uses the system font at the display's scale and sits on its own strip.
 - The status line names the Bluetooth problems that stop pairing: no adapter, an adapter that cannot act as a keyboard and mouse, or Bluetooth that could not start.
-- New self-test options `--selftest-device-loss`, `--selftest-crash`, `--selftest-screenshot`, `--selftest-record` and `--selftest-menu`, and `--capture-dir` to choose where captures go. A new check, `MdnsRefreshCheck`, runs the discovery code against a scripted adapter and is part of CI. `RecorderCheck` tests the recorder alone and is run locally.
+- New self-test options `--selftest-device-loss`, `--selftest-crash`, `--selftest-audio-switch`, `--selftest-screenshot`, `--selftest-record` and `--selftest-menu`, and `--capture-dir` to choose where captures go. A new check, `MdnsRefreshCheck`, runs the discovery code against a scripted adapter and is part of CI. `RecorderCheck` tests the recorder alone and is run locally.
 
 Tested on Windows 11 without a phone, on a 1170 by 2532 test clip: every menu command was fired and its effect, check mark and grey state checked (the Always on top check needed the window opened normally, not in the background); a screenshot came out at 1170 by 2532; a four-second recording held 114 frames of H.264 and four seconds of AAC, and its colours were within 4 levels in 255 of the screenshot; F8, F9 and F11 worked with the keyboard on the picture; the guide opened and closed and the window grew and shrank by its width. Only 100% display scaling was tried.
 
@@ -25,7 +26,7 @@ Also tested without a phone: the discovery check passed, and failed when each pa
 
 Tested on one iPhone15,2: the receiver was started with only Ethernet up. The PC's Wi-Fi connected a minute later, the running receiver answered discovery on the new address, and the phone then mirrored to it. Home and `page left` worked. A device loss simulated during the session ended it and the idle screen showed the reason.
 
-Untested: the new window with a phone mirroring, including recording a phone's sound, choosing a phone from the phone button and pairing a new phone through the guide; display scaling above 100%; Windows 10 and Windows N editions; the phone mirroring again after a simulated device loss; the new Bluetooth adapter messages; and the discovery check on the CI runner.
+Untested: the new window with a phone mirroring, including recording a phone's sound, choosing a phone from the phone button and pairing a new phone through the guide; display scaling above 100%; Windows 10 and Windows N editions; the phone mirroring again after a simulated device loss; a real change of default playback device (the move was exercised by reporting one from inside the program); the new Bluetooth adapter messages; and the discovery check on the CI runner.
 
 Known issues:
 
