@@ -9,6 +9,10 @@ set(AIRWINDOWS_SOURCES
   settings.cpp
   log.cpp
   crash.cpp
+  ui.cpp
+  guide.cpp
+  capture.cpp
+  recorder.cpp
   native_control.cpp
   ../../native-ble-prototype/native_hid_backend.cpp
   app.rc
@@ -27,7 +31,12 @@ target_compile_definitions(${APP_TARGET} PRIVATE
 target_compile_options(${APP_TARGET} PRIVATE /W4 /permissive- /utf-8 /wd5105)
 target_link_libraries(${APP_TARGET} PRIVATE
   uxplay_core ffmpeg
-  d3d11 dxgi dxguid d3dcompiler ole32 avrt user32 gdi32 shell32 comctl32 iphlpapi ws2_32 advapi32 dbghelp windowsapp)
+  d3d11 dxgi dxguid d3dcompiler ole32 avrt user32 gdi32 shell32 comctl32 iphlpapi ws2_32 advapi32 dbghelp
+  gdiplus dwmapi windowscodecs mfplat mfreadwrite mfuuid propsys delayimp windowsapp)
+# Windows N editions have no Media Foundation until the Media Feature Pack is
+# installed. Loading it on first use lets the receiver start there; recording
+# then says what is missing instead of the program failing to launch.
+target_link_options(${APP_TARGET} PRIVATE /DELAYLOAD:mfplat.dll /DELAYLOAD:mfreadwrite.dll)
 
 set_target_properties(${APP_TARGET} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -46,6 +55,15 @@ target_compile_definitions(MdnsRefreshCheck PRIVATE WIN32 _CRT_SECURE_NO_WARNING
 target_compile_options(MdnsRefreshCheck PRIVATE /FImsvc_prelude.h /W3 /we4013 /wd4244 /wd4267 /wd4018 /wd4996 /wd5105)
 target_link_libraries(MdnsRefreshCheck PRIVATE ws2_32 iphlpapi)
 set_target_properties(MdnsRefreshCheck PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# Records generated pictures and a tone, then reads the files back. It needs the
+# Windows H.264 encoder and runs in real time, so CI does not run it.
+add_executable(RecorderCheck EXCLUDE_FROM_ALL ../tests/recorder_check.cpp recorder.cpp)
+target_include_directories(RecorderCheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(RecorderCheck PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_compile_options(RecorderCheck PRIVATE /W4 /permissive- /utf-8)
+target_link_libraries(RecorderCheck PRIVATE mfplat mfreadwrite mfuuid ole32 propsys)
+set_target_properties(RecorderCheck PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 add_executable(FrameServerCheck EXCLUDE_FROM_ALL ../tests/frame_server_check.cpp frame_server.cpp log.cpp)
 target_include_directories(FrameServerCheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

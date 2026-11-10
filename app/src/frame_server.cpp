@@ -23,8 +23,9 @@ struct FrameOwner {
 };
 
 // Match the renderer's BT.709 conversion. Export visible pixels, without
-// decoder padding, scaling, window chrome or letterboxing.
-bool ToPpm(const AVFrame* source, std::vector<uint8_t>& output) {
+// decoder padding, scaling, window chrome or letterboxing. `output` becomes
+// width*height*3 bytes, top row first.
+bool ToRgb(const AVFrame* source, std::vector<uint8_t>& output, int& width, int& height) {
     FrameOwner downloaded;
     const AVFrame* f = source;
     if (source->format == AV_PIX_FMT_D3D11) {
@@ -39,10 +40,10 @@ bool ToPpm(const AVFrame* source, std::vector<uint8_t>& output) {
     const bool planar8 = f->format == AV_PIX_FMT_YUV420P || f->format == AV_PIX_FMT_YUVJ420P;
     if ((!nv12 && !p010 && !planar10 && !planar8) || f->width <= 0 || f->height <= 0 ||
         f->width > 4096 || f->height > 4096) return false;
-    const std::string header = "P6\n" + std::to_string(f->width) + " " + std::to_string(f->height) + "\n255\n";
-    output.assign(header.begin(), header.end());
-    output.resize(header.size() + static_cast<size_t>(f->width) * f->height * 3);
-    uint8_t* dst = output.data() + header.size();
+    width = f->width;
+    height = f->height;
+    output.resize(static_cast<size_t>(f->width) * f->height * 3);
+    uint8_t* dst = output.data();
     const bool limited = f->color_range == AVCOL_RANGE_MPEG && f->format != AV_PIX_FMT_YUVJ420P;
     auto byte = [](float value) { return static_cast<uint8_t>(std::clamp(value, 0.0f, 255.0f) + 0.5f); };
     for (int y = 0; y < f->height; ++y) {
@@ -69,6 +70,14 @@ bool ToPpm(const AVFrame* source, std::vector<uint8_t>& output) {
             *dst++ = byte(yy + 1.8556f * u);
         }
     }
+    return true;
+}
+
+bool ToPpm(const AVFrame* source, std::vector<uint8_t>& output) {
+    int width = 0, height = 0;
+    if (!ToRgb(source, output, width, height)) return false;
+    const std::string header = "P6\n" + std::to_string(width) + " " + std::to_string(height) + "\n255\n";
+    output.insert(output.begin(), header.begin(), header.end());
     return true;
 }
 
@@ -100,7 +109,6 @@ struct FrameServer::Impl {
     bool controlReady=false, controlBusy=false, controlFocused=false;
     uint64_t controlTick=0, controlEpoch=1;
     std::string controlPeer, controlSender;
-    std::atomic<bool> enabled{false};
     HANDLE stopEvent = nullptr;
     std::thread worker;
 
@@ -235,7 +243,6 @@ bool FrameServer::Start(bool selfTest) {
     FILETIME time; GetSystemTimeAsFileTime(&time);
     s.instance = (static_cast<uint64_t>(time.dwHighDateTime) << 32) | time.dwLowDateTime;
     s.selfTest = selfTest;
-    s.enabled = true;
     SetActive(selfTest);
     s.worker = std::thread([&s, security] { s.Loop(security); });
     LOGI("[FRAMES] local user-only pipe: AirWindows.Frames.%lu", GetCurrentProcessId());
@@ -243,7 +250,6 @@ bool FrameServer::Start(bool selfTest) {
 }
 void FrameServer::Stop() {
     auto& s = *impl_;
-    s.enabled = false;
     if (s.worker.joinable()) { SetEvent(s.stopEvent); s.worker.join(); CloseHandle(s.stopEvent); s.stopEvent = nullptr; }
     std::lock_guard<std::mutex> lock(s.mutex);
     s.active = false; s.Clear();
@@ -254,7 +260,8 @@ FrameStamp FrameServer::Stamp() const {
 }
 void FrameServer::Publish(const AVFrame* frame, FrameStamp stamp) {
     auto& s = *impl_;
-    if (!s.enabled) return;
+    // The newest picture is kept whether or not the pipe is open: screenshots and
+    // recordings inside the receiver use it too.
     std::lock_guard<std::mutex> lock(s.mutex);
     if (!s.active || s.paused || stamp.generation != s.generation) return;
     if (s.latest && (s.latest->width != frame->width || s.latest->height != frame->height)) { s.Clear(); return; }
@@ -277,4 +284,15 @@ void FrameServer::Invalidate() {
 void FrameServer::SetGeometry(int width, int height) {
     std::lock_guard<std::mutex> lock(impl_->mutex);
     if (width != impl_->width || height != impl_->height) { impl_->Clear(); impl_->width = width; impl_->height = height; }
+}
+AVFrame* FrameServer::CloneLatest() {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    if (!impl_->active || impl_->paused || !impl_->latest) return nullptr;
+    return av_frame_clone(impl_->latest);
+}
+bool FrameServer::CopyLatest(std::vector<uint8_t>& rgb, int& width, int& height) {
+    FrameOwner copy;
+    copy.value = CloneLatest();
+    // Converted outside the lock: a GPU picture is read back first, which takes a few milliseconds.
+    return copy.value && ToRgb(copy.value, rgb, width, height);
 }

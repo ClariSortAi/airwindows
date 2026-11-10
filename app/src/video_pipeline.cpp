@@ -25,6 +25,7 @@ extern "C" {
 
 #include "log.h"
 #include "media_sink.h"
+#include "recorder.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -95,6 +96,90 @@ void FfmpegLog(void*, int level, const char* fmt, va_list args) {
     if (len > 0) {
         LOGW("[ffmpeg] %s", text);
     }
+}
+
+// AirPlay sends full-range video; files are written in the limited range every
+// player assumes, so each sample is scaled on its way to the recorder.
+struct RangeTables {
+    uint8_t luma[256];
+    uint8_t chroma[256];
+    RangeTables() {
+        for (int v = 0; v < 256; ++v) {
+            luma[v] = static_cast<uint8_t>(16 + (v * 219 + 127) / 255);
+            chroma[v] = static_cast<uint8_t>(128 + ((v - 128) * 224) / 255);
+        }
+    }
+};
+
+// Hands one decoded picture to the recorder as 8-bit NV12 in system memory.
+// A GPU picture is read back first. Runs on the decode thread, and on the UI
+// thread for the first frame of a recording.
+void PushToRecorder(Recorder& recorder, const AVFrame* source) {
+    static const RangeTables tables;
+    AVFrame* downloaded = nullptr;
+    const AVFrame* f = source;
+    if (source->format == AV_PIX_FMT_D3D11) {
+        downloaded = av_frame_alloc();
+        if (!downloaded || av_hwframe_transfer_data(downloaded, source, 0) < 0) {
+            static std::atomic<unsigned> failures{0};
+            if (failures++ < 5) {
+                LOGW("[RECORD] could not read a picture back from the GPU; frame skipped");
+            }
+            av_frame_free(&downloaded);
+            return;
+        }
+        av_frame_copy_props(downloaded, source);
+        f = downloaded;
+    }
+    const auto format = static_cast<AVPixelFormat>(f->format);
+    const bool nv12 = format == AV_PIX_FMT_NV12;
+    const bool p010 = format == AV_PIX_FMT_P010LE;
+    const bool planar8 = format == AV_PIX_FMT_YUV420P || format == AV_PIX_FMT_YUVJ420P;
+    const bool planar10 = format == AV_PIX_FMT_YUV420P10LE;
+    const int width = f->width & ~1;
+    const int height = f->height & ~1;
+    if ((!nv12 && !p010 && !planar8 && !planar10) || width < 2 || height < 2) {
+        av_frame_free(&downloaded);
+        return;
+    }
+    const bool limited = f->color_range == AVCOL_RANGE_MPEG && format != AV_PIX_FMT_YUVJ420P;
+    thread_local std::vector<uint8_t> scratch;
+    scratch.resize(static_cast<size_t>(width) * height * 3 / 2);
+    uint8_t* luma = scratch.data();
+    uint8_t* chroma = luma + static_cast<size_t>(width) * height;
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* row = f->data[0] + static_cast<ptrdiff_t>(y) * f->linesize[0];
+        uint8_t* out = luma + static_cast<size_t>(y) * width;
+        for (int x = 0; x < width; ++x) {
+            // 10-bit samples: P010 keeps them in the high bits, planar in the low bits.
+            const int v = p010 ? reinterpret_cast<const uint16_t*>(row)[x] >> 8
+                        : planar10 ? reinterpret_cast<const uint16_t*>(row)[x] >> 2 : row[x];
+            out[x] = limited ? static_cast<uint8_t>(v) : tables.luma[v & 0xFF];
+        }
+    }
+    for (int y = 0; y < height / 2; ++y) {
+        const uint8_t* rowU = f->data[1] + static_cast<ptrdiff_t>(y) * f->linesize[1];
+        const uint8_t* rowV = (nv12 || p010) ? nullptr : f->data[2] + static_cast<ptrdiff_t>(y) * f->linesize[2];
+        uint8_t* out = chroma + static_cast<size_t>(y) * width;
+        for (int x = 0; x < width / 2; ++x) {
+            int u, v;
+            if (nv12) { u = rowU[x * 2]; v = rowU[x * 2 + 1]; }
+            else if (p010) { u = reinterpret_cast<const uint16_t*>(rowU)[x * 2] >> 8; v = reinterpret_cast<const uint16_t*>(rowU)[x * 2 + 1] >> 8; }
+            else if (planar10) { u = reinterpret_cast<const uint16_t*>(rowU)[x] >> 2; v = reinterpret_cast<const uint16_t*>(rowV)[x] >> 2; }
+            else { u = rowU[x]; v = rowV[x]; }
+            out[x * 2] = limited ? static_cast<uint8_t>(u) : tables.chroma[u & 0xFF];
+            out[x * 2 + 1] = limited ? static_cast<uint8_t>(v) : tables.chroma[v & 0xFF];
+        }
+    }
+    RecorderFrame frame;
+    frame.width = width;
+    frame.height = height;
+    frame.luma = luma;
+    frame.lumaStride = width;
+    frame.chroma = chroma;
+    frame.chromaStride = width;
+    recorder.PushVideo(frame);
+    av_frame_free(&downloaded);
 }
 
 HRESULT CreateDevice(ComPtr<ID3D11Device>& device, ComPtr<ID3D11DeviceContext>& context, bool* hardware) {
@@ -177,6 +262,7 @@ struct VideoPipeline::Impl {
     unsigned decodeErrors = 0;
     unsigned presentErrors = 0;
     bool deviceLost = false;                  // video thread only
+    std::atomic<Recorder*> recorder{nullptr};
     std::atomic<bool> simulateLoss{false};    // --selftest-device-loss
 
     ULONGLONG statsWindowStart = 0;
@@ -356,6 +442,19 @@ void VideoPipeline::RequestRedraw() {
 void VideoPipeline::SimulateDeviceLoss() {
     impl_->simulateLoss = true;
     RequestRedraw();
+}
+
+void VideoPipeline::SetRecorder(Recorder* recorder) {
+    impl_->recorder = recorder;
+}
+
+void VideoPipeline::RecordCurrentPicture() {
+    Recorder* recorder = impl_->recorder.load();
+    AVFrame* current = recorder && recorder->Active() ? impl_->frames.CloneLatest() : nullptr;
+    if (current) {
+        PushToRecorder(*recorder, current);
+        av_frame_free(&current);
+    }
 }
 
 void VideoPipeline::SetVSync(bool vsync) {
@@ -700,6 +799,9 @@ void VideoPipeline::Impl::Decode(const Packet& pkt) {
         const bool ok = frame->format == AV_PIX_FMT_D3D11 ? UploadHardwareFrame(frame) : UploadSoftwareFrame(frame);
         if (ok) {
             hasPicture = true;
+            if (Recorder* active = recorder.load(); active && active->Active()) {
+                PushToRecorder(*active, frame);
+            }
             if (frame->opaque_ref && frame->opaque_ref->size == sizeof(FrameStamp)) {
                 FrameStamp stamp;
                 memcpy(&stamp, frame->opaque_ref->data, sizeof(stamp));

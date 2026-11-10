@@ -22,6 +22,7 @@ extern "C" {
 }
 
 #include "log.h"
+#include "recorder.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -128,6 +129,7 @@ struct AudioPipeline::Impl {
 
     std::atomic<float> gain{1.0f};
     std::atomic<bool> stop{false};
+    std::atomic<Recorder*> recorder{nullptr};
     std::thread renderThread;
 
     void CloseDecoder();
@@ -269,6 +271,10 @@ void AudioPipeline::SetGain(double gain) {
     impl_->gain = static_cast<float>(gain);
 }
 
+void AudioPipeline::SetRecorder(Recorder* recorder) {
+    impl_->recorder = recorder;
+}
+
 double AudioPipeline::BufferedMs() const {
     std::lock_guard<std::mutex> lock(impl_->bufferMutex);
     return static_cast<double>(impl_->frames) * 1000.0 / kSampleRate;
@@ -344,6 +350,9 @@ bool AudioPipeline::Impl::EnsureDecoder(uint8_t ct) {
 }
 
 void AudioPipeline::Impl::Enqueue(const float* samples, size_t count) {
+    if (Recorder* active = recorder.load(); active && active->Active()) {
+        active->PushAudio(samples, count);
+    }
     std::lock_guard<std::mutex> lock(bufferMutex);
     if (frames + count > kMaxFrames) {
         // Latency is building up (clock drift or a burst): drop the oldest audio.

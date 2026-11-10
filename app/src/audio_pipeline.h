@@ -6,6 +6,8 @@
 #include <memory>
 #include <string>
 
+class Recorder;
+
 class AudioPipeline {
 public:
     AudioPipeline();
@@ -26,6 +28,10 @@ public:
 
     double BufferedMs() const;
     std::string CodecName() const;
+
+    // While `recorder` is recording it also receives the decoded audio, before
+    // the sender's volume is applied. Null detaches.
+    void SetRecorder(Recorder* recorder);
 
     // Diagnostics used by --selftest: opens each decoder with the codec
     // parameters AirPlay uses, and queues a short tone for the render thread.

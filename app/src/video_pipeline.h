@@ -10,6 +10,8 @@
 #include "settings.h"
 #include "frame_server.h"
 
+class Recorder;
+
 struct VideoStats {
     double fps = 0.0;
     double bitrateMbps = 0.0;
@@ -36,6 +38,12 @@ public:
 
     // Self-test: behave as if the next Present reported a removed device.
     void SimulateDeviceLoss();
+
+    // While `recorder` is recording, every decoded picture is also handed to it.
+    // Null detaches. RecordCurrentPicture hands over the picture on screen now,
+    // so a recording that starts on a still screen has a first frame.
+    void SetRecorder(Recorder* recorder);
+    void RecordCurrentPicture();
 
     // Called from protocol threads.
     bool SetCodec(bool h265);

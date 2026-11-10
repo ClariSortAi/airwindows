@@ -31,6 +31,9 @@ struct Settings {
     // Window position from the last run; all zero until one has been saved.
     int windowLeft = 0, windowTop = 0, windowRight = 0, windowBottom = 0;
     bool windowMaximized = false;
+    // First-run setup guide: closed at least once, and the phone controlled at least once.
+    bool setupGuideSeen = false;
+    bool setupControlled = false;
 
     void Load();
     void Save() const;

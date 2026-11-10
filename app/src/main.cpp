@@ -11,6 +11,7 @@
 #include <objbase.h>
 #include <shellapi.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <string>
@@ -21,11 +22,15 @@
 
 #include "airplay_server.h"
 #include "audio_pipeline.h"
+#include "capture.h"
 #include "crash.h"
+#include "guide.h"
 #include "log.h"
 #include "media_sink.h"
+#include "recorder.h"
 #include "resource.h"
 #include "settings.h"
+#include "ui.h"
 #include "version.h"
 #include "video_pipeline.h"
 #include "native_control.h"
@@ -45,11 +50,22 @@ constexpr UINT_PTR kCrashTimer = 5;       // --selftest-crash
 // that holds the mutex, so a second launch can find it among self-test windows.
 constexpr wchar_t kInstanceMutex[] = L"Local\\AirWindows.Receiver";
 constexpr wchar_t kPrimaryProperty[] = L"AirWindows.Primary";
+constexpr UINT_PTR kSelfTestCaptureTimer = 6;  // --selftest-screenshot, --selftest-record
 // Toolbar IDs share WM_COMMAND with the menu; keep them clear of the IDM_* range in resource.h.
+// Pair, Connect and Disconnect have no button of their own any more (the phone
+// button's menu sends them) but keep their ids for scripts that post them.
 constexpr int kPairControl=41001, kPeerControl=41002, kBindControl=41003, kDisconnectControl=41004, kHomeControl=41005;
-constexpr COLORREF kBackground = RGB(0x2C, 0x2C, 0x2C);  // idle screen
-constexpr int kToolbarHeight = 72;  // control row and status line above the picture, at 96 DPI
+constexpr int kShotControl=41006, kRecordControl=41007, kFullControl=41008, kMenuControl=41009;
+constexpr int kStatusControl=41010, kGuideOpenControl=41011, kGuideCloseControl=41012;
+constexpr int kPeerFirst=41100, kPeerLast=41131;  // phones in the phone button's menu and the setup guide
+constexpr int kDumpMenuCommand=41200;             // --selftest-menu: write the menu, as it would open now, to the log
+// Heights at 96 DPI: the button row above the picture and the status bar below it.
+constexpr int kTopBar = 52;
+constexpr int kStatusBar = 30;
+constexpr int kMinClientWidth = 560;
 constexpr DWORD kCursorHideMs = 3000;
+constexpr DWORD kToastMs = 5000;
+constexpr UINT WM_APP_RECORDER = WM_APP + 20;  // lParam: RecorderNotice* (receiver deletes)
 
 // Routes protocol callbacks to the two pipelines.
 class MediaRouter final : public IMediaSink {
@@ -96,6 +112,7 @@ struct App {
     HMENU menu = nullptr;
 
     Settings settings;
+    Recorder recorder;  // declared before the pipelines that feed it, so it outlives them
     VideoPipeline video;
     AudioPipeline audio;
     NativeControl control;
@@ -108,7 +125,30 @@ struct App {
     DWORD videoRecoverDelay = 0;
     std::wstring notice;           // shown on the idle screen until the next connection
     std::wstring addresses;        // local addresses on the idle screen, refreshed by the tick timer
-    HFONT uiFont = nullptr;
+    HFONT uiFont = nullptr, uiBold = nullptr, uiTitle = nullptr, iconFont = nullptr;
+    HICON idleIcon = nullptr;         // the application icon on the idle screen, at idleIconSize pixels
+    int idleIconSize = 0;
+    HACCEL accelerators = nullptr;
+    Guide guide;
+    bool guideOpen = false;
+    NativeControlState controlState;  // as of the last control tick
+    std::wstring phoneLabel;
+    COLORREF phoneDot = CLR_INVALID;
+    bool iconOnly = false;            // the window is too narrow for labels on the right-hand buttons
+    std::wstring toast;               // short confirmation shown in the status bar
+    ULONGLONG toastUntil = 0;
+    std::wstring statusDetail;        // right side of the status bar: stream details
+    std::wstring statusClock;         // and the recording clock
+    std::wstring captureDir;          // --capture-dir
+    ULONGLONG recordStarted = 0;
+    bool recording = false;
+    bool recordLabelStop = false;     // what the Record button currently says
+    bool statusReady = false, statusFocused = false;  // state the status bar was last drawn for
+    ULONGLONG lastFocusedTick = 0;    // when the phone last had the keyboard
+    int selfTestRecordSeconds = 0;
+    bool selfTestMenu = false;
+    bool selfTestScreenshot = false;
+    bool selfTestCaptureArmed = false;
     bool hevcHardware = false;
     bool debugLog = false;
     bool exportFrames = false;
@@ -125,7 +165,9 @@ struct App {
     bool mirrorRunning = false;
     int connections = 0;
     ClientInfo client;
-    HWND controlPair=nullptr,controlPeer=nullptr,controlBind=nullptr,controlDisconnect=nullptr,controlStatus=nullptr,controlHome=nullptr,controlHelp=nullptr;
+    // The phone button stands for pairing, choosing a phone and disconnecting.
+    HWND controlPeer=nullptr,controlHome=nullptr,controlShot=nullptr,controlRecord=nullptr,controlFull=nullptr,controlMenu=nullptr;
+    HWND controlStatus=nullptr,controlGuideOpen=nullptr,controlHelp=nullptr;
     std::vector<ControlPeer> controlPeers;
     std::wstring lastControlStatus;
     std::string controlPhoneOverride;
@@ -173,29 +215,47 @@ int Scale(HWND window, int value) {
     return MulDiv(value, static_cast<int>(GetDpiForWindow(window)), 96);
 }
 
-// The toolbar uses the system message font at the window's DPI. The stock GUI
-// font it had before is a fixed pixel size and turns tiny on a scaled display.
-void ApplyUiFont(App& app) {
-    NONCLIENTMETRICSW metrics{};
-    metrics.cbSize = sizeof(metrics);
-    if (!SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, GetDpiForWindow(app.window))) {
-        LOGW("could not read the system message font (error %lu)", GetLastError());
-        return;
-    }
-    HFONT font = CreateFontIndirectW(&metrics.lfMessageFont);
-    if (!font) {
-        return;
-    }
-    for (HWND control : {app.controlPair, app.controlPeer, app.controlBind, app.controlDisconnect, app.controlHome,
-                         app.controlStatus}) {
+// Fonts are sized for one DPI, so they are rebuilt when the window moves to a
+// display with another scale.
+void RebuildFonts(App& app) {
+    HFONT old[] = {app.uiFont, app.uiBold, app.uiTitle, app.iconFont};
+    app.uiFont = ui::CreateTextFont(app.window, 9, false);
+    app.uiBold = ui::CreateTextFont(app.window, 10, true);
+    app.uiTitle = ui::CreateTextFont(app.window, 14, true);
+    app.iconFont = ui::CreateIconFont(app.window, 11);
+    for (HWND control : {app.controlPeer, app.controlHome, app.controlShot, app.controlRecord, app.controlFull,
+                         app.controlMenu, app.controlStatus, app.controlGuideOpen}) {
         if (control) {
-            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(app.uiFont), TRUE);
         }
     }
-    if (app.uiFont) {
-        DeleteObject(app.uiFont);
+    if (app.guide.Window()) {
+        app.guide.SetFonts(app.uiFont, app.uiBold, app.uiTitle, app.iconFont);
     }
-    app.uiFont = font;
+    for (HFONT font : old) {
+        if (font) {
+            DeleteObject(font);
+        }
+    }
+}
+
+// Shows a short confirmation in the status bar, in place of the Bluetooth
+// status, for a few seconds.
+void Toast(App& app, const std::wstring& text) {
+    app.toast = text;
+    app.toastUntil = GetTickCount64() + kToastMs;
+    if (app.controlStatus) {
+        InvalidateRect(app.controlStatus, nullptr, FALSE);
+    }
+}
+
+// "Pictures\AirWindows\name.png" rather than the whole path: enough to find it.
+std::wstring ShortPath(const std::wstring& path) {
+    size_t cut = path.find_last_of(L'\\');
+    for (int parts = 0; parts < 2 && cut != std::wstring::npos && cut > 0; ++parts) {
+        cut = path.find_last_of(L'\\', cut - 1);
+    }
+    return cut == std::wstring::npos ? path : path.substr(cut + 1);
 }
 
 std::vector<std::wstring> LocalIPv4Addresses() {
@@ -260,15 +320,34 @@ void UpdateTitle(App& app) {
     if (app.connections > 0 && !app.client.name.empty()) {
         title += L" — " + Utf8ToWide(app.client.name);
     }
+    SetWindowTextW(app.window, title.c_str());
+}
+
+// Right side of the status bar: the recording clock, which always shows while
+// recording, and what the stream is (when View > Stream details is on and
+// there is room).
+std::wstring RecordClock(const App& app) {
+    if (!app.recording) {
+        return {};
+    }
+    const ULONGLONG seconds = (GetTickCount64() - app.recordStarted) / 1000;
+    wchar_t clock[32];
+    swprintf_s(clock, L"REC %llu:%02llu", seconds / 60, seconds % 60);
+    return clock;
+}
+
+std::wstring StatusDetail(App& app) {
+    std::wstring detail;
     if (app.settings.showStatus && app.hasPicture) {
         const VideoStats stats = app.video.Stats();
-        wchar_t status[160];
-        swprintf_s(status, L" | %d×%d %s (%s) | %.0f fps | %.1f Mbps | audio %hs %.0f ms", app.pictureWidth,
-                   app.pictureHeight, stats.h265 ? L"H.265" : L"H.264", stats.hardware ? L"D3D11" : L"FFmpeg",
-                   stats.fps, stats.bitrateMbps, app.audio.CodecName().c_str(), app.audio.BufferedMs());
-        title += status;
+        const std::string audio = app.audio.CodecName();
+        wchar_t text[200];
+        swprintf_s(text, L"%d × %d  ·  %.0f fps  ·  %.1f Mbps  ·  %s, %s%hs%hs", app.pictureWidth, app.pictureHeight,
+                   stats.fps, stats.bitrateMbps, stats.h265 ? L"H.265" : L"H.264",
+                   stats.hardware ? L"GPU decode" : L"software decode", audio.empty() ? "" : "  ·  ", audio.c_str());
+        detail = text;
     }
-    SetWindowTextW(app.window, title.c_str());
+    return detail;
 }
 
 void SetCursorHidden(App& app, bool hidden) {
@@ -312,6 +391,11 @@ bool StartVideo(App& app) {
     app.videoOk = app.video.Start(app.videoWindow, app.window, Decoder(app), app.settings.vsync);
     if (app.exportFrames && !app.video.Frames().Start(!app.selfTestVideo.empty())) {
         LOGE("[FRAMES] could not start local frame interface");
+    }
+    if (!app.selfTestVideo.empty()) {
+        // No sender announces a mirror in a self-test, so mark it active here:
+        // screenshots and recordings need the newest picture kept.
+        app.video.Frames().SetActive(true);
     }
     return app.videoOk;
 }
@@ -373,6 +457,10 @@ void RecoverVideo(App& app, bool lostNow) {
 // Window behavior
 // ---------------------------------------------------------------------------
 
+void LayoutControls(App& app, int width, int height);
+
+// Full screen is the picture alone: the button row, the status bar and the
+// setup guide step aside. Esc, F11 or a right-click in the black bars leave it.
 void ToggleFullscreen(App& app) {
     HWND window = app.window;
     if (!app.fullscreen) {
@@ -380,26 +468,34 @@ void ToggleFullscreen(App& app) {
         GetWindowPlacement(window, &app.savedPlacement);
         MONITORINFO monitor{sizeof(MONITORINFO)};
         GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor);
-        SetMenu(window, nullptr);
+        app.fullscreen = true;
         SetWindowLongPtrW(window, GWL_STYLE, app.savedStyle & ~static_cast<LONG_PTR>(WS_OVERLAPPEDWINDOW));
         SetWindowPos(window, HWND_TOP, monitor.rcMonitor.left, monitor.rcMonitor.top,
                      monitor.rcMonitor.right - monitor.rcMonitor.left, monitor.rcMonitor.bottom - monitor.rcMonitor.top,
                      SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-        app.fullscreen = true;
         app.lastMouseMove = GetTickCount();
     } else {
+        app.fullscreen = false;
         SetWindowLongPtrW(window, GWL_STYLE, app.savedStyle);
-        SetMenu(window, app.menu);
         SetWindowPlacement(window, &app.savedPlacement);
         SetWindowPos(window, app.settings.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-        app.fullscreen = false;
         SetCursorHidden(app, false);
     }
+    // The size may not have changed (a maximized window on the same display), so lay out explicitly.
+    RECT client{};
+    GetClientRect(window, &client);
+    LayoutControls(app, client.right, client.bottom);
+    InvalidateRect(window, nullptr, FALSE);
 }
 
-// Fit the picture and toolbar within this monitor; retain side bars if the
-// toolbar's minimum width is wider than a portrait image at maximum height.
+// Width the window gives up to the setup guide while it is open.
+int GuideWidth(const App& app) {
+    return app.guideOpen && !app.fullscreen ? Guide::Width(app.window) : 0;
+}
+
+// Fit the picture and the bars around it within this monitor; retain side bars
+// if the button row's minimum width is wider than a portrait image at maximum height.
 void FitWindowToVideo(App& app) {
     if (!app.hasPicture || app.pictureWidth <= 0 || app.pictureHeight <= 0 || app.fullscreen || IsZoomed(app.window)) {
         return;
@@ -414,13 +510,15 @@ void FitWindowToVideo(App& app) {
     RECT frame{0, 0, 0, 0};
     const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(app.window, GWL_STYLE));
     const DWORD exStyle = static_cast<DWORD>(GetWindowLongPtrW(app.window, GWL_EXSTYLE));
-    AdjustWindowRectExForDpi(&frame, style, TRUE, exStyle, GetDpiForWindow(app.window));
+    AdjustWindowRectExForDpi(&frame, style, FALSE, exStyle, GetDpiForWindow(app.window));
     const int chromeWidth = frame.right - frame.left;
     const int chromeHeight = frame.bottom - frame.top;
-    const auto fitted=FitMirrorClient(client.right,client.bottom,app.pictureWidth,app.pictureHeight,
-        workWidth-chromeWidth,workHeight-chromeHeight,std::max(Scale(app.window,500),Scale(app.window,650)-chromeWidth),Scale(app.window,kToolbarHeight));
+    // The guide sits beside the picture, so it is taken out before fitting and added back after.
+    const int guide = GuideWidth(app);
+    const auto fitted=FitMirrorClient(client.right-guide,client.bottom,app.pictureWidth,app.pictureHeight,
+        workWidth-chromeWidth-guide,workHeight-chromeHeight,Scale(app.window,kMinClientWidth),Scale(app.window,kTopBar+kStatusBar));
     if(!fitted)return;
-    const int width=fitted->first,height=fitted->second;
+    const int width=fitted->first+guide,height=fitted->second;
     RECT current{};GetWindowRect(app.window,&current);
     const int left=std::clamp(current.left,monitor.rcWork.left,monitor.rcWork.right-width-chromeWidth);
     const int top=std::clamp(current.top,monitor.rcWork.top,monitor.rcWork.bottom-height-chromeHeight);
@@ -463,12 +561,14 @@ bool RestorePlacement(App& app) {
     return settings.windowMaximized;
 }
 
+// The menu is not attached to the window as a bar. The Menu button, a
+// right-click outside the picture and the Alt key all show it as a popup.
 HMENU BuildMenu() {
     HMENU bar = CreateMenu();
 
     HMENU receiver = CreatePopupMenu();
     AppendMenuW(receiver, MF_STRING, IDM_RENAME, L"&Rename…");
-    AppendMenuW(receiver, MF_STRING, IDM_RESTART, L"Restart &service");
+    AppendMenuW(receiver, MF_STRING, IDM_RESTART, L"Restart &AirPlay service");
     AppendMenuW(receiver, MF_STRING, IDM_OPEN_LOG_FOLDER, L"Open &log folder");
     AppendMenuW(receiver, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(receiver, MF_STRING, IDM_EXIT, L"E&xit");
@@ -487,7 +587,7 @@ HMENU BuildMenu() {
     AppendMenuW(video, MF_POPUP, reinterpret_cast<UINT_PTR>(fps), L"&Frame rate");
     HMENU decoder = CreatePopupMenu();
     AppendMenuW(decoder, MF_STRING, IDM_DECODER_AUTO, L"Auto");
-    AppendMenuW(decoder, MF_STRING, IDM_DECODER_HARDWARE, L"Hardware");
+    AppendMenuW(decoder, MF_STRING, IDM_DECODER_HARDWARE, L"Hardware (GPU)");
     AppendMenuW(decoder, MF_STRING, IDM_DECODER_SOFTWARE, L"Software");
     AppendMenuW(video, MF_POPUP, reinterpret_cast<UINT_PTR>(decoder), L"&Decoder");
     AppendMenuW(video, MF_SEPARATOR, 0, nullptr);
@@ -495,20 +595,31 @@ HMENU BuildMenu() {
     AppendMenuW(video, MF_STRING, IDM_ALLOW_H265, L"Allow &H.265 when the GPU can decode it");
     AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(video), L"&Video");
 
+    HMENU capture = CreatePopupMenu();
+    AppendMenuW(capture, MF_STRING, IDM_SCREENSHOT, L"Take &screenshot\tF8");
+    AppendMenuW(capture, MF_STRING, IDM_RECORD, L"Start &recording\tF9");
+    AppendMenuW(capture, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(capture, MF_STRING, IDM_OPEN_SCREENSHOTS, L"Open screenshots &folder");
+    AppendMenuW(capture, MF_STRING, IDM_OPEN_RECORDINGS, L"Open recordings f&older");
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(capture), L"&Capture");
+
     HMENU view = CreatePopupMenu();
     AppendMenuW(view, MF_STRING, IDM_FULLSCREEN, L"&Full screen\tF11");
     AppendMenuW(view, MF_STRING, IDM_FIT_WINDOW, L"Fit &window to video");
     AppendMenuW(view, MF_STRING, IDM_ALWAYS_ON_TOP, L"Always on &top");
-    AppendMenuW(view, MF_STRING, IDM_SHOW_STATUS, L"Show &status in title bar");
+    AppendMenuW(view, MF_STRING, IDM_SHOW_STATUS, L"Stream &details in status bar");
     AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(view), L"Vie&w");
 
     HMENU help = CreatePopupMenu();
-    AppendMenuW(help, MF_STRING, IDM_HOW_TO_CONNECT, L"&How to connect");
-    AppendMenuW(help, MF_STRING, IDM_ABOUT, L"&About");
+    AppendMenuW(help, MF_STRING, IDM_SETUP_GUIDE, L"Setup &guide");
+    AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(help, MF_STRING, IDM_ABOUT, L"&About AirWindows");
     AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"&Help");
     return bar;
 }
 
+// Every check mark, label and grey-out is set from the current state each time
+// the menu opens, so the menu cannot disagree with what the receiver is doing.
 void SyncMenu(App& app) {
     HMENU menu = app.menu;
     const auto& qualities = VideoQualities();
@@ -525,10 +636,19 @@ void SyncMenu(App& app) {
                   Decoder(app) == DecoderMode::Software ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_VSYNC, app.settings.vsync ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_ALLOW_H265, app.settings.allowH265 ? MF_CHECKED : MF_UNCHECKED);
+    // The GPU decides whether the H.265 setting can do anything.
+    EnableMenuItem(menu, IDM_ALLOW_H265, app.hevcHardware ? MF_ENABLED : MF_GRAYED);
     CheckMenuItem(menu, IDM_FULLSCREEN, app.fullscreen ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_ALWAYS_ON_TOP, app.settings.alwaysOnTop ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(menu, IDM_SHOW_STATUS, app.settings.showStatus ? MF_CHECKED : MF_UNCHECKED);
-    EnableMenuItem(menu, IDM_FIT_WINDOW, app.hasPicture && !app.fullscreen ? MF_ENABLED : MF_GRAYED);
+    CheckMenuItem(menu, IDM_SETUP_GUIDE, app.guideOpen ? MF_CHECKED : MF_UNCHECKED);
+    EnableMenuItem(menu, IDM_FIT_WINDOW, app.hasPicture && !app.fullscreen && !IsZoomed(app.window) ? MF_ENABLED : MF_GRAYED);
+    EnableMenuItem(menu, IDM_SCREENSHOT, app.hasPicture ? MF_ENABLED : MF_GRAYED);
+    EnableMenuItem(menu, IDM_RECORD, app.hasPicture || app.recording ? MF_ENABLED : MF_GRAYED);
+    ModifyMenuW(menu, IDM_RECORD, MF_BYCOMMAND | MF_STRING, IDM_RECORD,
+                app.recording ? L"Stop &recording\tF9" : L"Start &recording\tF9");
+    // ModifyMenu clears the grey state it replaces.
+    EnableMenuItem(menu, IDM_RECORD, app.hasPicture || app.recording ? MF_ENABLED : MF_GRAYED);
 }
 
 INT_PTR CALLBACK RenameDialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -566,33 +686,48 @@ INT_PTR CALLBACK RenameDialogProc(HWND dialog, UINT message, WPARAM wParam, LPAR
     return FALSE;
 }
 
-void ShowHowToConnect(App& app) {
-    std::wstring text =
-        L"1. Connect your iPhone, iPad or Mac to the same network as this PC.\n"
-        L"2. Open Control Center and choose Screen Mirroring.\n"
-        L"3. Pick “" + app.settings.serverName + L"” from the list.\n\n"
-        L"If the name does not appear, allow AirWindows through Windows Firewall on private "
-        L"networks and make sure the network is not set to isolate devices from each other.";
-    MessageBoxW(app.window, text.c_str(), L"How to connect", MB_OK | MB_ICONINFORMATION);
+HRESULT CALLBACK OpenLinkCallback(HWND, UINT message, WPARAM, LPARAM lParam, LONG_PTR) {
+    if (message == TDN_HYPERLINK_CLICKED) {
+        ShellExecuteW(nullptr, L"open", reinterpret_cast<LPCWSTR>(lParam), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+    return S_OK;
 }
 
 void ShowAbout(App& app) {
-    MessageBoxW(app.window,
-                L"AirWindows " APP_VERSION_STRING L"\n"
-                L"graniteai.co/tools/airwindows\n\n"
-                L"Shows the screen of an iPhone, iPad or Mac on this PC over AirPlay.\n\n"
-                L"AirPlay protocol engine: UxPlay (GPL-3.0)\n"
-                L"Decoding: FFmpeg (LGPL-2.1-or-later)\n"
-                L"Also uses OpenSSL and libplist.\n\n"
-                L"This program is free software under the GNU General Public License, version 3 or later, "
-                L"and comes with no warranty. Its source code comes with the download.\n\n"
-                L"AirPlay, iPhone, iPad and Mac are trademarks of Apple Inc. This program is not affiliated "
-                L"with or endorsed by Apple.",
-                L"About AirWindows", MB_OK | MB_ICONINFORMATION);
+    static const wchar_t kSummary[] =
+        L"Mirrors an iPhone, iPad or Mac on this PC over AirPlay, and controls an iPhone with this PC's mouse and "
+        L"keyboard over Bluetooth.\n\n"
+        L"<a href=\"https://graniteai.co/tools/airwindows\">graniteai.co/tools/airwindows</a>";
+    static const wchar_t kNotices[] =
+        L"AirPlay protocol engine: UxPlay (GPL-3.0)\n"
+        L"Decoding: FFmpeg (LGPL-2.1-or-later)\n"
+        L"Also uses OpenSSL and libplist.\n\n"
+        L"This program is free software under the GNU General Public License, version 3 or later, "
+        L"and comes with no warranty. Its source code comes with the download.\n\n"
+        L"AirPlay, iPhone, iPad and Mac are trademarks of Apple Inc. This program is not affiliated "
+        L"with or endorsed by Apple.";
+    TASKDIALOGCONFIG config{};
+    config.cbSize = sizeof(config);
+    config.hwndParent = app.window;
+    config.hInstance = app.instance;
+    config.dwFlags = TDF_ENABLE_HYPERLINKS | TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+    config.pszWindowTitle = L"About AirWindows";
+    config.pszMainIcon = MAKEINTRESOURCEW(IDI_APP);
+    config.pszMainInstruction = L"AirWindows " APP_VERSION_STRING;
+    config.pszContent = kSummary;
+    config.pszFooter = kNotices;
+    config.pfCallback = OpenLinkCallback;
+    const HRESULT hr = TaskDialogIndirect(&config, nullptr, nullptr, nullptr);
+    if (FAILED(hr)) {
+        LOGW("[UI] About dialog could not be shown (0x%08lX); using a message box", hr);
+        const std::wstring text = std::wstring(L"AirWindows " APP_VERSION_STRING L"\ngraniteai.co/tools/airwindows\n\n") + kNotices;
+        MessageBoxW(app.window, text.c_str(), L"About AirWindows", MB_OK | MB_ICONINFORMATION);
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Idle screen
+// Idle screen and window background
 // ---------------------------------------------------------------------------
 
 void DrawLine(HDC dc, HFONT font, COLORREF color, const std::wstring& text, RECT& area, int gapAfter) {
@@ -607,12 +742,8 @@ void DrawLine(HDC dc, HFONT font, COLORREF color, const std::wstring& text, RECT
     SelectObject(dc, old);
 }
 
-HFONT MakeFont(HWND window, int points, int weight) {
-    return CreateFontW(-MulDiv(points, static_cast<int>(GetDpiForWindow(window)), 72), 0, 0, 0, weight, FALSE, FALSE,
-                       FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                       DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-}
-
+// Paints everything the child windows do not cover: the strips behind the
+// button row and the status bar, and the idle screen where the picture goes.
 void PaintIdle(App& app, HDC target, const RECT& client) {
     const int width = client.right - client.left;
     const int height = client.bottom - client.top;
@@ -622,71 +753,96 @@ void PaintIdle(App& app, HDC target, const RECT& client) {
     HDC dc = CreateCompatibleDC(target);
     HBITMAP bitmap = CreateCompatibleBitmap(target, width, height);
     HGDIOBJ oldBitmap = SelectObject(dc, bitmap);
-    HBRUSH background = CreateSolidBrush(kBackground);
+    HBRUSH background = CreateSolidBrush(ui::kSurface);
     FillRect(dc, &client, background);
     DeleteObject(background);
-    // The controls and the status line sit on one strip in their own colour,
-    // instead of floating as light boxes on the dark idle screen.
-    const RECT toolbar{client.left, client.top, client.right, client.top + Scale(app.window, kToolbarHeight)};
-    FillRect(dc, &toolbar, GetSysColorBrush(COLOR_BTNFACE));
+    RECT idle = client;
+    if (!app.fullscreen) {
+        HBRUSH chrome = CreateSolidBrush(ui::kChrome);
+        HBRUSH divider = CreateSolidBrush(ui::kDivider);
+        const RECT top{client.left, client.top, client.right, client.top + Scale(app.window, kTopBar)};
+        const RECT bottom{client.left, client.bottom - Scale(app.window, kStatusBar), client.right, client.bottom};
+        FillRect(dc, &top, chrome);
+        FillRect(dc, &bottom, chrome);
+        const RECT underTop{client.left, top.bottom - 1, client.right, top.bottom};
+        const RECT overBottom{client.left, bottom.top, client.right, bottom.top + 1};
+        FillRect(dc, &underTop, divider);
+        FillRect(dc, &overBottom, divider);
+        DeleteObject(chrome);
+        DeleteObject(divider);
+        idle = RECT{client.left, top.bottom, client.right - GuideWidth(app), bottom.top};
+    }
     SetBkMode(dc, TRANSPARENT);
 
-    HFONT titleFont = MakeFont(app.window, 30, FW_SEMIBOLD);
-    HFONT headingFont = MakeFont(app.window, 15, FW_NORMAL);
-    HFONT bodyFont = MakeFont(app.window, 12, FW_NORMAL);
-    HFONT smallFont = MakeFont(app.window, 9, FW_NORMAL);
+    HFONT nameFont = ui::CreateTextFont(app.window, 26, true);
+    HFONT statusFont = ui::CreateTextFont(app.window, 13, false);
+    HFONT bodyFont = ui::CreateTextFont(app.window, 11, false);
+    HFONT smallFont = ui::CreateTextFont(app.window, 9, false);
 
-    const int margin = Scale(app.window, 32);
-    // Start below the strip, so a short window never draws the name under the controls.
-    RECT area{client.left + margin, toolbar.bottom + (client.bottom - toolbar.bottom) / 8, client.right - margin,
-              client.bottom};
+    const int margin = Scale(app.window, 36);
+    RECT area{idle.left + margin, idle.top + std::max<LONG>(Scale(app.window, 28), (idle.bottom - idle.top) / 5),
+              idle.right - margin, idle.bottom};
+    if (area.right - area.left > Scale(app.window, 120)) {
+        // The application icon above the name, when the window is tall enough to spare the room.
+        const int iconSize = Scale(app.window, 72);
+        if (idle.bottom - idle.top > Scale(app.window, 420)) {
+            if (app.idleIconSize != iconSize) {
+                if (app.idleIcon) {
+                    DestroyIcon(app.idleIcon);
+                }
+                app.idleIcon = static_cast<HICON>(LoadImageW(app.instance, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON, iconSize,
+                                                             iconSize, LR_DEFAULTCOLOR));
+                app.idleIconSize = iconSize;
+            }
+            if (app.idleIcon) {
+                area.top -= Scale(app.window, 20);
+                DrawIconEx(dc, (area.left + area.right - iconSize) / 2, area.top, app.idleIcon, iconSize, iconSize, 0,
+                           nullptr, DI_NORMAL);
+                area.top += iconSize + Scale(app.window, 14);
+            }
+        }
+        DrawLine(dc, nameFont, ui::kText, app.settings.serverName, area, Scale(app.window, 6));
 
-    DrawLine(dc, titleFont, RGB(0xFF, 0xFF, 0xFF), app.settings.serverName, area, Scale(app.window, 8));
+        std::wstring status;
+        COLORREF statusColor = ui::kGood;
+        if (!app.serverOk && !SelfTesting(app)) {
+            status = L"The AirPlay service could not start. See the log (Menu › Receiver › Open log folder).";
+            statusColor = ui::kBad;
+        } else if (!app.videoOk) {
+            status = L"Video cannot be shown: no graphics device is available. See the log (Menu › Receiver › Open log folder).";
+            statusColor = ui::kBad;
+        } else if (app.connections > 0) {
+            const std::wstring who = app.client.name.empty() ? L"a device" : Utf8ToWide(app.client.name);
+            status = app.mirrorRunning ? L"Connected to " + who + L", waiting for video…"
+                                       : L"Connected to " + who + L". Ready to play.";
+        } else if (app.addresses.empty() && !SelfTesting(app)) {
+            status = L"Waiting for a network connection";
+            statusColor = ui::kWarn;
+        } else {
+            status = L"Ready to mirror";
+        }
+        DrawLine(dc, statusFont, statusColor, status, area, Scale(app.window, app.notice.empty() ? 26 : 10));
+        if (!app.notice.empty()) {
+            DrawLine(dc, bodyFont, ui::kWarn, app.notice, area, Scale(app.window, 22));
+        }
 
-    std::wstring status;
-    COLORREF statusColor = RGB(0x8F, 0xD1, 0x8F);
-    if (!app.serverOk && !SelfTesting(app)) {
-        status = L"The AirPlay service could not start. See the log (Receiver ▸ Open log folder).";
-        statusColor = RGB(0xFF, 0x8A, 0x80);
-    } else if (!app.videoOk) {
-        status = L"Video cannot be shown: no graphics device is available. See the log (Receiver ▸ Open log folder).";
-        statusColor = RGB(0xFF, 0x8A, 0x80);
-    } else if (app.connections > 0) {
-        const std::wstring who = app.client.name.empty() ? L"a device" : Utf8ToWide(app.client.name);
-        status = app.mirrorRunning ? L"Connected to " + who + L" — waiting for video…"
-                                   : L"Connected to " + who + L". Ready to play.";
-    } else if (app.addresses.empty() && !SelfTesting(app)) {
-        status = L"Waiting for a network connection";
-        statusColor = RGB(0xFF, 0xD5, 0x80);
-    } else {
-        status = L"Ready to mirror";
+        DrawLine(dc, bodyFont, ui::kTextDim,
+                 L"On your iPhone, iPad or Mac, open Control Center, tap Screen Mirroring and choose “" +
+                     app.settings.serverName + L"”.",
+                 area, Scale(app.window, 22));
+
+        // With no network the receiver keeps running and joins one when it appears.
+        const VideoQuality& quality = FindVideoQuality(app.settings.videoQuality);
+        const std::wstring details =
+            (app.addresses.empty() ? std::wstring(L"No network yet") : app.addresses) + L"  ·  port " +
+            std::to_wstring(app.server.Port()) + L"  ·  up to " + std::to_wstring(quality.width) + L" × " +
+            std::to_wstring(quality.height) + L" at " + std::to_wstring(app.settings.maxFps) + L" fps";
+        DrawLine(dc, smallFont, ui::kTextFaint, details, area, 0);
     }
-    DrawLine(dc, headingFont, statusColor, status, area, Scale(app.window, app.notice.empty() ? 28 : 10));
-    if (!app.notice.empty()) {
-        DrawLine(dc, bodyFont, RGB(0xFF, 0xD5, 0x80), app.notice, area, Scale(app.window, 24));
-    }
-
-    const COLORREF bodyColor = RGB(0xD8, 0xD8, 0xD8);
-    DrawLine(dc, bodyFont, bodyColor, L"1. Connect your iPhone, iPad or Mac to the same network as this PC.", area,
-             Scale(app.window, 6));
-    DrawLine(dc, bodyFont, bodyColor, L"2. Open Control Center and choose Screen Mirroring.", area,
-             Scale(app.window, 6));
-    DrawLine(dc, bodyFont, bodyColor, L"3. Pick “" + app.settings.serverName + L"” from the list.", area,
-             Scale(app.window, 28));
-
-    // With no network the receiver keeps running and joins one when it appears.
-    const std::wstring network = app.addresses.empty() ? L"no network yet (waiting for a connection)" : app.addresses;
-    const VideoQuality& quality = FindVideoQuality(app.settings.videoQuality);
-    const std::wstring details = L"Listening on " + network + L", port " + std::to_wstring(app.server.Port()) +
-                                 L" · " + QualityLabel(quality) + L", up to " +
-                                 std::to_wstring(app.settings.maxFps) + L" fps";
-    const COLORREF dimColor = RGB(0x9A, 0x9A, 0x9A);
-    DrawLine(dc, smallFont, dimColor, details, area, Scale(app.window, 4));
-    DrawLine(dc, smallFont, dimColor, CapabilitySummary(app), area, 0);
 
     BitBlt(target, client.left, client.top, width, height, dc, 0, 0, SRCCOPY);
-    DeleteObject(titleFont);
-    DeleteObject(headingFont);
+    DeleteObject(nameFont);
+    DeleteObject(statusFont);
     DeleteObject(bodyFont);
     DeleteObject(smallFont);
     SelectObject(dc, oldBitmap);
@@ -831,9 +987,452 @@ void Shutdown(App& app) {
     }
     // The server goes first so no callback reaches a pipeline that is shutting down.
     app.server.Stop();
+    // A recording in progress is finished and saved, not thrown away.
+    app.recorder.Stop();
+    app.video.SetRecorder(nullptr);
+    app.audio.SetRecorder(nullptr);
     app.video.Stop();
     app.audio.Stop();
     SetThreadExecutionState(ES_CONTINUOUS);
+}
+
+// ---------------------------------------------------------------------------
+// Screenshots and recordings
+// ---------------------------------------------------------------------------
+
+// Saves the phone's own picture, at the size the phone sent it, not the window.
+void TakeScreenshot(App& app) {
+    std::vector<uint8_t> rgb;
+    int width = 0, height = 0;
+    if (!app.hasPicture || !app.video.Frames().CopyLatest(rgb, width, height)) {
+        Toast(app, L"Nothing to capture yet. Start Screen Mirroring first.");
+        return;
+    }
+    const std::wstring folder = capture::PicturesFolder(app.captureDir);
+    if (folder.empty()) {
+        Toast(app, L"The screenshots folder could not be created. See the log.");
+        return;
+    }
+    const std::wstring path = capture::FreePath(folder, capture::TimestampName(), L".png");
+    std::wstring error;
+    if (!capture::SavePng(path, rgb, width, height, error)) {
+        LOGE("[CAPTURE] screenshot not saved to %ls: %ls", path.c_str(), error.c_str());
+        Toast(app, L"The screenshot could not be saved. " + error);
+        return;
+    }
+    // An unattended self-test must not replace what the user has on the clipboard.
+    const bool copied = !app.selfTestScreenshot && capture::CopyToClipboard(app.window, rgb, width, height);
+    LOGI("[CAPTURE] screenshot %dx%d saved to %ls%s", width, height, path.c_str(),
+         copied ? " and copied to the clipboard" : "");
+    Toast(app, L"Screenshot saved to " + ShortPath(path) + (copied ? L" and copied to the clipboard" : L""));
+}
+
+// Windows N editions ship without Media Foundation until the Media Feature Pack
+// is installed. The recorder's libraries are loaded on first use, so check for
+// them before that use rather than fail inside it.
+bool MediaFoundationPresent() {
+    static const bool present = [] {
+        HMODULE platform = LoadLibraryExW(L"mfplat.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        HMODULE writer = LoadLibraryExW(L"mfreadwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        const bool both = platform && writer;
+        if (platform) FreeLibrary(platform);
+        if (writer) FreeLibrary(writer);
+        return both;
+    }();
+    return present;
+}
+
+void StartRecording(App& app) {
+    if (app.recording || app.recorder.Active()) {
+        return;
+    }
+    if (!app.hasPicture) {
+        Toast(app, L"Nothing to record yet. Start Screen Mirroring first.");
+        return;
+    }
+    if (!MediaFoundationPresent()) {
+        LOGW("[RECORD] Media Foundation is not installed (Windows N edition without the Media Feature Pack)");
+        Toast(app, L"Recording needs the Windows Media Feature Pack, which is not installed on this PC.");
+        return;
+    }
+    const std::wstring folder = capture::VideosFolder(app.captureDir);
+    if (folder.empty()) {
+        Toast(app, L"The recordings folder could not be created. See the log.");
+        return;
+    }
+    const HWND window = app.window;
+    const bool started = app.recorder.Start(folder, capture::TimestampName(), [window](const RecorderNotice& notice) {
+        // Runs on the recorder's thread; the window thread owns the interface.
+        auto* copy = new RecorderNotice(notice);
+        if (!PostMessageW(window, WM_APP_RECORDER, 0, reinterpret_cast<LPARAM>(copy))) {
+            delete copy;
+        }
+    });
+    if (!started) {
+        LOGE("[RECORD] the recorder refused to start");
+        Toast(app, L"Recording could not start. See the log.");
+        return;
+    }
+    app.recording = true;
+    app.recordStarted = GetTickCount64();
+    // A still screen sends no new frames, so begin with the picture that is showing.
+    app.video.RecordCurrentPicture();
+    LOGI("[RECORD] started in %ls", folder.c_str());
+}
+
+void StopRecording(App& app) {
+    if (!app.recording) {
+        return;
+    }
+    app.recording = false;
+    app.recorder.Stop();  // writes the end of the file; its name arrives as WM_APP_RECORDER
+}
+
+void OnRecorderNotice(App& app, const RecorderNotice& notice) {
+    switch (notice.event) {
+    case RecorderEvent::Started:
+        LOGI("[RECORD] writing %ls", notice.path.c_str());
+        break;
+    case RecorderEvent::Finished:
+        LOGI("[RECORD] saved %ls (%.1f s, %llu frames)%s%ls", notice.path.c_str(), notice.seconds,
+             static_cast<unsigned long long>(notice.videoFrames), notice.message.empty() ? "" : ": ",
+             notice.message.c_str());
+        Toast(app, L"Recording saved to " + ShortPath(notice.path));
+        break;
+    case RecorderEvent::Failed:
+        LOGE("[RECORD] failed: %ls", notice.message.c_str());
+        app.recording = false;
+        Toast(app, L"Recording stopped. " + notice.message);
+        break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar, status bar and setup guide
+// ---------------------------------------------------------------------------
+
+// The name a phone reports. The end of its id is added only when two phones
+// share a name, which is the one case where it helps to tell them apart.
+std::wstring PhoneName(const App& app, const ControlPeer& peer) {
+    std::wstring name = Utf8ToWide(peer.name);
+    if (name.empty()) {
+        name = L"iPhone";
+    }
+    for (const auto& other : app.controlPeers) {
+        if (other.token != peer.token && other.name == peer.name) {
+            const size_t tail = peer.token.size() > 4 ? peer.token.size() - 4 : 0;
+            return name + L" (" + Utf8ToWide(peer.token.substr(tail)) + L")";
+        }
+    }
+    return name;
+}
+
+// True while the phone button has nothing to offer but pairing.
+bool PhoneButtonPairs(const App& app) {
+    const NativeControlState& state = app.controlState;
+    return !state.published && !state.ready && state.bound.empty() && app.controlPeers.empty();
+}
+
+ui::ButtonLook LookFor(const App& app, HWND control) {
+    ui::ButtonLook look;
+    look.kind = ui::ButtonKind::Subtle;
+    if (control == app.controlPeer) {
+        look.kind = ui::ButtonKind::Plain;
+        look.glyph = PhoneButtonPairs(app) ? ui::kGlyphBluetooth : ui::kGlyphPhone;
+        look.dot = app.phoneDot;
+        look.chevron = !PhoneButtonPairs(app);
+        look.alignLeft = true;
+    } else if (control == app.controlHome) {
+        look.glyph = ui::kGlyphHome;
+        look.showLabel = !app.iconOnly;
+    } else if (control == app.controlShot) {
+        look.glyph = ui::kGlyphCamera;
+        look.showLabel = !app.iconOnly;
+    } else if (control == app.controlRecord) {
+        look.kind = app.recording ? ui::ButtonKind::Record : ui::ButtonKind::Subtle;
+        look.glyph = app.recording ? ui::kGlyphStop : ui::kGlyphRecord;
+        look.showLabel = !app.iconOnly;
+    } else if (control == app.controlFull) {
+        look.glyph = app.fullscreen ? ui::kGlyphBackToWindow : ui::kGlyphFullScreen;
+        look.showLabel = false;
+    } else if (control == app.controlMenu) {
+        look.glyph = ui::kGlyphMenu;
+        look.showLabel = false;
+    } else if (control == app.controlGuideOpen) {
+        look.kind = ui::ButtonKind::Plain;
+    }
+    return look;
+}
+
+// The status bar: what Bluetooth control is doing on the left, the recording
+// clock and stream details on the right. Its window text is the left part, so
+// screen readers and scripts can read it.
+void DrawStatus(const App& app, const DRAWITEMSTRUCT& item) {
+    const RECT bounds = item.rcItem;
+    const int width = bounds.right - bounds.left;
+    const int height = bounds.bottom - bounds.top;
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    HDC dc = CreateCompatibleDC(item.hDC);
+    HBITMAP bitmap = CreateCompatibleBitmap(item.hDC, width, height);
+    HGDIOBJ oldBitmap = SelectObject(dc, bitmap);
+    const RECT local{0, 0, width, height};
+    HBRUSH chrome = CreateSolidBrush(ui::kChrome);
+    FillRect(dc, &local, chrome);
+    DeleteObject(chrome);
+    const RECT line{0, 0, width, 1};
+    HBRUSH divider = CreateSolidBrush(ui::kDivider);
+    FillRect(dc, &line, divider);
+    DeleteObject(divider);
+    SetBkMode(dc, TRANSPARENT);
+    HGDIOBJ oldFont = SelectObject(dc, app.uiFont);
+
+    const int margin = Scale(app.window, 12);
+    int right = width - margin;
+    if (!app.statusDetail.empty()) {
+        SIZE size{};
+        GetTextExtentPoint32W(dc, app.statusDetail.c_str(), static_cast<int>(app.statusDetail.size()), &size);
+        // The details give way before the status does.
+        if (size.cx < width / 2) {
+            RECT detail{right - size.cx, 0, right, height};
+            SetTextColor(dc, ui::kTextDim);
+            DrawTextW(dc, app.statusDetail.c_str(), -1, &detail, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            right = detail.left - Scale(app.window, 14);
+        }
+    }
+    if (!app.statusClock.empty()) {
+        // Never dropped for lack of room: it is the only sign that a recording is running.
+        SIZE size{};
+        GetTextExtentPoint32W(dc, app.statusClock.c_str(), static_cast<int>(app.statusClock.size()), &size);
+        RECT clock{right - size.cx, 0, right, height};
+        SetTextColor(dc, ui::kText);
+        DrawTextW(dc, app.statusClock.c_str(), -1, &clock, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        ui::FillCircle(dc, clock.left - Scale(app.window, 10), height / 2, Scale(app.window, 4), ui::kRecord);
+        right = clock.left - Scale(app.window, 24);
+    }
+
+    const bool toast = GetTickCount64() < app.toastUntil;
+    const NativeControlState& state = app.controlState;
+    const COLORREF dot = toast ? ui::kAccent
+                         : state.focused ? ui::kAccent
+                         : state.ready ? ui::kGood
+                         : (!state.bound.empty() || state.published || !app.controlPeers.empty()) ? ui::kWarn
+                         : ui::kTextOff;
+    int left = margin;
+    ui::FillCircle(dc, left + Scale(app.window, 4), height / 2, Scale(app.window, 4), dot);
+    left += Scale(app.window, 16);
+    RECT text{left, 0, std::max(left, right), height};
+    SetTextColor(dc, toast ? ui::kText : ui::kTextDim);
+    DrawTextW(dc, app.lastControlStatus.c_str(), -1, &text,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+    BitBlt(item.hDC, bounds.left, bounds.top, width, height, dc, 0, 0, SRCCOPY);
+    SelectObject(dc, oldFont);
+    SelectObject(dc, oldBitmap);
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+}
+
+GuideState MakeGuideState(const App& app) {
+    const NativeControlState& state = app.controlState;
+    GuideState guide;
+    guide.receiverName = app.settings.serverName;
+    guide.addresses = app.addresses;
+    guide.mirroring = app.hasPicture;
+    guide.mirrorDevice = Utf8ToWide(app.client.name);
+    guide.pairingOpen = state.published && app.controlPeers.empty();
+    for (const auto& peer : app.controlPeers) {
+        guide.phones.push_back(PhoneName(app, peer));
+    }
+    guide.chosen = !state.bound.empty();
+    guide.ready = state.ready;
+    guide.controlled = app.settings.setupControlled;
+    guide.bluetoothStatus = state.ready ? std::wstring() : Utf8ToWide(state.message);
+    return guide;
+}
+
+void LayoutControls(App& app, int width, int height) {
+    if (!app.controlPeer) {
+        return;
+    }
+    const HWND window = app.window;
+    const bool chrome = !app.fullscreen;
+    const int top = chrome ? Scale(window, kTopBar) : 0;
+    const int status = chrome ? Scale(window, kStatusBar) : 0;
+    const int guide = GuideWidth(app);
+    const int videoWidth = std::max(1, width - guide);
+    const int videoHeight = std::max(1, height - top - status);
+    for (HWND control : {app.controlPeer, app.controlHome, app.controlShot, app.controlRecord, app.controlFull,
+                         app.controlMenu, app.controlStatus}) {
+        ShowWindow(control, chrome ? SW_SHOWNA : SW_HIDE);
+    }
+    if (chrome) {
+        const int margin = Scale(window, 10), gap = Scale(window, 6), button = Scale(window, 32), icon = Scale(window, 36);
+        const int y = (top - button) / 2;
+        // The right-hand buttons carry labels while there is room; a narrow
+        // window keeps their icons, and the labels move to the tooltips.
+        app.iconOnly = false;
+        const int homeWide = ui::ButtonWidth(app.controlHome, LookFor(app, app.controlHome), app.uiFont);
+        const int shotWide = ui::ButtonWidth(app.controlShot, LookFor(app, app.controlShot), app.uiFont);
+        const int recordWide = std::max(ui::ButtonWidth(app.controlRecord, LookFor(app, app.controlRecord), app.uiFont),
+                                        Scale(window, 84));
+        const int fixed = margin * 2 + icon * 2 + gap * 5;
+        app.iconOnly = width < fixed + homeWide + shotWide + recordWide + Scale(window, 170);
+        const int home = app.iconOnly ? icon : homeWide;
+        const int shot = app.iconOnly ? icon : shotWide;
+        const int record = app.iconOnly ? icon : recordWide;
+        int x = width - margin - icon;
+        MoveWindow(app.controlMenu, x, y, icon, button, TRUE);
+        x -= gap + icon;
+        MoveWindow(app.controlFull, x, y, icon, button, TRUE);
+        x -= gap + record;
+        MoveWindow(app.controlRecord, x, y, record, button, TRUE);
+        x -= gap + shot;
+        MoveWindow(app.controlShot, x, y, shot, button, TRUE);
+        x -= gap + home;
+        MoveWindow(app.controlHome, x, y, home, button, TRUE);
+        const int room = std::max(Scale(window, 90), x - gap - margin);
+        const int wanted = ui::ButtonWidth(app.controlPeer, LookFor(app, app.controlPeer), app.uiFont) + Scale(window, 14);
+        MoveWindow(app.controlPeer, margin, y, std::min(room, std::clamp(wanted, Scale(window, 150), Scale(window, 300))),
+                   button, TRUE);
+        MoveWindow(app.controlStatus, 0, height - status, width, status, TRUE);
+    }
+    if (app.videoWindow) {
+        MoveWindow(app.videoWindow, 0, top, videoWidth, videoHeight, FALSE);
+        app.video.NotifyResize();
+    }
+    if (HWND panel = app.guide.Window()) {
+        if (guide) {
+            MoveWindow(panel, width - guide, top, guide, videoHeight, TRUE);
+        }
+        ShowWindow(panel, guide ? SW_SHOWNA : SW_HIDE);
+    }
+    // On the idle screen, with the guide closed, offer it.
+    const bool offerGuide = chrome && !app.hasPicture && !app.guideOpen && videoHeight > Scale(window, 260);
+    if (offerGuide) {
+        const int wide = ui::ButtonWidth(app.controlGuideOpen, LookFor(app, app.controlGuideOpen), app.uiFont) + Scale(window, 16);
+        MoveWindow(app.controlGuideOpen, (videoWidth - wide) / 2, top + videoHeight - Scale(window, 60), wide,
+                   Scale(window, 32), TRUE);
+    }
+    ShowWindow(app.controlGuideOpen, offerGuide ? SW_SHOWNA : SW_HIDE);
+}
+
+void RelayoutWindow(App& app) {
+    RECT client{};
+    GetClientRect(app.window, &client);
+    LayoutControls(app, client.right, client.bottom);
+    InvalidateRect(app.window, nullptr, FALSE);
+}
+
+// Opens or closes the setup guide beside the picture. The window grows to make
+// room rather than squeezing the picture, and gives the room back on close.
+void SetGuideOpen(App& app, bool open) {
+    if (app.guideOpen == open) {
+        return;
+    }
+    app.guideOpen = open;
+    if (!open && !app.settings.setupGuideSeen) {
+        app.settings.setupGuideSeen = true;
+        app.settings.Save();
+    }
+    if (!app.fullscreen && !IsZoomed(app.window) && !IsIconic(app.window)) {
+        RECT bounds{};
+        GetWindowRect(app.window, &bounds);
+        MONITORINFO monitor{sizeof(MONITORINFO)};
+        GetMonitorInfoW(MonitorFromWindow(app.window, MONITOR_DEFAULTTONEAREST), &monitor);
+        const int workWidth = monitor.rcWork.right - monitor.rcWork.left;
+        const int workHeight = monitor.rcWork.bottom - monitor.rcWork.top;
+        const int panel = Guide::Width(app.window);
+        int width = bounds.right - bounds.left + (open ? panel : -panel);
+        int height = bounds.bottom - bounds.top;
+        if (open) {
+            height = std::max(height, std::min(workHeight, Scale(app.window, 680)));
+        }
+        width = std::clamp(width, Scale(app.window, kMinClientWidth), workWidth);
+        const int left = std::clamp<int>(bounds.left, monitor.rcWork.left, monitor.rcWork.right - width);
+        const int top = std::clamp<int>(bounds.top, monitor.rcWork.top, monitor.rcWork.bottom - height);
+        SetWindowPos(app.window, nullptr, left, top, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    if (open) {
+        app.guide.Update(MakeGuideState(app));
+    }
+    RelayoutWindow(app);
+}
+
+// The application menu as a popup. `anchor` is the button it drops from, or
+// null to open at `point` (a right-click).
+void ShowAppMenu(App& app, HWND anchor, POINT point) {
+    // Reuse the menu's submenus so there is one definition of every command.
+    HMENU popup = CreatePopupMenu();
+    wchar_t label[64];
+    const int count = GetMenuItemCount(app.menu);
+    for (int i = 0; i < count; ++i) {
+        GetMenuStringW(app.menu, static_cast<UINT>(i), label, ARRAYSIZE(label), MF_BYPOSITION);
+        AppendMenuW(popup, MF_POPUP, reinterpret_cast<UINT_PTR>(GetSubMenu(app.menu, i)), label);
+    }
+    SyncMenu(app);
+    SetCursorHidden(app, false);
+    UINT flags = TPM_RIGHTBUTTON;
+    if (anchor) {
+        RECT rect{};
+        GetWindowRect(anchor, &rect);
+        point = POINT{rect.right, rect.bottom + Scale(app.window, 2)};
+        flags |= TPM_RIGHTALIGN | TPM_TOPALIGN;
+    }
+    TrackPopupMenu(popup, flags, point.x, point.y, 0, app.window, nullptr);
+    // Detach the shared submenus before destroying the wrapper.
+    for (int i = count - 1; i >= 0; --i) {
+        RemoveMenu(popup, static_cast<UINT>(i), MF_BYPOSITION);
+    }
+    DestroyMenu(popup);
+}
+
+// Writes one line per menu item, as the menu would show it now.
+void LogMenu(HMENU menu, const std::wstring& path) {
+    const int count = GetMenuItemCount(menu);
+    for (int i = 0; i < count; ++i) {
+        wchar_t label[128] = L"";
+        MENUITEMINFOW info{sizeof(MENUITEMINFOW)};
+        info.fMask = MIIM_STRING | MIIM_STATE | MIIM_SUBMENU | MIIM_FTYPE | MIIM_ID;
+        info.dwTypeData = label;
+        info.cch = ARRAYSIZE(label);
+        if (!GetMenuItemInfoW(menu, static_cast<UINT>(i), TRUE, &info) || (info.fType & MFT_SEPARATOR)) {
+            continue;
+        }
+        std::wstring name = label;
+        name.erase(std::remove(name.begin(), name.end(), L'&'), name.end());
+        std::replace(name.begin(), name.end(), L'\t', L' ');
+        const std::wstring full = path.empty() ? name : path + L" > " + name;
+        if (info.hSubMenu) {
+            LogMenu(info.hSubMenu, full);
+        } else {
+            LOGI("[SELFTEST] menu: %ls | id=%u%s%s", full.c_str(), info.wID, (info.fState & MFS_CHECKED) ? " | checked" : "",
+                 (info.fState & MFS_GRAYED) ? " | grey" : "");
+        }
+    }
+}
+
+// Phones to choose from, then pairing and disconnecting.
+void ShowPhoneMenu(App& app) {
+    const NativeControlState& state = app.controlState;
+    HMENU menu = CreatePopupMenu();
+    for (size_t i = 0; i < app.controlPeers.size() && kPeerFirst + static_cast<int>(i) <= kPeerLast; ++i) {
+        const UINT checked = app.controlPeers[i].token == state.bound ? MF_CHECKED : MF_UNCHECKED;
+        AppendMenuW(menu, MF_STRING | checked, static_cast<UINT_PTR>(kPeerFirst) + i, PhoneName(app, app.controlPeers[i]).c_str());
+    }
+    if (app.controlPeers.empty()) {
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0,
+                    state.published ? L"Waiting for an iPhone to pair…" : L"No iPhone is paired");
+    }
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING | (state.ready ? MF_GRAYED : MF_ENABLED), kPairControl, L"Pair Bluetooth");
+    AppendMenuW(menu, MF_STRING | (state.published || state.ready ? MF_ENABLED : MF_GRAYED), kDisconnectControl,
+                L"Disconnect");
+    RECT rect{};
+    GetWindowRect(app.controlPeer, &rect);
+    TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_TOPALIGN, rect.left, rect.bottom + Scale(app.window, 2), 0, app.window, nullptr);
+    DestroyMenu(menu);
 }
 
 // ---------------------------------------------------------------------------
@@ -849,21 +1448,57 @@ void OnCommand(App& app, UINT id) {
         else app.control.RejectInput("Home is available while the selected iPhone is visibly mirroring.");
         return;
     }
-    if (id==kPeerControl) return; // selector notifications; Connect reads the current selection
+    if (id==kPeerControl) {
+        // With nothing paired and nothing pairing there is one thing to do, so do it.
+        if (PhoneButtonPairs(app)) app.control.Pair();
+        else ShowPhoneMenu(app);
+        return;
+    }
+    if (id>=static_cast<UINT>(kPeerFirst) && id<=static_cast<UINT>(kPeerLast)) {
+        const size_t index=id-kPeerFirst;
+        if(index<app.controlPeers.size()) app.control.Bind(app.controlPeers[index].token);
+        return;
+    }
     if (id==kPairControl) { app.control.Pair(); return; }
     if (id==kDisconnectControl) { app.control.Disconnect(); return; }
     if (id==kBindControl) {
-        const auto selected=SendMessageW(app.controlPeer,CB_GETCURSEL,0,0);
-        if(selected>=0 && size_t(selected)<app.controlPeers.size()) app.control.Bind(app.controlPeers[size_t(selected)].token);
+        // Kept for scripts that post it: connect the only phone, or reconnect the chosen one.
+        if(app.controlPeers.size()==1) app.control.Bind(app.controlPeers[0].token);
+        else for(const auto& peer:app.controlPeers) if(peer.token==app.controlState.bound) app.control.Bind(peer.token);
+        return;
+    }
+    // A click on one of these buttons moved the keyboard off the phone. If the
+    // user was controlling it a moment ago, hand it back when the command is done.
+    const bool resume = app.hasPicture && GetTickCount64() - app.lastFocusedTick < 1500;
+    const auto resumeControl = [&] { if (resume && !app.fullscreen) SetFocus(app.videoWindow); };
+    if (id==kShotControl || id==IDM_SCREENSHOT) { TakeScreenshot(app); resumeControl(); return; }
+    if (id==kRecordControl || id==IDM_RECORD) {
+        if (app.recording) StopRecording(app); else StartRecording(app);
+        resumeControl();
+        return;
+    }
+    if (id==kFullControl) { ToggleFullscreen(app); if (resume) SetFocus(app.videoWindow); return; }
+    if (id==kMenuControl) { ShowAppMenu(app, app.controlMenu, POINT{}); return; }
+    if (id==kGuideOpenControl) { SetGuideOpen(app, true); return; }
+    if (id==kGuideCloseControl) { SetGuideOpen(app, false); return; }
+    if (id==kDumpMenuCommand) {
+        if (app.selfTestMenu) { SyncMenu(app); LogMenu(app.menu, L""); }
         return;
     }
     Settings& settings = app.settings;
+    // These settings take effect on a fresh service, which ends a session in progress.
+    const auto restart = [&](bool video) {
+        if (app.connections > 0) {
+            app.notice = L"The setting was applied, which stopped mirroring. Start Screen Mirroring again on your device.";
+        }
+        RestartService(app, video);
+    };
     const auto& qualities = VideoQualities();
     if (id >= IDM_QUALITY_FIRST && id < IDM_QUALITY_FIRST + qualities.size()) {
         settings.videoQuality = qualities[id - IDM_QUALITY_FIRST].name;
         LOGI("[CFG] SetVideoQualityName('%ls')", settings.videoQuality.c_str());
         settings.Save();
-        RestartService(app, false);
+        restart(false);
         return;
     }
     switch (id) {
@@ -874,16 +1509,27 @@ void OnCommand(App& app, UINT id) {
             settings.serverName = name;
             LOGI("[CFG] SetAirPlayServerName('%s')", WideToUtf8(name).c_str());
             settings.Save();
-            RestartService(app, false);
+            restart(false);
         }
         break;
     }
     case IDM_RESTART:
-        RestartService(app, false);
+        restart(false);
         break;
     case IDM_OPEN_LOG_FOLDER:
         ShellExecuteW(app.window, L"open", AppDataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         break;
+    case IDM_OPEN_SCREENSHOTS:
+    case IDM_OPEN_RECORDINGS: {
+        const std::wstring folder = id == IDM_OPEN_SCREENSHOTS ? capture::PicturesFolder(app.captureDir)
+                                                               : capture::VideosFolder(app.captureDir);
+        if (folder.empty()) {
+            Toast(app, L"That folder could not be created. See the log.");
+        } else {
+            ShellExecuteW(app.window, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        break;
+    }
     case IDM_EXIT:
         PostMessageW(app.window, WM_CLOSE, 0, 0);
         break;
@@ -891,7 +1537,7 @@ void OnCommand(App& app, UINT id) {
     case IDM_FPS_60:
         settings.maxFps = id == IDM_FPS_60 ? 60 : 30;
         settings.Save();
-        RestartService(app, false);
+        restart(false);
         break;
     case IDM_DECODER_AUTO:
     case IDM_DECODER_HARDWARE:
@@ -900,7 +1546,7 @@ void OnCommand(App& app, UINT id) {
                                : id == IDM_DECODER_HARDWARE ? DecoderMode::Hardware : DecoderMode::Software;
         settings.Save();
         app.decoderOverride = -1;
-        RestartService(app, true);
+        restart(true);
         break;
     case IDM_VSYNC:
         settings.vsync = !settings.vsync;
@@ -910,7 +1556,7 @@ void OnCommand(App& app, UINT id) {
     case IDM_ALLOW_H265:
         settings.allowH265 = !settings.allowH265;
         settings.Save();
-        RestartService(app, false);
+        restart(false);
         break;
     case IDM_FULLSCREEN:
         ToggleFullscreen(app);
@@ -929,10 +1575,9 @@ void OnCommand(App& app, UINT id) {
     case IDM_SHOW_STATUS:
         settings.showStatus = !settings.showStatus;
         settings.Save();
-        UpdateTitle(app);
         break;
-    case IDM_HOW_TO_CONNECT:
-        ShowHowToConnect(app);
+    case IDM_SETUP_GUIDE:
+        SetGuideOpen(app, !app.guideOpen);
         break;
     case IDM_ABOUT:
         ShowAbout(app);
@@ -948,38 +1593,56 @@ void UpdateControlUi(App& app) {
     if(state.ready && (state.bound!=app.settings.controlPhone || state.sender!=app.settings.controlSender)){
         app.settings.controlPhone=state.bound;app.settings.controlSender=state.sender;app.settings.Save();
     }
-    std::wstring text=state.focused ? L"Controlling iPhone - click elsewhere to return" : Utf8ToWide(state.message);
-    if(text!=app.lastControlStatus){SetWindowTextW(app.controlStatus,text.c_str());app.lastControlStatus=text;}
-    bool changed=state.peers.size()!=app.controlPeers.size();
-    if(!changed)for(size_t i=0;i<state.peers.size();++i)if(state.peers[i].token!=app.controlPeers[i].token || state.peers[i].name!=app.controlPeers[i].name)changed=true;
-    if(changed){
-        const auto oldSelection=SendMessageW(app.controlPeer,CB_GETCURSEL,0,0);
-        const std::string selectedToken=oldSelection>=0 && size_t(oldSelection)<app.controlPeers.size()
-            ? app.controlPeers[size_t(oldSelection)].token : state.bound;
-        app.controlPeers=state.peers;SendMessageW(app.controlPeer,CB_RESETCONTENT,0,0);
-        for(const auto& peer:app.controlPeers){const auto label=Utf8ToWide(peer.name+" ["+peer.token+"]");SendMessageW(app.controlPeer,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label.c_str()));}
-        if(app.controlPeers.size()==1)SendMessageW(app.controlPeer,CB_SETCURSEL,0,0);
-        else for(size_t i=0;i<app.controlPeers.size();++i)if(app.controlPeers[i].token==selectedToken)SendMessageW(app.controlPeer,CB_SETCURSEL,i,0);
+    if(state.focused){
+        app.lastFocusedTick=GetTickCount64();
+        if(!app.settings.setupControlled){app.settings.setupControlled=true;app.settings.Save();}
     }
-    EnableWindow(app.controlBind,!app.controlPeers.empty() && !state.ready);
-    EnableWindow(app.controlPair,!state.ready);
-    EnableWindow(app.controlDisconnect,state.published || state.ready);
-    EnableWindow(app.controlHome,state.ready && app.hasPicture && app.mirrorRunning);
-}
+    bool peersChanged=state.peers.size()!=app.controlPeers.size();
+    if(!peersChanged)for(size_t i=0;i<state.peers.size();++i)if(state.peers[i].token!=app.controlPeers[i].token || state.peers[i].name!=app.controlPeers[i].name)peersChanged=true;
+    if(peersChanged)app.controlPeers=state.peers;
+    app.controlState=state;
 
-void LayoutControls(App& app,int width,int height){
-    const int margin=Scale(app.window,8), row=Scale(app.window,26), top=Scale(app.window,kToolbarHeight);
-    const int pair=Scale(app.window,106), bind=Scale(app.window,86), disconnect=Scale(app.window,94),home=Scale(app.window,66);
-    const int peer=std::max(Scale(app.window,100),width-pair-bind-disconnect-home-margin*6);
-    if(app.controlPair){
-        MoveWindow(app.controlPair,margin,margin,pair,row,TRUE);
-        MoveWindow(app.controlPeer,margin*2+pair,margin,peer,row*8,TRUE);
-        MoveWindow(app.controlBind,margin*3+pair+peer,margin,bind,row,TRUE);
-        MoveWindow(app.controlDisconnect,margin*4+pair+peer+bind,margin,disconnect,row,TRUE);
-        MoveWindow(app.controlHome,margin*5+pair+peer+bind+disconnect,margin,home,row,TRUE);
-        MoveWindow(app.controlStatus,margin,margin*2+row,std::max(1,width-margin*2),row,TRUE);
+    // Status bar: a confirmation for a few seconds, otherwise what Bluetooth control is doing.
+    const bool toast=GetTickCount64()<app.toastUntil;
+    const std::wstring text=toast ? app.toast : state.focused ? L"Controlling iPhone - click elsewhere to return" : Utf8ToWide(state.message);
+    const std::wstring detail=StatusDetail(app);
+    const std::wstring clock=RecordClock(app);
+    if(text!=app.lastControlStatus || detail!=app.statusDetail || clock!=app.statusClock || state.ready!=app.statusReady || state.focused!=app.statusFocused){
+        app.lastControlStatus=text;app.statusDetail=detail;app.statusClock=clock;app.statusReady=state.ready;app.statusFocused=state.focused;
+        SetWindowTextW(app.controlStatus,text.c_str());
+        InvalidateRect(app.controlStatus,nullptr,FALSE);
     }
-    if(app.videoWindow){MoveWindow(app.videoWindow,0,top,width,std::max(1,height-top),FALSE);app.video.NotifyResize();}
+
+    // Phone button: one control for "pair", "which phone" and "is it connected".
+    std::wstring label;
+    COLORREF dot=CLR_INVALID;
+    const auto boundPeer=std::find_if(app.controlPeers.begin(),app.controlPeers.end(),[&](const ControlPeer& peer){return peer.token==state.bound;});
+    if(state.ready || !state.bound.empty()){
+        label=boundPeer!=app.controlPeers.end() ? PhoneName(app,*boundPeer) : L"iPhone";
+        dot=state.ready ? ui::kGood : ui::kWarn;
+    }else if(!app.controlPeers.empty()){
+        label=L"Choose phone";dot=ui::kWarn;
+    }else if(state.published){
+        label=L"Waiting for iPhone…";dot=ui::kAccent;
+    }else{
+        label=L"Pair Bluetooth";
+    }
+    if(label!=app.phoneLabel || dot!=app.phoneDot){
+        app.phoneLabel=label;app.phoneDot=dot;
+        SetWindowTextW(app.controlPeer,label.c_str());
+        RelayoutWindow(app);
+    }
+
+    const bool wasRecordLabel=app.recordLabelStop;
+    app.recordLabelStop=app.recording;
+    if(wasRecordLabel!=app.recordLabelStop){
+        SetWindowTextW(app.controlRecord,app.recording ? L"Stop" : L"Record");
+        InvalidateRect(app.controlRecord,nullptr,FALSE);
+    }
+    EnableWindow(app.controlHome,state.ready && app.hasPicture && app.mirrorRunning);
+    EnableWindow(app.controlShot,app.hasPicture);
+    EnableWindow(app.controlRecord,app.hasPicture || app.recording);
+    if(app.guideOpen)app.guide.Update(MakeGuideState(app));
 }
 
 void PasteToPhone(HWND window,App& app){
@@ -1144,8 +1807,9 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         return 0;
     case WM_GETMINMAXINFO: {
         auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
-        info->ptMinTrackSize.x = Scale(window, 650);
-        info->ptMinTrackSize.y = Scale(window, 300);
+        // Room for the button row, plus the setup guide while it is open.
+        info->ptMinTrackSize.x = Scale(window, kMinClientWidth + 16) + GuideWidth(*app);
+        info->ptMinTrackSize.y = Scale(window, 380);
         MONITORINFO monitor{sizeof(MONITORINFO)};
         if(GetMonitorInfoW(MonitorFromWindow(window,MONITOR_DEFAULTTONEAREST),&monitor)){
             info->ptMinTrackSize.x=std::min(info->ptMinTrackSize.x,monitor.rcWork.right-monitor.rcWork.left);
@@ -1157,13 +1821,27 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
         SetWindowPos(window, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                      suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
-        // The toolbar font is sized for one DPI; rebuild it and lay the row out again.
-        ApplyUiFont(*app);
-        RECT client{};
-        GetClientRect(window, &client);
-        LayoutControls(*app, client.right, client.bottom);
+        // Fonts are sized for one DPI; rebuild them and lay everything out again.
+        RebuildFonts(*app);
+        RelayoutWindow(*app);
         return 0;
     }
+    case WM_DRAWITEM: {
+        const auto& item = *reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+        if (item.hwndItem == app->controlStatus) {
+            DrawStatus(*app, item);
+        } else {
+            ui::DrawButton(item, LookFor(*app, item.hwndItem), app->uiFont, app->iconFont);
+        }
+        return TRUE;
+    }
+    case WM_SYSCOMMAND:
+        // Alt or F10 on its own: there is no menu bar to activate, so open the menu.
+        if ((wParam & 0xFFF0) == SC_KEYMENU && lParam == 0 && !app->fullscreen) {
+            ShowAppMenu(*app, app->controlMenu, POINT{});
+            return 0;
+        }
+        break;
     case WM_ERASEBKGND:
         return 1;
     case WM_ACTIVATEAPP:
@@ -1193,22 +1871,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         if (point.x == -1 && point.y == -1) {
             GetCursorPos(&point);
         }
-        // Reuse the menu bar's submenus so the context menu works in full screen too.
-        HMENU popup = CreatePopupMenu();
-        wchar_t label[64];
-        const int count = GetMenuItemCount(app->menu);
-        for (int i = 0; i < count; ++i) {
-            GetMenuStringW(app->menu, static_cast<UINT>(i), label, ARRAYSIZE(label), MF_BYPOSITION);
-            AppendMenuW(popup, MF_POPUP, reinterpret_cast<UINT_PTR>(GetSubMenu(app->menu, i)), label);
-        }
-        SyncMenu(*app);
-        SetCursorHidden(*app, false);
-        TrackPopupMenu(popup, TPM_RIGHTBUTTON, point.x, point.y, 0, window, nullptr);
-        // Detach the shared submenus before destroying the wrapper.
-        for (int i = count - 1; i >= 0; --i) {
-            RemoveMenu(popup, static_cast<UINT>(i), MF_BYPOSITION);
-        }
-        DestroyMenu(popup);
+        ShowAppMenu(*app, nullptr, point);
         return 0;
     }
     case WM_LBUTTONDBLCLK:
@@ -1246,9 +1909,6 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
                 app->addresses = std::move(addresses);
                 InvalidateRect(window, nullptr, FALSE);
             }
-            if (app->settings.showStatus && app->hasPicture) {
-                UpdateTitle(*app);
-            }
             if (app->fullscreen && app->hasPicture && GetTickCount() - app->lastMouseMove > kCursorHideMs) {
                 SetCursorHidden(*app, true);
             }
@@ -1266,6 +1926,26 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
                 crash::TestTerminate();
             }
             crash::TestAccessViolation();
+        } else if (wParam == kSelfTestCaptureTimer && app->selfTestCaptureArmed) {
+            // First firing: capture. Second firing: stop the recording it started.
+            KillTimer(window, kSelfTestCaptureTimer);
+            if (app->recording) {
+                app->selfTestCaptureArmed = false;
+                LOGI("[SELFTEST] stopping the recording");
+                StopRecording(*app);
+            } else {
+                if (app->selfTestScreenshot) {
+                    LOGI("[SELFTEST] taking a screenshot");
+                    TakeScreenshot(*app);
+                }
+                if (app->selfTestRecordSeconds > 0) {
+                    LOGI("[SELFTEST] recording for %d seconds", app->selfTestRecordSeconds);
+                    StartRecording(*app);
+                    SetTimer(window, kSelfTestCaptureTimer, static_cast<UINT>(app->selfTestRecordSeconds) * 1000, nullptr);
+                } else {
+                    app->selfTestCaptureArmed = false;
+                }
+            }
         }
         return 0;
 
@@ -1312,12 +1992,26 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         ShowWindow(app->videoWindow, app->hasPicture ? SW_SHOWNA : SW_HIDE);
         if (app->hasPicture) {
             app->video.RequestRedraw();
+            if ((app->selfTestScreenshot || app->selfTestRecordSeconds > 0) && !app->selfTestCaptureArmed) {
+                app->selfTestCaptureArmed = true;
+                SetTimer(window, kSelfTestCaptureTimer, 700, nullptr);
+            }
         } else {
             SetCursorHidden(*app, false);
-            InvalidateRect(window, nullptr, FALSE);
+            // The picture is gone, so there is nothing more to record; keep what was captured.
+            StopRecording(*app);
         }
+        // The idle screen's guide button comes and goes with the picture.
+        RelayoutWindow(*app);
         UpdateTitle(*app);
         return 0;
+
+    case WM_APP_RECORDER: {
+        auto* notice = reinterpret_cast<RecorderNotice*>(lParam);
+        OnRecorderNotice(*app, *notice);
+        delete notice;
+        return 0;
+    }
 
     case WM_APP_VIDEO_DEVICE_LOST:
         RecoverVideo(*app, true);
@@ -1369,6 +2063,18 @@ void ParseCommandLine(App& app) {
         } else if (arg == L"--selftest-crash" && i + 1 < argc) {
             // Fail on purpose to exercise the crash report: "access" or "terminate".
             app.selfTestCrash = argv[++i];
+        } else if (arg == L"--selftest-menu") {
+            // Lets a test ask for the menu's current labels, check marks and grey-outs in the log.
+            app.selfTestMenu = true;
+        } else if (arg == L"--selftest-screenshot") {
+            // With --selftest-video: save one screenshot once the picture is up.
+            app.selfTestScreenshot = true;
+        } else if (arg == L"--selftest-record" && i + 1 < argc) {
+            // With --selftest-video: record this many seconds once the picture is up.
+            app.selfTestRecordSeconds = _wtoi(argv[++i]);
+        } else if (arg == L"--capture-dir" && i + 1 < argc) {
+            // Screenshots and recordings go here instead of Pictures and Videos.
+            app.captureDir = argv[++i];
         } else if (arg == L"--exit-after" && i + 1 < argc) {
             app.exitAfterSeconds = _wtoi(argv[++i]);
         } else if (arg == L"--decoder" && i + 1 < argc) {
@@ -1471,6 +2177,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     LOGI("[CFG] identity: serverName='%s' deviceId=%s", WideToUtf8(app.settings.serverName).c_str(),
          app.settings.macAddress.c_str());
 
+    ui::Startup();
+
     WNDCLASSEXW mainClass{sizeof(WNDCLASSEXW)};
     mainClass.style = CS_DBLCLKS | CS_HREDRAW | CS_VREDRAW;
     mainClass.lpfnWndProc = MainWindowProc;
@@ -1489,13 +2197,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     videoClass.lpszClassName = kVideoClass;
     RegisterClassExW(&videoClass);
 
+    // The menu is shown as a popup (Menu button, right-click, Alt), not as a bar.
     app.menu = BuildMenu();
     app.window = CreateWindowExW(0, kMainClass, kAppTitle, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT,
-                                 CW_USEDEFAULT, 1120, 720, nullptr, app.menu, instance, nullptr);
+                                 CW_USEDEFAULT, 1120, 760, nullptr, nullptr, instance, nullptr);
     if (!app.window) {
         LOGE("CreateWindowEx failed (error %lu)", GetLastError());
         return 1;
     }
+    ui::StyleWindow(app.window);
     if (instanceMutex) {
         SetPropW(app.window, kPrimaryProperty, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(1)));
     }
@@ -1504,28 +2214,61 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     GetClientRect(app.window, &client);
     app.videoWindow = CreateWindowExW(0, kVideoClass, L"", WS_CHILD, 0, 0, client.right, client.bottom, app.window,
                                       nullptr, instance, nullptr);
-    const auto makeControl=[&](const wchar_t* kind,const wchar_t* text,DWORD style,int id){
-        // Stock font until ApplyUiFont replaces it below, in case that fails.
-        auto handle=CreateWindowExW(0,kind,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,app.window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),instance,nullptr);
-        SendMessageW(handle,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);return handle;
+    // Real button windows, drawn by ui::DrawButton: their text names them for
+    // screen readers and automation even where only an icon is shown.
+    const auto makeButton=[&](const wchar_t* text,int id){
+        HWND handle=CreateWindowExW(0,L"BUTTON",text,WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,0,0,1,1,app.window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),instance,nullptr);
+        ui::TrackHover(handle,ui::kChrome);
+        return handle;
     };
-    app.controlPair=makeControl(L"BUTTON",L"Pair Bluetooth",BS_PUSHBUTTON|WS_TABSTOP,kPairControl);
-    app.controlPeer=makeControl(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,kPeerControl);
-    app.controlBind=makeControl(L"BUTTON",L"Connect",BS_PUSHBUTTON|WS_TABSTOP,kBindControl);
-    app.controlDisconnect=makeControl(L"BUTTON",L"Disconnect",BS_PUSHBUTTON|WS_TABSTOP,kDisconnectControl);
-    app.controlHome=makeControl(L"BUTTON",L"Home",BS_PUSHBUTTON|WS_TABSTOP,kHomeControl);
-    app.controlHelp=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,WS_POPUP|TTS_ALWAYSTIP,
+    app.controlPeer=makeButton(L"Pair Bluetooth",kPeerControl);
+    app.controlHome=makeButton(L"Home",kHomeControl);
+    app.controlShot=makeButton(L"Screenshot",kShotControl);
+    app.controlRecord=makeButton(L"Record",kRecordControl);
+    app.controlFull=makeButton(L"Full screen",kFullControl);
+    app.controlMenu=makeButton(L"Menu",kMenuControl);
+    app.controlGuideOpen=CreateWindowExW(0,L"BUTTON",L"Open the setup guide",WS_CHILD|BS_OWNERDRAW,0,0,1,1,app.window,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGuideOpenControl)),instance,nullptr);
+    ui::TrackHover(app.controlGuideOpen,ui::kSurface);
+    app.controlStatus=CreateWindowExW(0,L"STATIC",L"Bluetooth control disconnected",WS_CHILD|WS_VISIBLE|SS_OWNERDRAW,0,0,1,1,
+        app.window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStatusControl)),instance,nullptr);
+    app.lastControlStatus=L"Bluetooth control disconnected";
+    app.phoneLabel=L"Pair Bluetooth";
+    Guide::Commands guideCommands;
+    guideCommands.pair=kPairControl;
+    guideCommands.firstPhone=kPeerFirst;
+    guideCommands.close=kGuideCloseControl;
+    if(!app.guide.Create(app.window,instance,guideCommands)){
+        LOGW("[UI] the setup guide could not be created (error %lu)",GetLastError());
+    }
+    app.controlHelp=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,WS_POPUP|TTS_ALWAYSTIP|TTS_NOPREFIX,
         CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,app.window,nullptr,instance,nullptr);
     if(app.controlHelp){
-        TOOLINFOW tip{sizeof(TOOLINFOW)};tip.uFlags=TTF_IDISHWND|TTF_SUBCLASS;tip.hwnd=app.window;
-        tip.uId=reinterpret_cast<UINT_PTR>(app.controlHome);
-        tip.lpszText=const_cast<wchar_t*>(L"One-time setup on iPhone: Settings > Accessibility > Touch > AssistiveTouch > Devices > this PC's Bluetooth name. Assign Button 2 to Home. This button sends that configured action.");
-        SendMessageW(app.controlHelp,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&tip));
-        SendMessageW(app.controlHelp,TTM_SETMAXTIPWIDTH,0,Scale(app.window,420));
+        const auto tip=[&](HWND control,const wchar_t* text){
+            TOOLINFOW info{sizeof(TOOLINFOW)};info.uFlags=TTF_IDISHWND|TTF_SUBCLASS;info.hwnd=app.window;
+            info.uId=reinterpret_cast<UINT_PTR>(control);info.lpszText=const_cast<wchar_t*>(text);
+            SendMessageW(app.controlHelp,TTM_ADDTOOLW,0,reinterpret_cast<LPARAM>(&info));
+        };
+        tip(app.controlPeer,L"Bluetooth mouse and keyboard for an iPhone: pair, choose the phone, or disconnect.");
+        tip(app.controlHome,L"Home. One-time setup on the iPhone: Settings > Accessibility > Touch > AssistiveTouch > Devices > this PC > Customize Additional Buttons, press this button, then assign Button 2 to Home. Right-clicking the picture does the same.");
+        tip(app.controlShot,L"Screenshot (F8). Saves the phone's picture to Pictures\\AirWindows and copies it.");
+        tip(app.controlRecord,L"Record (F9). Saves video and the phone's sound to Videos\\AirWindows. Press again to stop.");
+        tip(app.controlFull,L"Full screen (F11). Esc returns.");
+        tip(app.controlMenu,L"Menu (Alt). Also opens with a right-click outside the picture.");
+        SendMessageW(app.controlHelp,TTM_SETMAXTIPWIDTH,0,Scale(app.window,380));
         SendMessageW(app.controlHelp,TTM_SETDELAYTIME,TTDT_AUTOPOP,15000);
     }
-    app.controlStatus=makeControl(L"STATIC",L"Bluetooth control disconnected",SS_LEFT,0);
-    ApplyUiFont(app);
+    ACCEL keys[]={{FVIRTKEY,VK_F8,IDM_SCREENSHOT},{FVIRTKEY,VK_F9,IDM_RECORD},{FVIRTKEY,VK_F11,IDM_FULLSCREEN}};
+    app.accelerators=CreateAcceleratorTableW(keys,ARRAYSIZE(keys));
+    app.video.SetRecorder(&app.recorder);
+    app.audio.SetRecorder(&app.recorder);
+    RebuildFonts(app);
+    // A new user sees the guide first. Someone who already paired a phone has done all of this.
+    if(!app.settings.setupGuideSeen && app.settings.controlPhone.empty() && !SelfTesting(app)){
+        SetGuideOpen(app,true);
+    }
+    GetClientRect(app.window,&client);
     LayoutControls(app,client.right,client.bottom);
     app.control.Start(app.settings.controlPhone,app.settings.controlSender,!app.controlPhoneOverride.empty());
 
@@ -1536,6 +2279,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     if (!app.audio.Start()) {
         LOGE("audio pipeline failed to start");
     }
+    // Known before the menu is first opened, including in a self-test that never starts the service.
+    app.hevcHardware = VideoPipeline::HardwareHevcAvailable();
     app.addresses = NetworkSummary();
     LOGI("[NET] local addresses: %ls", app.addresses.empty() ? L"none" : app.addresses.c_str());
     if (!SelfTesting(app)) StartServer(app);
@@ -1565,15 +2310,31 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     MSG message;
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        // F8, F9 and F11 work wherever the keyboard is, including on the phone picture.
+        if (app.accelerators && TranslateAcceleratorW(app.window, app.accelerators, &message)) {
+            continue;
+        }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
 
     // Normally already done in WM_DESTROY; repeated here in case the window was never created.
     Shutdown(app);
-    if (app.uiFont) {
-        DeleteObject(app.uiFont);
+    for (HFONT font : {app.uiFont, app.uiBold, app.uiTitle, app.iconFont}) {
+        if (font) {
+            DeleteObject(font);
+        }
     }
+    if (app.idleIcon) {
+        DestroyIcon(app.idleIcon);
+    }
+    if (app.accelerators) {
+        DestroyAcceleratorTable(app.accelerators);
+    }
+    if (app.menu) {
+        DestroyMenu(app.menu);  // never attached to the window, so it is not destroyed with it
+    }
+    ui::Shutdown();
     if (instanceMutex) {
         CloseHandle(instanceMutex);
     }
