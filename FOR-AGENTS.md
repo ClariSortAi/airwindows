@@ -32,7 +32,7 @@ Follow your environment's tool restrictions. The phone's controls are pixels, no
 
 ## 2. Download and unpack
 
-Use the [Windows package](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.4/AirWindows-0.3.1-rc.4-win-x64.zip). It includes the receiver, launcher, compiled `iosctl` helper, frame reader, this runbook and operating guides. No compiler, GitHub account or source checkout is needed.
+Use the [Windows package](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.5/AirWindows-0.3.1-rc.5-win-x64.zip). It includes the receiver, launcher, compiled `iosctl` helper, frame reader, this runbook and operating guides. No compiler, GitHub account or source checkout is needed.
 
 Run this in PowerShell to download the package and check its SHA-256 checksum:
 
@@ -40,13 +40,13 @@ Run this in PowerShell to download the package and check its SHA-256 checksum:
 $ErrorActionPreference = 'Stop'
 $setupRoot = Join-Path $env:USERPROFILE 'AirWindowsSetup'
 $downloadDir = Join-Path $setupRoot 'downloads'
-$installDir = Join-Path $setupRoot '0.3.1-rc.4'
+$installDir = Join-Path $setupRoot '0.3.1-rc.5'
 if (Test-Path -LiteralPath $installDir) {
     throw 'This installation already exists. Reuse it, or choose a new installDir.'
 }
 New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
-$releaseUrl = 'https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.4'
-$zipName = 'AirWindows-0.3.1-rc.4-win-x64.zip'
+$releaseUrl = 'https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.5'
+$zipName = 'AirWindows-0.3.1-rc.5-win-x64.zip'
 Invoke-WebRequest "$releaseUrl/$zipName" -OutFile (Join-Path $downloadDir $zipName)
 Invoke-WebRequest "$releaseUrl/SHA256SUMS.txt" -OutFile (Join-Path $downloadDir 'SHA256SUMS.txt')
 $entry = @(Get-Content -LiteralPath (Join-Path $downloadDir 'SHA256SUMS.txt') |
@@ -65,7 +65,7 @@ Get-Item -LiteralPath $receiverExe | Select-Object FullName, Length
 
 Record `$packageRoot` and `$receiverExe` as full paths. Shell calls may start new processes, so recreate these variables when needed. A user who already extracted the ZIP can start here by supplying its `AirWindows` folder.
 
-The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.4) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
+The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
 
 **Checkpoint:** the verified package is extracted and its executable path is known.
 
@@ -83,9 +83,9 @@ $receiverPid = $receiverProcess.Id
 $receiverProcess | Select-Object Id, Path
 ```
 
-Keep the window visible. Builds after 0.3.1-rc.4 have one button row: the phone button (pair, choose a phone, disconnect), Home, Screenshot, Record, Full screen and Menu, with a status bar at the bottom. A first launch also opens a setup guide beside the picture that ticks off the steps below as they happen. 0.3.1-rc.4 and earlier have Pair Bluetooth, a phone selector, Connect, Disconnect and Home controls. Map the steps below with this table:
+Keep the window visible. 0.3.1-rc.5 and later have one button row: the phone button (pair, choose a phone, disconnect), Home, Screenshot, Record, Full screen and Menu, with a status bar at the bottom. A first launch also opens a setup guide beside the picture that ticks off the steps below as they happen. 0.3.1-rc.4 and earlier have Pair Bluetooth, a phone selector, Connect, Disconnect and Home controls. Map the steps below with this table:
 
-| Step says | Builds after 0.3.1-rc.4 | 0.3.1-rc.4 and earlier |
+| Step says | 0.3.1-rc.5 and later | 0.3.1-rc.4 and earlier |
 |---|---|---|
 | Click **Pair Bluetooth** | Click the phone button while it reads **Pair Bluetooth**; otherwise phone button > **Pair Bluetooth** | **Pair Bluetooth** button |
 | Select the phone and click **Connect** | Phone button > the phone's name | Choose it in the selector, then **Connect** |
@@ -96,7 +96,7 @@ Keep the window visible. Builds after 0.3.1-rc.4 have one button row: the phone 
 
 Allow this executable through Windows Firewall on the trusted private network in use. Keep the receiver and agent in the same normal Windows user session.
 
-If an existing receiver lacks `--frames`: on builds after 0.3.1-rc.4, run `Start-AirWindows.cmd` again; the second launch turns frame access on in the running receiver and exits, and Screen Mirroring continues. On 0.3.1-rc.4 and earlier, finish any active operation, then restart the receiver. That restart interrupts Screen Mirroring. Rediscover its PID afterward.
+If an existing receiver lacks `--frames`: on 0.3.1-rc.5 and later, run `Start-AirWindows.cmd` again; the second launch turns frame access on in the running receiver and exits, and Screen Mirroring continues. On 0.3.1-rc.4 and earlier, finish any active operation, then restart the receiver. That restart interrupts Screen Mirroring. Rediscover its PID afterward.
 
 **Checkpoint:** one visible receiver, known PID, `--frames` enabled.
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1-rc.5 (2026-11-10)
 
 - New window. The menu bar, grey buttons and phone list are gone. One dark row holds a phone button, Home, Screenshot, Record, Full screen and Menu, and a status bar shows what Bluetooth control is doing. The title bar matches, and full screen hides everything but the picture.
 - The phone button replaces Pair Bluetooth, the phone list, Connect and Disconnect. It reads Pair Bluetooth until a phone is paired. After that it shows the phone's name with a dot (amber while waiting, green when connected) and opens a menu to choose a phone, pair again or disconnect. Choosing a phone connects it, so there is no separate Connect step. The hexadecimal id beside a phone's name now appears only when two phones share a name.

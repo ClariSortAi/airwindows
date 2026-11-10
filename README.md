@@ -6,26 +6,26 @@ Mirror your iPhone on Windows, then click and type in the mirrored screen using 
 
 AirWindows receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
 
-Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper. RC3 was run live on an iPhone16,2 and RC4 on an iPhone15,2; wider adapter and iOS support is still pending.
+Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper. RC3 was run live on an iPhone16,2, and RC4 and RC5 on an iPhone15,2; wider adapter and iOS support is still pending.
 
 ## Get started
 
-**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.4/AirWindows-0.3.1-rc.4-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.4)
+**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.5/AirWindows-0.3.1-rc.5-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5)
 
 Extract the ZIP and double-click **Start-AirWindows.cmd**. The package includes the receiver, `iosctl.exe`, frame reader, licenses and setup guides. No compiler or GitHub account is required.
 
-RC4 makes Bluetooth pairing reliable. A pairing could finish just after AirWindows stopped listening, leaving one that never worked until you forgot and re-paired. Taps, flicks and edge swipes now land the way they look on screen, and near-misses, fast scrolling, held keys and window resizes no longer turn control off. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
-
-The next release is on `main` and is not in that download yet. It has a redesigned window with a first-run setup guide, screenshots (F8) and MP4 recording with sound (F9). It also keeps working through network changes and graphics driver resets, and saves a crash report if it stops. Build it from source to try it. Its [changelog entry](app/CHANGELOG.md) says what has and has not been tested. The steps below describe the rc.4 download; in the next release, step 4 is one phone button.
+RC5 has a redesigned window. One row holds a phone button, Home, Screenshot, Record, Full screen and Menu, and a setup guide opens beside the picture on a first launch. Screenshot (F8) saves a PNG and Record (F9) saves an MP4 at a constant frame rate. AirWindows now keeps working when the PC's network changes, moves sound to a new default playback device, rebuilds its picture after a graphics driver reset and saves a crash report if it stops. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
 
 Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md), also included in the ZIP. It walks through installation, pairing, Home setup and the final agent-operated test.
 
 You need a 64-bit Windows PC, an iPhone on the same reachable network, and a Bluetooth adapter that supports BLE peripheral mode. The native control path has been tested on Windows 11 with a MediaTek adapter. Mirroring also supports iPad and Mac senders; Bluetooth input has been tested with an iPhone.
 
+The setup guide beside the picture walks through these steps and ticks each one off as it happens:
+
 1. Allow AirWindows through Windows Firewall on your private network.
 2. On the iPhone, open Control Center > Screen Mirroring and choose the receiver name shown in AirWindows.
 3. Turn on Settings > Accessibility > Touch > AssistiveTouch.
-4. In AirWindows, click **Pair Bluetooth**. Pair the PC from the iPhone's main Settings > Bluetooth screen, then select that phone in AirWindows and click **Connect**.
+4. In AirWindows, click the phone button, which reads **Pair Bluetooth** until a phone is paired. Pair the PC from the iPhone's main Settings > Bluetooth screen, then click the phone button again and choose the phone.
 5. Click a control inside the mirrored phone. You can now use the mouse and keyboard there.
 
 The app remembers the selected Bluetooth phone and its matching AirPlay sender. Run one receiver at a time. Pairing details and recovery steps are in [Native control](app/NATIVE-CONTROL.md).
@@ -39,8 +39,10 @@ The app remembers the selected Bluetooth phone and its matching AirPlay sender. 
 | Scroll a list | Drag with the left button held, or use the vertical wheel/trackpad |
 | Go Home | Use the Home button or right-click after assigning Button 2 to Home |
 | Return to Windows | Click another application |
-| Open AirWindows settings | Right-click outside the phone picture, in the bars or window chrome |
-| Full screen | F11 or Alt+Enter; Escape leaves full screen |
+| Take a screenshot | Screenshot button or F8; saved in `Pictures\AirWindows` and copied to the clipboard |
+| Record the screen | Record button or F9, and again to stop; saved as an MP4 in `Videos\AirWindows` |
+| Open AirWindows settings | Menu button, the Alt key, or right-click outside the phone picture |
+| Full screen | Full screen button, F11 or Alt+Enter; Escape leaves full screen |
 
 For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in AirWindows, then assign the detected Button 2 to **Home**. Dragging up from the bottom edge also goes Home.
 
@@ -81,7 +83,7 @@ The release script packages the executable, license notices, matching applicatio
 | `scripts` | Repository checks |
 | `airdrop-native` | Separate, unfinished AirDrop research; not needed for mirroring or control |
 
-AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). The rc.4 download does not record the screen; the next release does. AirWindows does not receive video links from an app's cast button. Real-device audio, H.265 and recovery from an unexpected network drop still need testing.
+AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). AirWindows does not receive video links from an app's cast button. Real-device audio, H.265 and recovery from an unexpected network drop still need testing.
 
 ## Support the project
 
