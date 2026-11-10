@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- AirWindows follows network changes while it runs. Discovery used to join only the networks that were up at launch. After Wi-Fi reconnected or the PC's address changed, the receiver dropped out of the iPhone's Screen Mirroring list until it was restarted, and a receiver started before the network was up never appeared at all. It now joins a network within a few seconds of it appearing and can start with none.
+- A graphics device reset no longer leaves a black picture. After a driver update or GPU reset, the session ends, the receiver rebuilds its video path on the new device and the idle screen says what happened. Start Screen Mirroring again to continue.
+- Starting AirWindows twice no longer runs two receivers with the same name and the same Bluetooth service. The second launch brings the running window forward and exits. If it asked for `--frames` and the running receiver did not have it, frame access turns on there.
+- If AirWindows stops unexpectedly, it saves a crash report in `%LOCALAPPDATA%\AirWindows\crashes` and shows where it is. The window used to just close. The five newest reports are kept and nothing is uploaded. Release builds keep their debug symbols, and `package.ps1 -Release` archives them beside the release so a report can be read.
+- A full log is kept as `debug.old.txt` when a new one starts. It used to be emptied, which lost the events that led up to a problem.
+- The window reopens at its last position and size. The toolbar uses the system font at the display's scale and sits on its own strip.
+- The status line names the Bluetooth problems that stop pairing: no adapter, an adapter that cannot act as a keyboard and mouse, or Bluetooth that could not start.
+- New self-test options `--selftest-device-loss` and `--selftest-crash`. A new check, `MdnsRefreshCheck`, runs the discovery code against a scripted adapter and is part of CI.
+
+Tested on Windows 11 without a phone: the discovery check passed, and failed when each part of the fix was taken out; a device loss simulated during a self-test clip rebuilt the video path and the picture came back; both deliberate failures saved a report, and the dialog appeared and closed; a second launch exited in under a second and turned frame access on in the first; position and maximized state survived a restart, and a position off every display fell back to the default; a 5.8 MB log was kept in full as `debug.old.txt`.
+
+Tested on one iPhone15,2: the receiver was started with only Ethernet up. The PC's Wi-Fi connected a minute later, the running receiver answered discovery on the new address, and the phone then mirrored to it. Home and `page left` worked. A device loss simulated during the session ended it and the idle screen showed the reason.
+
+Untested: the phone mirroring again after that loss, the new Bluetooth adapter messages, and the discovery check on the CI runner.
+
+Known issues:
+
+- `iosctl page` can open what is under its start point instead of paging. On the Today View, `page right` opened the Screen Time widget's settings page. Seen once, on an iPhone15,2.
+- A real graphics driver reset has not been tried. Recovery was exercised by reporting the device lost from inside the program.
+
 ## 0.3.1-rc.4 (2026-11-03)
 
 - Pairing no longer races a two-minute timer. The input service now stays up while a phone is pairing or subscribed. Before, a pairing could finish just after the service closed; iOS then saved a pairing that never subscribed, and only forgetting and re-pairing fixed it. That is the cause of rc.3's "control drops and only returns after re-pairing" issue in the case we traced.

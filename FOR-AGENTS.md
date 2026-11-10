@@ -100,7 +100,7 @@ Have them open Settings and verify that the change appears in the mirror. If the
 ## 5. Connect Bluetooth input
 
 1. Ask the user to turn on **Settings > Accessibility > Touch > AssistiveTouch**.
-2. Click **Pair Bluetooth** in AirWindows. Discovery stays open for 120 seconds. If it reports `BLE peripheral role is unavailable`, resolve the adapter or driver limitation first.
+2. Click **Pair Bluetooth** in AirWindows. Discovery stays open for 120 seconds. If the status line says the Bluetooth adapter cannot act as a keyboard and mouse (0.3.1-rc.4 and earlier: `BLE peripheral role is unavailable`), resolve the adapter or driver limitation first. If it says no Bluetooth adapter was found or Bluetooth could not start, turn Bluetooth on in Windows and click **Pair Bluetooth** again.
 3. Ask the user to open the iPhone's **main Settings > Bluetooth** page and select the PC under Other Devices while discovery is still open. The PC's Bluetooth name can differ from the AirPlay receiver name. iOS can keep listing the PC after discovery closes; if pairing finishes then, iOS saves the pairing without AirWindows' input service.
 4. Complete any pairing prompt shown. The tested setup did not show a Windows code prompt; that alone is not a failure.
 5. Select the intended phone in AirWindows and click **Connect**, with that same phone still mirroring.

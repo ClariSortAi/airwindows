@@ -4,4 +4,6 @@ For a vulnerability, use GitHub's private vulnerability reporting feature if it 
 
 This is an experimental receiver for a trusted local network. It parses data from AirPlay senders and can send keyboard and mouse input to a paired phone. Limit firewall access to networks you trust. The optional frame pipe is restricted to the current Windows user; enabling `--frames` lets other programs running as that user read the mirrored screen.
 
+If the receiver fails, it writes a crash report to `%LOCALAPPDATA%\AirWindows\crashes` and keeps the five newest. Nothing is uploaded. A report contains the program's thread stacks, so it can hold device names, network addresses and recently typed text. Send one only to someone you would trust with that.
+
 Current source receives fixes on `main`. There is no promise of security support for older packaged versions. The separate AirDrop research tree is unfinished and is not required to run the receiver.

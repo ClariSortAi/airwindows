@@ -26,7 +26,9 @@ The vcpkg commit in `scripts/bootstrap.ps1` pins library versions. `vcpkg-ports/
 
 Allow AirWindows through Windows Firewall on the private network used by the phone. Open Control Center > Screen Mirroring on the sender and choose the name shown in the receiver. See [Native control](NATIVE-CONTROL.md) to pair the Bluetooth input connection.
 
-Restart after changing network connections. Wi-Fi and Ethernet may use different firewall profiles. Discovery joins each active physical interface at startup and returns that interface's address to queries on its network.
+AirWindows follows the PC's network connections while it runs. When Wi-Fi reconnects, a cable is plugged in or the address changes, discovery joins that network within a few seconds, and the receiver can be started before any network is up. Discovery uses each active physical interface and returns that interface's address to queries on its network. Wi-Fi and Ethernet may use different firewall profiles.
+
+Starting AirWindows while it is already running brings the running window forward instead of opening a second receiver. If the new launch asked for `--frames`, the running receiver turns frame access on.
 
 | Action | Control |
 |---|---|
@@ -38,7 +40,7 @@ Restart after changing network connections. Wi-Fi and Ethernet may use different
 | Fit window to picture | View > Fit window to video; leaves room for the control toolbar |
 | Video statistics | View > Show status in title bar |
 
-Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt` in the same folder. Receiver > Open log folder opens it. The executable is unsigned, so Windows may show a SmartScreen notice for downloaded copies. Check the source and checksum before running a download.
+Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt` in the same folder. Receiver > Open log folder opens it. At 4 MB the log is renamed `debug.old.txt` and a new one starts. If AirWindows stops unexpectedly, it saves a crash report in the `crashes` folder there, keeps the five newest and shows a message with the location. Reports stay on the PC unless you send one. The window reopens where you left it. The executable is unsigned, so Windows may show a SmartScreen notice for downloaded copies. Check the source and checksum before running a download.
 
 | Option | Purpose |
 |---|---|
@@ -48,9 +50,11 @@ Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt
 | `--selftest-video <file>` | Feed an H.264/H.265 Annex-B file through the video pipeline |
 | `--selftest-audio` | Open the AAC-ELD, AAC-LC and ALAC decoders with AirPlay parameters |
 | `--selftest-tone` | Play a one-second output test tone |
-| `--exit-after <seconds>` | Exit after a bounded run |
+| `--selftest-device-loss <seconds>` | Report the graphics device lost after this long, to exercise recovery |
+| `--selftest-crash access\|terminate` | Fail on purpose, to exercise the crash report |
+| `--exit-after <seconds>` | Exit after a bounded run; a failure then saves its report without a dialog |
 
-H.265 is offered only when the GPU can decode it; otherwise the sender uses H.264. Video is drawn after decoding. Audio uses a roughly 60-80 ms buffer and can trail the picture. Real-device sound, H.265 and unexpected network-drop recovery remain untested. Recording, video-link casting, an audio-only now-playing display and additional languages are not implemented.
+H.265 is offered only when the GPU can decode it; otherwise the sender uses H.264. If the graphics device is reset or removed, by a driver update for example, the session ends and the receiver rebuilds its video path. Start Screen Mirroring again to continue. Video is drawn after decoding. Audio uses a roughly 60-80 ms buffer and can trail the picture. Real-device sound, H.265 and unexpected network-drop recovery remain untested. Recording, video-link casting, an audio-only now-playing display and additional languages are not implemented.
 
 ## Checks
 
@@ -61,7 +65,11 @@ From `app`, build and exercise the frame pipe:
 ```powershell
 .\scripts\build.ps1 -Target FrameServerCheck
 .\build\Release\bin\FrameServerCheck.exe
+.\scripts\build.ps1 -Target MdnsRefreshCheck
+.\build\Release\bin\MdnsRefreshCheck.exe
 ```
+
+`MdnsRefreshCheck` scripts an adapter that appears, changes address and disappears on the loopback interface, and asks the responder for the AirPlay service after each step. It does not touch a real adapter.
 
 Protocol checks require a running receiver. Read its port and name from the log:
 
@@ -82,7 +90,7 @@ After building, use a new output directory:
 .\scripts\package.ps1 -Release -OutDir .\dist\candidate-0.3.1-rc.4
 ```
 
-This creates the runnable folder, `AirWindows-0.3.1-rc.4-win-x64.zip`, a matching source zip, and `SHA256SUMS.txt`. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, compiled `iosctl` helper, agent guides, optional Python reader, GPL and dependency notices. Building the receiver also builds the helper with the .NET Framework C# compiler. Both executable versions must match before packaging.
+This creates the runnable folder, `AirWindows-0.3.1-rc.4-win-x64.zip`, a matching source zip, and `SHA256SUMS.txt`. It also writes `AirWindows-0.3.1-rc.4-symbols.zip`, the debug symbols for that build. Keep it with the release: a crash report can only be read with the symbols of the exact build that wrote it. The symbols are not part of the download. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, compiled `iosctl` helper, agent guides, optional Python reader, GPL and dependency notices. Building the receiver also builds the helper with the .NET Framework C# compiler. Both executable versions must match before packaging.
 
 The source archive contains `app`, its sibling Bluetooth backend, UxPlay, and the upstream FFmpeg, OpenSSL and libplist source archives with the relevant ports. Those archives must be present in vcpkg's downloads directory. Publish the matching source and checksums with any binary. The separate AirDrop research is not bundled.
 
@@ -96,6 +104,7 @@ The source archive contains `app`, its sibling Bluetooth backend, UxPlay, and th
 | `src/video_pipeline.cpp`, `src/frame_server.cpp` | Decode/render and optional frame export |
 | `src/audio_pipeline.cpp` | Decode, resample and WASAPI output |
 | `src/main.cpp`, `src/settings.cpp` | Window, input routing and settings |
+| `src/log.cpp`, `src/crash.cpp` | Log file and crash reports |
 | `src/native_control.cpp`, `src/control_queue.h` | Phone identity, focus and action queue |
 | `../native-ble-prototype` | Windows BLE HID backend |
 

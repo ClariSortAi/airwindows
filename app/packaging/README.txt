@@ -22,7 +22,8 @@ Buttons. Click Home in AirWindows, then assign the detected Button 2 to
 Home on the phone. Right-click inside the phone picture invokes the same
 assigned action. Right-click in the bars or chrome opens the PC menu.
 
-Run only one receiver. For Claude Code or Codex, start with FOR-AGENTS.md.
+Starting AirWindows again brings the running window forward; it does not
+open a second receiver. For Claude Code or Codex, start with FOR-AGENTS.md.
 Run iosctl.exe --doctor for a read-only diagnosis and the next setup step.
 Use iosctl.exe --pid PID "snapshot idle.png" to inspect an idle picture;
 its reported age matters. Normal capture and input still require fresh frames.
@@ -38,6 +39,8 @@ wheel input and other adapter/iOS combinations still need live acceptance.
 
 Logs and settings: %LOCALAPPDATA%\AirWindows
 For connection problems, start with --debug and inspect debug.txt.
+If AirWindows stops unexpectedly, it saves a crash report in the crashes
+folder there and shows where it is. Nothing is uploaded.
 
 AirWindows is GPL-3.0-or-later, without warranty. See LICENSE.txt,
 THIRD-PARTY.txt and licenses/. Distribute the matching source archive and

@@ -16,12 +16,14 @@ In a source checkout, run these before pushing (CI runs the same on Windows):
 - `python -m pytest app/tests/test_frames.py`
 - `python scripts/check-repository.py`
 - `./app/tools/iosctl/build.ps1`, then `./app/build/Release/bin/iosctl.exe --self-test`
-- For receiver or backend changes: `./app/scripts/build.ps1 -Target AirWindowsNative` and `-Target FrameServerCheck`, then run `./app/build/Release/bin/FrameServerCheck.exe`
+- For receiver or backend changes: `./app/scripts/build.ps1 -Target AirWindowsNative`, `-Target FrameServerCheck` and `-Target MdnsRefreshCheck`, then run `./app/build/Release/bin/FrameServerCheck.exe` and `./app/build/Release/bin/MdnsRefreshCheck.exe`
 
 Rules:
 
 - This file, `CLAUDE.md`, `FOR-AGENTS.md` and the `app/*.md` guides ship byte-for-byte in the Windows package. Keep links relative and valid in that layout; after packaging, `python scripts/check-package.py <outdir>` verifies them.
 - `check-repository.py` rejects user-profile paths, local repository paths and device identifiers in docs and source. Use `$env:USERPROFILE` or placeholders.
 - The version lives in `app/CMakeLists.txt` (`project(... VERSION)` and `AIRWINDOWS_VERSION_SUFFIX`). A release bump also needs the hardcoded URLs and paths in `FOR-AGENTS.md`, `README.md`, `app/README.md`, `app/tools/iosctl/README.md` and `app/CHANGELOG.md`; find them with `git grep <old-version>`.
-- Package into a new directory: `./app/scripts/package.ps1 -Release -OutDir <new dir>`. It never overwrites existing output.
+- Package into a new directory: `./app/scripts/package.ps1 -Release -OutDir <new dir>`. It never overwrites existing output. It also writes `AirWindows-<version>-symbols.zip`; keep that file with the release to read crash reports. It is not part of the download or `SHA256SUMS.txt`.
+- Close a running receiver before a manual receiver test. A second launch hands over to the running receiver and exits. Runs with `--selftest-video`, `--selftest-audio`, `--selftest-tone` or `--selftest-crash` are exempt and do not advertise.
+- When a test receiver must not show the crash dialog, pass `--exit-after <seconds>`.
 - Preserve concurrent work. Report software checks and physical phone results separately. Receiver source is under `app`; the Bluetooth backend lives beside it in `native-ble-prototype`.
