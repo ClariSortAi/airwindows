@@ -36,7 +36,10 @@ constexpr int64_t kAudioRate = 44100;
 constexpr size_t kAudioChannels = 2;
 constexpr int64_t kTicksPerSecond = 10'000'000;                    // Media Foundation counts time in 100 ns ticks
 constexpr int64_t kStillMarginTicks = kTicksPerSecond * 4 / 1000;   // a frame slot stays open this long for a late picture
-constexpr int64_t kAheadTicks = kTicksPerSecond * 35 / 1000;        // pictures that bunch up may run the file this far ahead
+// Pictures that arrive together may run the file this far ahead of the clock. Replaying the arrival
+// times of an iPhone on Wi-Fi (805 pictures in 20 s) through this rule, 35 ms left out 13 pictures
+// and 100 ms none, with the file never more than 87 ms ahead.
+constexpr int64_t kAheadTicks = kTicksPerSecond * 100 / 1000;
 constexpr int kMinFps = 10, kMaxFps = 120;                          // frame rates a file may be given
 constexpr int64_t kAudioLateTicks = kTicksPerSecond * 150 / 1000;  // sound later than this gets silence in front
 constexpr int64_t kAudioLagTicks = kTicksPerSecond / 2;            // without sound, silence trails the picture by this
@@ -540,7 +543,8 @@ bool Worker::OnVideo(VideoItem&& picture) {
     if (slot < Frames()) {
         // Its slot is taken: pictures that the network delivered together. They go into the next
         // slots, which keeps motion smooth, as long as the file stays within kAheadTicks of the
-        // clock. Beyond that the phone is sending faster than the file's rate and one is skipped.
+        // clock. While it is ahead no slot closes empty, so the next pause brings it back.
+        // Beyond that the phone is sending faster than the file's rate and one is skipped.
         const int64_t ahead = std::max<int64_t>(1, kAheadTicks * s_.fps / kTicksPerSecond);
         if (Frames() - slot > ahead) {
             ++skippedVideo_;

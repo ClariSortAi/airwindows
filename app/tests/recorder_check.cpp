@@ -112,6 +112,7 @@ struct Segment {
     double start;   // seconds from the beginning of the run
     double rate;    // pictures per second
     int pictures;
+    int burst = 1;  // pictures handed over together, the way a network delivers them after a pause
 };
 
 // Pushes pictures and 10 ms blocks of a 440 Hz tone when they fall due, sleeping in between.
@@ -134,9 +135,14 @@ void Play(Recorder& recorder, const std::vector<Segment>& segments, double sound
         }
         for (size_t i = 0; i < segments.size(); ++i) {
             const Segment& segment = segments[i];
-            for (; sent[i] < segment.pictures && segment.start + sent[i] / segment.rate <= now; ++sent[i]) {
-                segment.picture->Draw(sent[i]);
-                recorder.PushVideo(segment.picture->Frame());
+            // A group is held back until its last picture is due, then pushed in one go.
+            for (;;) {
+                const int group = std::min(segment.burst, segment.pictures - sent[i]);
+                if (group <= 0 || segment.start + (sent[i] + group - 1) / segment.rate > now) break;
+                for (int n = 0; n < group; ++n, ++sent[i]) {
+                    segment.picture->Draw(sent[i]);
+                    recorder.PushVideo(segment.picture->Frame());
+                }
             }
         }
         if (now >= totalSeconds) break;
@@ -335,6 +341,8 @@ void Verify(const Expected& expected, const RecorderNotice& finished, std::strin
     const bool leftOut = finished.message.find(kLeftOut) != std::wstring::npos;
     if (expected.tooFast && !leftOut)
         Fail("%ls: %d pictures were pushed faster than %d fps and none was reported left out", expected.name, expected.pushed, expected.fps);
+    if (!expected.tooFast && leftOut)
+        Fail("%ls: pictures pushed at or below %d fps were left out: %ls", expected.name, expected.fps, finished.message.c_str());
     if (std::fabs(facts.audioSeconds - facts.videoSeconds) > kTolerance)
         Fail("%ls: audio ends at %.3f s, video at %.3f s", expected.name, facts.audioSeconds, facts.videoSeconds);
     if (std::fabs(finished.seconds - expected.seconds) > kTolerance)
@@ -397,14 +405,15 @@ bool Run(const std::wstring& directory, std::string& summary) {
     }
 
     Picture portrait(640, 1136), landscape(1136, 640), odd(641, 479);
-    {   // A 60 fps file: 3 s of pictures at the file's own rate with sound (Play pushes them in uneven
-        // groups, as a network does), 1 s still with sound, then 2 s at another size and half the rate
-        // without sound. The still second and the half rate are filled with repeats.
+    {   // A 60 fps file: 3 s of pictures at the file's own rate with sound, handed over four at a time
+        // after a pause as long as the four (an iPhone on Wi-Fi does this), 1 s still with sound,
+        // then 2 s at another size and half the rate without sound. Every bunched picture is kept;
+        // the still second and the half rate are filled with repeats.
         Recorder recorder;
         NoticeLog seen;
         if (!recorder.Start(directory, kBaseName, 60, seen.Callback())) Fail("main session: Start returned false");
         if (recorder.Start(directory, kBaseName, 60, seen.Callback())) Fail("main session: a second Start was accepted");
-        Play(recorder, {{&portrait, 0.0, 60.0, 180}, {&landscape, 4.0, 30.0, 60}}, 4.0, 6.0);
+        Play(recorder, {{&portrait, 0.0, 60.0, 180, 4}, {&landscape, 4.0, 30.0, 60}}, 4.0, 6.0);
         const double seconds = recorder.Seconds();
         if (!recorder.Active() || std::fabs(seconds - 6.0) > kTolerance) Fail("main session: Seconds() is %.3f before Stop", seconds);
         recorder.Stop();
