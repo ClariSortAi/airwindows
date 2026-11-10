@@ -340,15 +340,22 @@ std::wstring RecordClock(const App& app) {
     return clock;
 }
 
+// Between the parts of the stream details. DrawStatus drops whole parts at this mark when the
+// status bar is too narrow for all of them.
+constexpr wchar_t kDetailSeparator[] = L"  ·  ";
+
 std::wstring StatusDetail(App& app) {
     std::wstring detail;
     if (app.settings.showStatus && app.hasPicture) {
         const VideoStats stats = app.video.Stats();
         const std::string audio = app.audio.CodecName();
         wchar_t text[200];
-        swprintf_s(text, L"%d × %d  ·  %.0f fps  ·  %.1f Mbps  ·  %s, %s%hs%hs", app.pictureWidth, app.pictureHeight,
-                   stats.fps, stats.bitrateMbps, stats.h265 ? L"H.265" : L"H.264",
-                   stats.hardware ? L"GPU decode" : L"software decode", audio.empty() ? "" : "  ·  ", audio.c_str());
+        // The separator before the sound codec is passed as wide text: as a narrow argument its
+        // two UTF-8 bytes were printed as two characters, a stray letter and then the dot.
+        swprintf_s(text, L"%d × %d%ls%.0f fps%ls%.1f Mbps%ls%ls, %ls%ls%hs", app.pictureWidth, app.pictureHeight,
+                   kDetailSeparator, stats.fps, kDetailSeparator, stats.bitrateMbps, kDetailSeparator,
+                   stats.h265 ? L"H.265" : L"H.264", stats.hardware ? L"GPU decode" : L"software decode",
+                   audio.empty() ? L"" : kDetailSeparator, audio.c_str());
         detail = text;
     }
     return detail;
@@ -1206,21 +1213,31 @@ void DrawStatus(const App& app, const DRAWITEMSTRUCT& item) {
 
     const int margin = Scale(app.window, 12);
     int right = width - margin;
-    if (!app.statusDetail.empty()) {
+    const auto measure = [dc](const std::wstring& text) {
         SIZE size{};
-        GetTextExtentPoint32W(dc, app.statusDetail.c_str(), static_cast<int>(app.statusDetail.size()), &size);
-        // The details give way before the status does.
-        if (size.cx < width / 2) {
-            RECT detail{right - size.cx, 0, right, height};
-            SetTextColor(dc, ui::kTextDim);
-            DrawTextW(dc, app.statusDetail.c_str(), -1, &detail, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-            right = detail.left - Scale(app.window, 14);
-        }
+        GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &size);
+        return static_cast<int>(size.cx);
+    };
+    // The details give way before the status does: they lose parts from the right until the
+    // status sentence fits beside them, and go altogether in a window too narrow for that.
+    const int statusLeft = margin + Scale(app.window, 16);
+    const int clockWidth = app.statusClock.empty() ? 0 : measure(app.statusClock);
+    const int detailRoom = right - Scale(app.window, 14) - (clockWidth ? clockWidth + Scale(app.window, 24) : 0) -
+                           statusLeft - measure(app.lastControlStatus);
+    std::wstring details = app.statusDetail;
+    while (!details.empty() && measure(details) > detailRoom) {
+        const size_t cut = details.rfind(kDetailSeparator);
+        details = cut == std::wstring::npos ? std::wstring() : details.substr(0, cut);
     }
-    if (!app.statusClock.empty()) {
+    if (!details.empty()) {
+        RECT detail{right - measure(details), 0, right, height};
+        SetTextColor(dc, ui::kTextDim);
+        DrawTextW(dc, details.c_str(), -1, &detail, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        right = detail.left - Scale(app.window, 14);
+    }
+    if (clockWidth) {
         // Never dropped for lack of room: it is the only sign that a recording is running.
-        SIZE size{};
-        GetTextExtentPoint32W(dc, app.statusClock.c_str(), static_cast<int>(app.statusClock.size()), &size);
+        SIZE size{clockWidth, 0};
         RECT clock{right - size.cx, 0, right, height};
         SetTextColor(dc, ui::kText);
         DrawTextW(dc, app.statusClock.c_str(), -1, &clock, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
