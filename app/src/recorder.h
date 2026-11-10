@@ -19,7 +19,7 @@ struct RecorderNotice {
     std::wstring path;      // file this notice is about
     std::wstring message;   // empty unless Failed (or a non-fatal note on Finished)
     double seconds = 0;     // duration written to this file
-    uint64_t videoFrames = 0;
+    uint64_t videoFrames = 0;   // frames in the file, repeats of a still picture included
 };
 
 class Recorder {
@@ -34,7 +34,10 @@ public:
 
     // Files: <directory>\<baseName>.mp4, then "<baseName> (2).mp4", "(3)"... each time the picture size changes.
     // Creates the directory if missing. Returns false if a session is already active.
-    bool Start(const std::wstring& directory, const std::wstring& baseName, Callback callback);
+    // Every file has a constant `framesPerSecond` (10 to 120): a picture goes into the frame nearest
+    // its arrival, and the last picture is repeated while none arrive, so pushing pictures at an
+    // uneven or lower rate still gives evenly spaced frames.
+    bool Start(const std::wstring& directory, const std::wstring& baseName, int framesPerSecond, Callback callback);
     void Stop();                       // finalizes the open file; returns when it is written (bounded wait, 30 s)
     bool Active() const;               // cheap; callable from any thread
     double Seconds() const;            // seconds since Start, 0 when inactive

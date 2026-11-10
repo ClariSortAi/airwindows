@@ -35,8 +35,9 @@ namespace {
 constexpr int64_t kAudioRate = 44100;
 constexpr size_t kAudioChannels = 2;
 constexpr int64_t kTicksPerSecond = 10'000'000;                    // Media Foundation counts time in 100 ns ticks
-constexpr int64_t kFrameTicks = kTicksPerSecond / 60;              // nominal picture duration
-constexpr int64_t kStillTailTicks = kTicksPerSecond / 30;          // an older last picture is repeated when a file ends
+constexpr int64_t kStillMarginTicks = kTicksPerSecond * 4 / 1000;   // a frame slot stays open this long for a late picture
+constexpr int64_t kAheadTicks = kTicksPerSecond * 35 / 1000;        // pictures that bunch up may run the file this far ahead
+constexpr int kMinFps = 10, kMaxFps = 120;                          // frame rates a file may be given
 constexpr int64_t kAudioLateTicks = kTicksPerSecond * 150 / 1000;  // sound later than this gets silence in front
 constexpr int64_t kAudioLagTicks = kTicksPerSecond / 2;            // without sound, silence trails the picture by this
 constexpr int64_t kPrerollTicks = kTicksPerSecond * 3;             // sound kept from before the first picture
@@ -111,6 +112,7 @@ struct AudioItem {
 struct Session {
     std::wstring directory, baseName;
     Recorder::Callback callback;
+    int fps = 60;                        // the file's constant frame rate
     int64_t qpcStart = 0, qpcFrequency = 1;
 
     std::atomic<bool> active{true};      // false once Stop() was requested or the session failed
@@ -197,7 +199,7 @@ void HalveNv12(const uint8_t* from, int fromWidth, int fromHeight, uint8_t* to, 
     }
 }
 
-HRESULT MakeVideoType(const GUID& subtype, int width, int height, bool encoded, ComPtr<IMFMediaType>& type) {
+HRESULT MakeVideoType(const GUID& subtype, int width, int height, int fps, bool encoded, ComPtr<IMFMediaType>& type) {
     HRESULT hr = MFCreateMediaType(type.ReleaseAndGetAddressOf());
     if (FAILED(hr)) return hr;
     FirstFailure set;
@@ -205,8 +207,8 @@ HRESULT MakeVideoType(const GUID& subtype, int width, int height, bool encoded, 
     set(type->SetGUID(MF_MT_SUBTYPE, subtype));
     set(type->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive));
     set(MFSetAttributeSize(type.Get(), MF_MT_FRAME_SIZE, static_cast<UINT32>(width), static_cast<UINT32>(height)));
-    // Nominal only: sample times carry the real, variable frame rate.
-    set(MFSetAttributeRatio(type.Get(), MF_MT_FRAME_RATE, 60, 1));
+    // The real rate: the worker writes a frame into every slot, so editors see evenly spaced frames.
+    set(MFSetAttributeRatio(type.Get(), MF_MT_FRAME_RATE, static_cast<UINT32>(fps), 1));
     set(MFSetAttributeRatio(type.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1));
     // The pictures arrive as limited-range BT.709; this only labels them, no pixel is converted.
     set(type->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235));
@@ -274,6 +276,7 @@ public:
 private:
     void Loop();
     bool OnVideo(VideoItem&& picture);
+    bool OnStill();
     bool OnAudio(AudioItem&& sound);
     void TrimPreroll();
     void Finish(int64_t stopTicks);
@@ -284,7 +287,16 @@ private:
     std::wstring DiscardFile(const std::wstring& path);
     bool CloseFile(int64_t endSessionTicks, RecorderNotice& finished);
 
-    bool WriteVideo(const VideoItem& picture, int64_t fileTicks);
+    // The file has a constant frame rate: frame `index` starts at SlotTicks(index) and every slot
+    // gets a frame. A picture belongs to the slot nearest its arrival; a slot nothing arrived for
+    // repeats the picture before it.
+    int64_t Frames() const { return static_cast<int64_t>(videoFrames_); }
+    int64_t SlotTicks(int64_t index) const { return index * kTicksPerSecond / s_.fps; }
+    int64_t SlotAt(int64_t fileTicks) const { return fileTicks <= 0 ? 0 : (fileTicks * s_.fps + kTicksPerSecond / 2) / kTicksPerSecond; }
+    int64_t StillDueTicks() const;
+    bool WriteFrame(const VideoItem& picture);
+    bool FillStillSlots(int64_t upToSlot);
+    bool KeepAudioNear();
     bool WriteAudio(const int16_t* pcm, size_t frames);
     bool PadSilenceTo(int64_t ticks);
     int64_t AudioClock() const { return SamplesToTicks(audioSamples_); }
@@ -315,8 +327,9 @@ private:
     int64_t origin_ = 0;                       // session time of this file's time zero
     int64_t lastVideoTicks_ = 0;               // file time of the newest written picture
     int64_t audioSamples_ = 0;                 // audio clock: frames written to this file
-    uint64_t videoFrames_ = 0;
-    VideoItem last_;                           // newest written picture, repeated for a still tail
+    uint64_t videoFrames_ = 0;                 // frames written, repeats included
+    uint64_t skippedVideo_ = 0;                // pictures left out because the file was ahead of the clock
+    VideoItem last_;                           // newest written picture, repeated while the screen is still
 };
 
 void Worker::Notify(const RecorderNotice& notice) {
@@ -350,7 +363,14 @@ void Worker::Recycle(std::vector<uint8_t>&& buffer) {
 
 int64_t Worker::FileTicks() const {
     if (!open_) return 0;
-    return std::max(videoFrames_ ? lastVideoTicks_ + kFrameTicks : 0, AudioClock());
+    return std::max(SlotTicks(Frames()), AudioClock());
+}
+
+// Session time at which the next frame slot closes with nothing in it: the first moment OnStill()
+// counts it as closed, so a wait that runs to this time always has a frame to write.
+int64_t Worker::StillDueTicks() const {
+    const int64_t halfSlots = 2 * Frames() + 1;
+    return origin_ + kStillMarginTicks + (halfSlots * (kTicksPerSecond / 2) + s_.fps - 1) / s_.fps;
 }
 
 // Ends the session: the writer is released without Finalize, so a file being written stays incomplete.
@@ -387,6 +407,8 @@ std::wstring Worker::TakeNotes() {
     std::wstring notes = std::move(sizeNote_);
     sizeNote_.clear();
     if (dropped) AppendNote(notes, Format(L"Dropped %llu pictures that arrived faster than they could be written.", dropped));
+    if (const uint64_t skipped = std::exchange(skippedVideo_, 0))
+        AppendNote(notes, Format(L"Left out %llu pictures that arrived faster than %d a second.", skipped, s_.fps));
     if (rejected) AppendNote(notes, Format(L"Ignored %llu pictures with an unusable size or stride.", rejected));
     if (lostAudio) AppendNote(notes, Format(L"Dropped %.1f s of sound that could not be written in time.", static_cast<double>(lostAudio) / kAudioRate));
     if (allocations) AppendNote(notes, Format(L"Ran out of memory %llu times while queueing pictures or sound.", allocations));
@@ -433,11 +455,19 @@ void Worker::Loop() {
     for (;;) {
         VideoItem picture;
         AudioItem sound;
-        enum class Next { Picture, Sound, Stop } next = Next::Stop;
+        enum class Next { Picture, Sound, Still, Stop } next = Next::Stop;
         int64_t stopTicks = 0;
         {
             std::unique_lock<std::mutex> lock(s_.mutex);
-            s_.wake.wait(lock, [this] { return s_.stopRequested || !s_.video.empty() || !s_.audio.empty(); });
+            const auto pending = [this] { return s_.stopRequested || !s_.video.empty() || !s_.audio.empty(); };
+            if (open_) {
+                // With a file open the wait also ends when the next frame slot closes, so a still
+                // screen gets its repeated frame on time instead of in a burst when it next changes.
+                const int64_t wait = StillDueTicks() - s_.Ticks();
+                if (wait > 0) (void)s_.wake.wait_for(lock, std::chrono::microseconds(wait / 10 + 1), pending);
+            } else {
+                s_.wake.wait(lock, pending);
+            }
             // One item at a time keeps the queue caps honest; oldest first, so sound from before a
             // picture-size change still lands in the earlier file.
             if (!s_.audio.empty() && (s_.video.empty() || s_.audio.front().ticks <= s_.video.front().ticks)) {
@@ -451,14 +481,18 @@ void Worker::Loop() {
                 next = Next::Picture;
                 // The backlog from opening the file is gone; from here the encoder keeps pace.
                 if (open_ && s_.video.size() <= 1) s_.caughtUp.store(true);
-            } else {
+            } else if (s_.stopRequested) {
                 stopTicks = s_.stopTicks;
+            } else {
+                next = Next::Still;
             }
         }
         if (next == Next::Sound) {
             if (!OnAudio(std::move(sound))) return;
         } else if (next == Next::Picture) {
             if (!OnVideo(std::move(picture))) return;
+        } else if (next == Next::Still) {
+            if (!OnStill()) return;
         } else {
             Finish(stopTicks);
             return;
@@ -500,14 +534,44 @@ bool Worker::OnVideo(VideoItem&& picture) {
         Notify(finished);
     }
     if (!open_ && !OpenFile(picture)) return false;
-    // A file's first picture goes to time zero even when kept sound starts the file earlier, so both
-    // tracks begin together; later pictures keep their arrival time.
-    const int64_t fileTicks = videoFrames_ ? std::max(picture.ticks - origin_, lastVideoTicks_ + 1) : 0;
-    if (!WriteVideo(picture, fileTicks)) return false;
+    // A file's first picture goes into slot zero even when kept sound starts the file earlier, so
+    // both tracks begin together; later pictures go into the slot nearest their arrival.
+    int64_t slot = videoFrames_ ? SlotAt(picture.ticks - origin_) : 0;
+    if (slot < Frames()) {
+        // Its slot is taken: pictures that the network delivered together. They go into the next
+        // slots, which keeps motion smooth, as long as the file stays within kAheadTicks of the
+        // clock. Beyond that the phone is sending faster than the file's rate and one is skipped.
+        const int64_t ahead = std::max<int64_t>(1, kAheadTicks * s_.fps / kTicksPerSecond);
+        if (Frames() - slot > ahead) {
+            ++skippedVideo_;
+            Recycle(std::move(picture.nv12));
+            return true;
+        }
+        slot = Frames();
+    }
+    if (!FillStillSlots(slot) || !WriteFrame(picture)) return false;
     Recycle(std::move(last_.nv12));
     last_ = std::move(picture);
-    // The muxer interleaves the two tracks, so the audio track may not fall far behind while nothing is heard.
-    return AudioClock() >= fileTicks - kAudioLagTicks || PadSilenceTo(fileTicks - kAudioLagTicks);
+    return KeepAudioNear();
+}
+
+// The slots that have closed with nothing in them belong to a still screen: repeat its picture.
+bool Worker::OnStill() {
+    if (!open_ || !videoFrames_) return true;
+    const int64_t closedBefore = SlotAt(s_.Ticks() - origin_ - kStillMarginTicks);
+    return FillStillSlots(closedBefore) && KeepAudioNear();
+}
+
+bool Worker::FillStillSlots(int64_t upToSlot) {
+    while (Frames() < upToSlot) {
+        if (!WriteFrame(last_)) return false;
+    }
+    return true;
+}
+
+// The muxer interleaves the two tracks, so the audio track may not fall far behind while nothing is heard.
+bool Worker::KeepAudioNear() {
+    return AudioClock() >= lastVideoTicks_ - kAudioLagTicks || PadSilenceTo(lastVideoTicks_ - kAudioLagTicks);
 }
 
 void Worker::Finish(int64_t stopTicks) {
@@ -557,7 +621,7 @@ Step Worker::OpenWriter(const std::wstring& path, int width, int height) {
     if (FAILED(hr)) return {hr, L"MFCreateSinkWriterFromURL"};
 
     ComPtr<IMFMediaType> type;
-    hr = MakeVideoType(MFVideoFormat_H264, width, height, true, type);
+    hr = MakeVideoType(MFVideoFormat_H264, width, height, s_.fps, true, type);
     if (FAILED(hr)) return {hr, L"H.264 media type"};
     hr = writer_->AddStream(type.Get(), &videoStream_);
     if (FAILED(hr)) return {hr, L"AddStream(video)", true};
@@ -565,7 +629,7 @@ Step Worker::OpenWriter(const std::wstring& path, int width, int height) {
     if (FAILED(hr)) return {hr, L"AAC media type"};
     hr = writer_->AddStream(type.Get(), &audioStream_);
     if (FAILED(hr)) return {hr, L"AddStream(audio)"};
-    hr = MakeVideoType(MFVideoFormat_NV12, width, height, false, type);
+    hr = MakeVideoType(MFVideoFormat_NV12, width, height, s_.fps, false, type);
     if (FAILED(hr)) return {hr, L"NV12 media type"};
     hr = writer_->SetInputMediaType(videoStream_, type.Get(), nullptr);
     if (FAILED(hr)) return {hr, L"SetInputMediaType(video)", true};
@@ -641,11 +705,10 @@ bool Worker::OpenFile(const VideoItem& first) {
 }
 
 bool Worker::CloseFile(int64_t endSessionTicks, RecorderNotice& finished) {
-    int64_t end = std::max(endSessionTicks - origin_, lastVideoTicks_);
-    // A still screen sends nothing, so the last picture is repeated to give the tail its real length.
-    if (end - lastVideoTicks_ > kStillTailTicks && !WriteVideo(last_, end - kFrameTicks)) return false;
-    end = std::max(end, lastVideoTicks_ + kFrameTicks);
-    if (!PadSilenceTo(end)) return false;
+    // The file ends on the frame boundary nearest the moment it was closed. A still tail is filled
+    // like any other still stretch, which gives it its real length.
+    if (!FillStillSlots(SlotAt(endSessionTicks - origin_))) return false;
+    if (!PadSilenceTo(SlotTicks(Frames()))) return false;
     const HRESULT hr = writer_->Finalize();
     if (FAILED(hr)) {
         Fail(path_, L"Could not finish the recording: " + StepError({hr, L"IMFSinkWriter::Finalize"}) + L".");
@@ -660,11 +723,13 @@ bool Worker::CloseFile(int64_t endSessionTicks, RecorderNotice& finished) {
     return true;
 }
 
-bool Worker::WriteVideo(const VideoItem& picture, int64_t fileTicks) {
+// Writes `picture` into the next frame slot.
+bool Worker::WriteFrame(const VideoItem& picture) {
     const DWORD bytes = static_cast<DWORD>(static_cast<size_t>(encodeWidth_) * encodeHeight_ * 3 / 2);
     const bool halve = encodeWidth_ != picture.width || encodeHeight_ != picture.height;
+    const int64_t fileTicks = SlotTicks(Frames());
     ComPtr<IMFSample> sample;
-    Step step = MakeSample(bytes, fileTicks, kFrameTicks, [&](BYTE* data) {
+    Step step = MakeSample(bytes, fileTicks, SlotTicks(Frames() + 1) - fileTicks, [&](BYTE* data) {
         if (halve) HalveNv12(picture.nv12.data(), picture.width, picture.height, data, encodeWidth_, encodeHeight_);
         else std::memcpy(data, picture.nv12.data(), bytes);
     }, sample);
@@ -776,7 +841,7 @@ Recorder::~Recorder() {
     impl_->Reap(true);
 }
 
-bool Recorder::Start(const std::wstring& directory, const std::wstring& baseName, Callback callback) {
+bool Recorder::Start(const std::wstring& directory, const std::wstring& baseName, int framesPerSecond, Callback callback) {
     std::lock_guard<std::mutex> control(impl_->control);
     if (const std::shared_ptr<Session> current = impl_->Current()) {
         if (current->active.load()) return false;
@@ -786,6 +851,7 @@ bool Recorder::Start(const std::wstring& directory, const std::wstring& baseName
     auto session = std::make_shared<Session>();
     session->directory = directory;
     session->baseName = baseName;
+    session->fps = std::clamp(framesPerSecond, kMinFps, kMaxFps);
     session->callback = std::move(callback);
     LARGE_INTEGER value;
     QueryPerformanceFrequency(&value);

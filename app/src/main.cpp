@@ -1075,7 +1075,9 @@ void StartRecording(App& app) {
         return;
     }
     const HWND window = app.window;
-    const bool started = app.recorder.Start(folder, capture::TimestampName(), [window](const RecorderNotice& notice) {
+    // The file gets the frame rate offered to the phone, so each picture it sends has a frame of its own.
+    const int fps = app.settings.maxFps;
+    const bool started = app.recorder.Start(folder, capture::TimestampName(), fps, [window](const RecorderNotice& notice) {
         // Runs on the recorder's thread; the window thread owns the interface.
         auto* copy = new RecorderNotice(notice);
         if (!PostMessageW(window, WM_APP_RECORDER, 0, reinterpret_cast<LPARAM>(copy))) {
@@ -1091,7 +1093,7 @@ void StartRecording(App& app) {
     app.recordStarted = GetTickCount64();
     // A still screen sends no new frames, so begin with the picture that is showing.
     app.video.RecordCurrentPicture();
-    LOGI("[RECORD] started in %ls", folder.c_str());
+    LOGI("[RECORD] started in %ls at a constant %d fps", folder.c_str(), fps);
 }
 
 void StopRecording(App& app) {

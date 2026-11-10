@@ -182,13 +182,16 @@ struct Facts {
     DWORD videoIndex = 0, audioIndex = 0;
     bool h264 = false, aac = false;
     UINT32 width = 0, height = 0, rate = 0, channels = 0;
+    UINT32 frameRate = 0, frameRateBase = 0;   // what the file declares for its video
     double duration = 0, videoSeconds = 0, audioSeconds = 0;
     unsigned long long videoSamples = 0, audioSamples = 0;
+    std::vector<LONGLONG> videoTimes;          // start of every video sample, 100 ns units
 };
 
 // Reads one stream to its end without a decoder and reports how many samples it has and where it ends.
+// `times`, when given, receives the start time of every sample.
 bool CountSamples(IMFSourceReader* reader, DWORD stream, const char* kind, const wchar_t* name,
-                  unsigned long long& samples, double& endSeconds) {
+                  unsigned long long& samples, double& endSeconds, std::vector<LONGLONG>* times = nullptr) {
     const GUID nativeTimeFormat{};   // GUID_NULL: 100 ns units
     PROPVARIANT start;
     PropVariantInit(&start);
@@ -213,6 +216,7 @@ bool CountSamples(IMFSourceReader* reader, DWORD stream, const char* kind, const
         }
         if (sample) {
             ++samples;
+            if (times) times->push_back(at);
             LONGLONG duration = 0;
             if (FAILED(sample->GetSampleDuration(&duration))) duration = 0;   // the start time alone is close enough
             end = std::max(end, at + duration);
@@ -247,6 +251,8 @@ bool Inspect(const std::wstring& path, const wchar_t* name, Facts& facts) {
             facts.h264 = subtype == MFVideoFormat_H264;
             hr = MFGetAttributeSize(type.Get(), MF_MT_FRAME_SIZE, &facts.width, &facts.height);
             if (FAILED(hr)) Fail("%ls: the video stream has no frame size (0x%08X)", name, static_cast<unsigned>(hr));
+            hr = MFGetAttributeRatio(type.Get(), MF_MT_FRAME_RATE, &facts.frameRate, &facts.frameRateBase);
+            if (FAILED(hr)) Fail("%ls: the video stream declares no frame rate (0x%08X)", name, static_cast<unsigned>(hr));
         } else if (major == MFMediaType_Audio) {
             ++facts.audioStreams;
             facts.audioIndex = index;
@@ -264,7 +270,7 @@ bool Inspect(const std::wstring& path, const wchar_t* name, Facts& facts) {
     }
     facts.duration = static_cast<double>(duration.uhVal.QuadPart) / 1e7;
     if (facts.videoStreams != 1 || facts.audioStreams != 1) return true;   // reported by the caller
-    return CountSamples(reader.Get(), facts.videoIndex, "video", name, facts.videoSamples, facts.videoSeconds) &&
+    return CountSamples(reader.Get(), facts.videoIndex, "video", name, facts.videoSamples, facts.videoSeconds, &facts.videoTimes) &&
            CountSamples(reader.Get(), facts.audioIndex, "audio", name, facts.audioSamples, facts.audioSeconds);
 }
 
@@ -274,7 +280,32 @@ struct Expected {
     UINT32 width, height;
     double seconds;
     int pushed;
+    int fps;          // the constant frame rate the session asked for
+    bool tooFast;     // pictures were pushed faster than `fps`, so some must be left out
 };
+
+const wchar_t kLeftOut[] = L"Left out ";
+
+// The point of a constant frame rate: frame i starts at i/fps, with no gaps and no bunching, however
+// unevenly the pictures were pushed. Returns the largest distance of any frame from its place, in ms.
+double CheckSpacing(const Expected& expected, const Facts& facts) {
+    std::vector<LONGLONG> times = facts.videoTimes;
+    std::sort(times.begin(), times.end());   // an encoder may reorder pictures; the times are what count
+    const double slot = 1e7 / expected.fps;
+    double worst = 0;
+    size_t worstIndex = 0;
+    for (size_t i = 0; i < times.size(); ++i) {
+        const double off = std::fabs(static_cast<double>(times[i] - times[0]) - static_cast<double>(i) * slot);
+        if (off > worst) {
+            worst = off;
+            worstIndex = i;
+        }
+    }
+    // A container's own time base rounds each time a little; a missing or doubled frame is off by a whole slot.
+    if (worst > slot / 4)
+        Fail("%ls: frame %zu of %zu is %.2f ms from its place at %d fps", expected.name, worstIndex, times.size(), worst / 1e4, expected.fps);
+    return worst / 1e4;
+}
 
 // Checks one file against what was pushed and appends its measurements to `summary`.
 void Verify(const Expected& expected, const RecorderNotice& finished, std::string& summary) {
@@ -291,19 +322,31 @@ void Verify(const Expected& expected, const RecorderNotice& finished, std::strin
         Fail("%ls: audio is %u Hz %u ch, expected 44100 Hz 2 ch", expected.name, facts.rate, facts.channels);
     if (std::fabs(facts.duration - expected.seconds) > kTolerance)
         Fail("%ls: duration %.3f s, expected about %.1f s", expected.name, facts.duration, expected.seconds);
-    if (std::fabs(static_cast<double>(facts.videoSamples) - expected.pushed) > 0.15 * expected.pushed)
-        Fail("%ls: %llu video samples, %d pictures were pushed", expected.name, facts.videoSamples, expected.pushed);
+    // Every frame slot of the file's length is filled, whatever number of pictures was pushed.
+    const long long slots = std::llround(facts.videoSeconds * expected.fps);
+    if (static_cast<long long>(facts.videoSamples) != slots)
+        Fail("%ls: %llu frames in %.3f s of video, %lld make %d fps", expected.name, facts.videoSamples, facts.videoSeconds, slots, expected.fps);
+    if (std::fabs(static_cast<double>(facts.videoSamples) - expected.seconds * expected.fps) > kTolerance * expected.fps)
+        Fail("%ls: %llu frames, expected about %.0f", expected.name, facts.videoSamples, expected.seconds * expected.fps);
+    if (facts.frameRateBase == 0 ||
+        std::fabs(static_cast<double>(facts.frameRate) / facts.frameRateBase - expected.fps) > 0.005 * expected.fps)
+        Fail("%ls: the file declares %u/%u fps, expected %d", expected.name, facts.frameRate, facts.frameRateBase, expected.fps);
+    const double worstMs = CheckSpacing(expected, facts);
+    const bool leftOut = finished.message.find(kLeftOut) != std::wstring::npos;
+    if (expected.tooFast && !leftOut)
+        Fail("%ls: %d pictures were pushed faster than %d fps and none was reported left out", expected.name, expected.pushed, expected.fps);
     if (std::fabs(facts.audioSeconds - facts.videoSeconds) > kTolerance)
         Fail("%ls: audio ends at %.3f s, video at %.3f s", expected.name, facts.audioSeconds, facts.videoSeconds);
     if (std::fabs(finished.seconds - expected.seconds) > kTolerance)
         Fail("%ls: the Finished notice says %.3f s, expected about %.1f s", expected.name, finished.seconds, expected.seconds);
     if (finished.videoFrames != facts.videoSamples)
-        std::printf("note: %ls: Finished notice counts %llu pictures, the file holds %llu\n", expected.name,
-                    static_cast<unsigned long long>(finished.videoFrames), facts.videoSamples);
+        Fail("%ls: the Finished notice counts %llu frames, the file holds %llu", expected.name,
+             static_cast<unsigned long long>(finished.videoFrames), facts.videoSamples);
 
-    char text[160];
-    std::snprintf(text, sizeof(text), "%s%ux%u %.2f s, %llu/%d pictures, audio %.2f s", summary.empty() ? "" : "; ",
-                  facts.width, facts.height, facts.duration, facts.videoSamples, expected.pushed, facts.audioSeconds);
+    char text[200];
+    std::snprintf(text, sizeof(text), "%s%ux%u %.2f s, %llu frames at %d fps from %d pictures (worst %.2f ms off), audio %.2f s",
+                  summary.empty() ? "" : "; ", facts.width, facts.height, facts.duration, facts.videoSamples, expected.fps,
+                  expected.pushed, worstMs, facts.audioSeconds);
     summary += text;
 }
 
@@ -336,11 +379,12 @@ bool Run(const std::wstring& directory, std::string& summary) {
     const std::wstring first = directory + L"\\check.mp4";
     const std::wstring second = directory + L"\\check (2).mp4";
     const std::wstring third = directory + L"\\check (3).mp4";
+    const std::wstring fourth = directory + L"\\check (4).mp4";
 
     {   // A session that never sees a picture reports that and leaves no file behind.
         Recorder recorder;
         NoticeLog seen;
-        if (!recorder.Start(directory, kBaseName, seen.Callback())) Fail("no-picture session: Start returned false");
+        if (!recorder.Start(directory, kBaseName, 60, seen.Callback())) Fail("no-picture session: Start returned false");
         if (!recorder.Active()) Fail("no-picture session: not active after Start");
         Play(recorder, {}, 0.2, 0.2);
         recorder.Stop();
@@ -353,12 +397,14 @@ bool Run(const std::wstring& directory, std::string& summary) {
     }
 
     Picture portrait(640, 1136), landscape(1136, 640), odd(641, 479);
-    {   // 3 s of pictures and sound, 1 s still with sound, then 2 s at another size without sound.
+    {   // A 60 fps file: 3 s of pictures at the file's own rate with sound (Play pushes them in uneven
+        // groups, as a network does), 1 s still with sound, then 2 s at another size and half the rate
+        // without sound. The still second and the half rate are filled with repeats.
         Recorder recorder;
         NoticeLog seen;
-        if (!recorder.Start(directory, kBaseName, seen.Callback())) Fail("main session: Start returned false");
-        if (recorder.Start(directory, kBaseName, seen.Callback())) Fail("main session: a second Start was accepted");
-        Play(recorder, {{&portrait, 0.0, 30.0, 90}, {&landscape, 4.0, 30.0, 60}}, 4.0, 6.0);
+        if (!recorder.Start(directory, kBaseName, 60, seen.Callback())) Fail("main session: Start returned false");
+        if (recorder.Start(directory, kBaseName, 60, seen.Callback())) Fail("main session: a second Start was accepted");
+        Play(recorder, {{&portrait, 0.0, 60.0, 180}, {&landscape, 4.0, 30.0, 60}}, 4.0, 6.0);
         const double seconds = recorder.Seconds();
         if (!recorder.Active() || std::fabs(seconds - 6.0) > kTolerance) Fail("main session: Seconds() is %.3f before Stop", seconds);
         recorder.Stop();
@@ -372,23 +418,34 @@ bool Run(const std::wstring& directory, std::string& summary) {
                 return false;
             }
         }
-        const std::vector<Expected> files = {{first, L"check.mp4", 640, 1136, 4.0, 90}, {second, L"check (2).mp4", 1136, 640, 2.0, 60}};
+        const std::vector<Expected> files = {{first, L"check.mp4", 640, 1136, 4.0, 180, 60, false},
+                                             {second, L"check (2).mp4", 1136, 640, 2.0, 60, 60, false}};
         if (CheckNotices("main session", notices, files)) {
             Verify(files[0], notices[1], summary);
             Verify(files[1], notices[3], summary);
         }
     }
     {   // Odd sizes are cropped to even; the name continues after the files that already exist.
-        // Eight pictures fit the recorder's queue while the encoder opens, so in a clip this short the
-        // count does not depend on how long the machine takes to open it.
+        // A 30 fps file fed 15 pictures a second repeats each one.
         Recorder recorder;
         NoticeLog seen;
-        if (!recorder.Start(directory, kBaseName, seen.Callback())) Fail("odd-size session: Start returned false");
+        if (!recorder.Start(directory, kBaseName, 30, seen.Callback())) Fail("odd-size session: Start returned false");
         Play(recorder, {{&odd, 0.0, 15.0, 8}}, 0.0, 0.5);
         recorder.Stop();
         const std::vector<RecorderNotice> notices = seen.Take();
-        const std::vector<Expected> files = {{third, L"check (3).mp4", 640, 478, 0.5, 8}};
+        const std::vector<Expected> files = {{third, L"check (3).mp4", 640, 478, 0.5, 8, 30, false}};
         if (CheckNotices("odd-size session", notices, files)) Verify(files[0], notices[1], summary);
+    }
+    {   // A 30 fps file fed 60 pictures a second keeps its rate: half the pictures are left out and
+        // the Finished notice says so.
+        Recorder recorder;
+        NoticeLog seen;
+        if (!recorder.Start(directory, kBaseName, 30, seen.Callback())) Fail("fast session: Start returned false");
+        Play(recorder, {{&landscape, 0.0, 60.0, 60}}, 0.0, 1.0);
+        recorder.Stop();
+        const std::vector<RecorderNotice> notices = seen.Take();
+        const std::vector<Expected> files = {{fourth, L"check (4).mp4", 1136, 640, 1.0, 60, 30, true}};
+        if (CheckNotices("fast session", notices, files)) Verify(files[0], notices[1], summary);
     }
     summary += "; no-picture session reported";
     return true;
