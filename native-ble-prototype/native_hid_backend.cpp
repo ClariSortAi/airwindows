@@ -3,6 +3,7 @@
 #include "battery_level.h"
 #include "absolute_buttons.h"
 #include "subscriber_selection.h"
+#include "peer_state.h"
 #include <windows.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -20,6 +21,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -92,7 +94,8 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
     std::mutex sendMutex;
     std::mutex advertisementMutex;
     hstring bound, lastBound;
-    bool enabled = false, suspended = false, closed = false, diagnosticReads = false, stopCallReturned = false;
+    bool enabled = false, closed = false, diagnosticReads = false, stopCallReturned = false;
+    PeerHidStates<hstring> peerStates; // suspend and protocol mode, per phone
     DiscoveryWindow discovery;
     uint64_t enableDeadline = 0, actionDeadline = 0;
     uint64_t readCallbacks = 0, writeCallbacks = 0, subscriptionCallbacks = 0, diagnosticCount = 0;
@@ -150,10 +153,23 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
         return result;
     }
 
+    // Mutex order: sendMutex, then stateMutex. A newly selected phone has an unknown pointer
+    // position and no held input, whatever the phone before it was left with.
+    void ForgetPointer() { // sendMutex and stateMutex held
+        haveAbsolutePosition = false; lastAbsX = lastAbsY = lastAbsButtons = -1; settleUntil = 0;
+        values["keyboard"] = Bytes(8); values["mouse"] = Bytes(5); values["absolute"] = Bytes(5);
+    }
+
     void SubscriptionChanged() {
         const auto clients = Clients();
+        std::set<hstring> present;
+        for (const char* name : {"keyboard","mouse","absolute"}) {
+            auto found = chars.find(name);
+            if (found != chars.end()) for (auto client : found->second.SubscribedClients()) present.insert(client.Session().DeviceId().Id());
+        }
         std::lock_guard<std::mutex> lock(stateMutex);
         ++subscriptionCallbacks; discovery.Extend(GetTickCount64(),30000);
+        peerStates.Retain(present);
         // A different phone subscribing must not cancel the selected phone.
         // Loss of that selected keyboard/mouse pair still invalidates input.
         if (bound.empty() || clients.find(bound) == clients.end()) {
@@ -170,10 +186,16 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
             if (request) {
                 Bytes value;
                 bool permitted;
+                const auto peer = args.Session().DeviceId().Id();
                 {
+                    // Every paired phone may finish its HID setup, so a second phone is ready to be
+                    // selected while the first is in use. Only the selected phone sees report values.
                     std::lock_guard<std::mutex> lock(stateMutex);
-                    permitted = !closed && (bound.empty() || bound == args.Session().DeviceId().Id());
-                    value = values.at(name);
+                    permitted = !closed;
+                    const bool selected = bound.empty() || bound == peer;
+                    if (name == "protocol") value = {peerStates.Protocol(peer)};
+                    else if (!selected && (name == "keyboard" || name == "mouse" || name == "absolute")) value = Bytes(values.at(name).size());
+                    else value = values.at(name);
                 }
                 bool available = true;
                 if (name == "battery") {
@@ -204,24 +226,24 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
             if (request) {
                 const auto reader = DataReader::FromBuffer(request.Value());
                 bool valid = request.Offset() == 0 && reader.UnconsumedBufferLength() == 1;
-                bool permitted;
                 const uint8_t value = valid ? reader.ReadByte() : 0;
                 if (name != "leds") valid = valid && value <= 1;
-                {
+                const auto peer = args.Session().DeviceId().Id();
+                // Logged so a phone's sleep and wake can be read beside the mirror's pause and resume.
+                if (valid && name == "control" && trace) trace("phone " + Fingerprint(peer) + (value == 0 ? " suspended" : " resumed"));
+                if (valid) {
+                    // A phone suspends when it locks. That is its own state: it stops the
+                    // input in progress only when it is the selected phone.
                     std::lock_guard<std::mutex> lock(stateMutex);
-                    permitted=bound.empty() || bound==args.Session().DeviceId().Id();
-                    if (valid && permitted) {
-                        if (name == "control") suspended = value == 0;
-                        else values[name] = {value};
-                        if (name != "leds") {
-                            cancel = true; enabled = false;
-                            values["keyboard"] = Bytes(8); values["mouse"] = Bytes(5);
-                        }
+                    if (name == "leds") values[name] = {value};
+                    else if (name == "control" ? peerStates.Suspend(peer, value == 0, bound)
+                                               : peerStates.SetProtocol(peer, value, bound)) {
+                        cancel = true; enabled = false;
+                        values["keyboard"] = Bytes(8); values["mouse"] = Bytes(5);
                     }
                 }
                 if (request.Option() == GattWriteOption::WriteWithResponse) {
-                    if (!permitted) request.RespondWithProtocolError(0x08);
-                    else if (valid) request.Respond(); else request.RespondWithProtocolError(0x13);
+                    if (valid) request.Respond(); else request.RespondWithProtocolError(0x13);
                 }
             }
         } catch (hresult_error const& error) { cancel = true; Diagnostic("write_"+name,static_cast<uint32_t>(error.code())); }
@@ -273,8 +295,17 @@ struct NativeHidBackend::Impl : std::enable_shared_from_this<Impl> {
         hstring target;
         {
             std::lock_guard<std::mutex> lock(stateMutex);
-            if (!release && (cancel || (inputGuard && !inputGuard()) || GetTickCount64() > actionDeadline || suspended || values["protocol"] != Bytes{1}))
-                throw std::runtime_error("Input canceled, expired, suspended or not in report mode");
+            // These reach the status line, so each says what stopped the input.
+            if (!release) {
+                if (cancel || (inputGuard && !inputGuard()))
+                    throw std::runtime_error("Input was canceled before it was sent. Click the phone picture to try again.");
+                if (GetTickCount64() > actionDeadline)
+                    throw std::runtime_error("Input took too long to send and was dropped. Click the phone picture to try again.");
+                if (peerStates.Suspended(bound))
+                    throw std::runtime_error("The selected iPhone is asleep. Wake it, or choose the phone that is on screen.");
+                if (peerStates.Protocol(bound) != 1)
+                    throw std::runtime_error("The selected iPhone asked for boot-mode input, which is not supported.");
+            }
             target = release && bound.empty() ? lastBound : bound;
         }
         GattSubscribedClient client{nullptr};
@@ -411,6 +442,18 @@ void NativeHidBackend::Advertise(unsigned seconds) {
     impl_->provider.StartAdvertising(parameters);
     { std::lock_guard<std::mutex> lock(impl_->stateMutex); impl_->hidPublicationPending = true; }
 }
+void NativeHidBackend::OpenDiscovery(unsigned seconds) {
+    if (seconds < 1 || seconds > 120) throw std::invalid_argument("Discovery must be 1..120 seconds");
+    {
+        std::lock_guard<std::mutex> serialized(impl_->advertisementMutex);
+        std::lock_guard<std::mutex> lock(impl_->stateMutex);
+        if (impl_->discovery.active && !impl_->discovery.stopping) {
+            impl_->discovery.Start(GetTickCount64(),seconds); // the service stays published throughout
+            return;
+        }
+    }
+    Advertise(seconds);
+}
 void NativeHidBackend::SetTrace(std::function<void(const std::string&)> trace) {
     std::lock_guard<std::mutex> serialized(impl_->sendMutex);
     impl_->trace = std::move(trace);
@@ -502,7 +545,8 @@ std::string NativeHidBackend::Status() const {
         << ",\"read_callbacks\":" << impl_->readCallbacks << ",\"write_callbacks\":" << impl_->writeCallbacks
         << ",\"subscription_callbacks\":" << impl_->subscriptionCallbacks
         << ",\"input_enabled\":" << (impl_->enabled ? "true" : "false")
-        << ",\"suspended\":" << (impl_->suspended ? "true" : "false")
+        << ",\"suspended\":" << (impl_->peerStates.Suspended(impl_->bound) ? "true" : "false")
+        << ",\"suspended_phones\":" << impl_->peerStates.SuspendedCount()
         << ",\"bound\":\"" << (impl_->bound.empty() ? "" : Fingerprint(impl_->bound)) << "\",\"candidates\":[";
     bool first = true;
     for (auto& client : clients) { if (!first) out << ','; first = false; out << '"' << Fingerprint(client.first) << '"'; }
@@ -533,12 +577,25 @@ void NativeHidBackend::Bind(const std::string& fingerprint) {
     const bool paired = device.DeviceInformation().Pairing().IsPaired();
     device.Close();
     if (!paired) throw std::runtime_error("Complete Windows/iPhone pairing first");
+    bool leaving;
+    { std::lock_guard<std::mutex> lock(impl_->stateMutex); leaving = !impl_->bound.empty() && impl_->bound != selected->first; }
+    if (leaving) Stop(); // release the phone being left while it is still the selected one
     {
+        std::lock_guard<std::mutex> serialized(impl_->sendMutex);
         std::lock_guard<std::mutex> lock(impl_->stateMutex);
+        if (impl_->lastBound != selected->first) impl_->ForgetPointer();
         impl_->bound = impl_->lastBound = selected->first; impl_->enabled = false; impl_->cancel = true;
     }
     // StopAdvertising withdraws the GATT service and destroys report subscriptions.
     // Binding only selects the peer; publication remains until the existing deadline.
+}
+void NativeHidBackend::Unbind() {
+    Stop(); // releases go to the phone being left
+    std::lock_guard<std::mutex> serialized(impl_->sendMutex);
+    std::lock_guard<std::mutex> lock(impl_->stateMutex);
+    // lastBound goes too: a later Stop must not send releases to a phone nobody selected.
+    impl_->bound = impl_->lastBound = hstring{}; impl_->enabled = false; impl_->cancel = true;
+    impl_->ForgetPointer();
 }
 void NativeHidBackend::EnableOneAction() {
     const auto clients = impl_->Clients();

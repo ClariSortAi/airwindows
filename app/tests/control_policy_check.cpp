@@ -1,7 +1,10 @@
 #include "control_queue.h"
 #include "absolute_buttons.h"
 #include "subscriber_selection.h"
+#include "peer_state.h"
+#include "phone_pairs.h"
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <vector>
 int main(){
@@ -122,5 +125,99 @@ int main(){
     check(wheel.Add(60,2,800)==0); // separate gestures do not accumulate
     check(wheel.Add(60,2,810)==1);
     check(wheel.Add(32767,2,820)==4);check(wheel.Add(-32768,2,830)==-4);
-    std::cout<<checks<<" control queue and coordinate checks passed\n";
+    // Two phones. A is locked on the desk, B is the one mirroring and selected.
+    const std::string phoneA="7753000000000001",phoneB="01ba000000000002",none;
+    PeerHidStates<std::string> hid;
+    check(!hid.Suspended(phoneB) && hid.Protocol(phoneB)==1); // a phone never heard from is awake, in report mode
+    check(!hid.Suspend(phoneA,true,phoneB));                  // A locking is not the selected phone's business
+    check(hid.Suspended(phoneA) && !hid.Suspended(phoneB));   // and must not stop B's input
+    check(hid.Suspend(phoneB,true,phoneB) && hid.Suspended(phoneB)); // the selected phone locking does stop it
+    check(hid.Suspend(phoneB,false,phoneB) && !hid.Suspended(phoneB));
+    check(!hid.Suspend(phoneA,true,none));                    // nothing selected: nothing to cancel
+    check(!hid.SetProtocol(phoneA,0,phoneB) && hid.Protocol(phoneA)==0 && hid.Protocol(phoneB)==1);
+    check(hid.SuspendedCount()==1);
+    hid.Retain(std::set<std::string>{phoneB});                // A disconnects
+    check(!hid.Suspended(phoneA) && hid.Protocol(phoneA)==1 && hid.SuspendedCount()==0); // and comes back fresh
+    hid.Suspend(phoneB,true,phoneB);hid.Retain(std::set<std::string>{phoneA,phoneB});check(hid.Suspended(phoneB));
+
+    const std::string senderA="92870000000000aa",senderB="62340000000000bb",senderC="36600000000000cc";
+    PhonePairs pairs;
+    check(pairs.Empty() && pairs.Phone(senderA).empty() && pairs.Serialize().empty());
+    pairs.Set(senderA,phoneA);pairs.Set(senderB,phoneB);
+    check(pairs.Phone(senderA)==phoneA && pairs.Phone(senderB)==phoneB);
+    check(pairs.Serialize()==senderB+"="+phoneB+";"+senderA+"="+phoneA); // newest first
+    check(PhonePairs::Parse(pairs.Serialize()).Serialize()==pairs.Serialize());
+    pairs.Set(senderA,phoneA);check(pairs.Serialize().substr(0,16)==senderA); // used again: back to the front
+    pairs.Set(senderB,phoneA);check(pairs.Phone(senderB)==phoneA);          // a corrected choice replaces the old one
+    pairs.Set("not-a-token",phoneA);pairs.Set(senderC,"short");check(pairs.Phone("not-a-token").empty() && pairs.Phone(senderC).empty());
+    check(PhonePairs::Parse("garbage;"+senderA+"="+phoneA+";;"+senderA+"="+phoneB+";"+senderB+"=XYZ").Serialize()==senderA+"="+phoneA);
+    check(PhonePairs::Parse("").Empty() && PhonePairs::Parse(";;;").Empty());
+    PhonePairs many;
+    for(int i=0;i<20;++i){std::string sender=senderA;sender[15]=char('a'+i%6);sender[14]=char('0'+i/6);many.Set(sender,phoneA);}
+    check(PhonePairs::Parse(many.Serialize()).Serialize()==many.Serialize() && many.Serialize().size()<511); // fits the settings reader
+    PhonePairs two;two.Set(senderA,phoneA);two.Set(senderB,phoneB);
+    check(two.Elsewhere(phoneA,senderB) && !two.Elsewhere(phoneA,senderA)); // A's phone is not the one B mirrors
+    check(!two.Elsewhere("ffff000000000003",senderB));                      // a phone never chosen could be anyone's
+    two.Set(senderC,phoneA);check(!two.Elsewhere(phoneA,senderC));          // one phone, two networks, two senders
+
+    // First phone, set up the way the guide says: mirror, then choose.
+    PhoneLink link;
+    link.Start("","","",false);
+    check(link.wanted.empty() && !link.Matches(phoneA));
+    check(!link.OnSender(senderA));                 // unknown sender: nothing to open Bluetooth for
+    check(link.wanted.empty() && link.session);
+    link.OnChoose(phoneA);
+    check(link.Matches(phoneA) && link.pairs.Phone(senderA)==phoneA);
+    link.OnMirrorEnded();check(link.Matches(phoneA)); // the phone stays selected between mirrors
+    // The second phone mirrors: A is let go, nothing is closed, and the user is asked once.
+    check(!link.OnSender(senderB));
+    check(link.MustRelease(phoneA) && !link.Matches(phoneA) && link.wanted.empty());
+    check(link.Elsewhere(phoneA) && !link.Elsewhere(phoneB)); // the list marks A as a different iPhone
+    link.OnChoose(phoneB);
+    check(link.Matches(phoneB) && !link.MustRelease(phoneB) && link.pairs.Phone(senderA)==phoneA);
+    // From here on, switching needs no choice in either direction.
+    link.OnMirrorEnded();
+    check(link.OnSender(senderA));                  // true: make sure A's Bluetooth can reach the PC
+    check(link.wanted==phoneA && link.MustRelease(phoneB) && !link.Matches(phoneB) && link.Matches(phoneA));
+    link.OnMirrorEnded();
+    check(link.OnSender(senderB) && link.wanted==phoneB && link.MustRelease(phoneA) && link.Matches(phoneB));
+    check(link.OnSender(senderB) && link.Matches(phoneB) && !link.MustRelease(phoneB)); // the same phone reconnecting
+    // The morning that prompted this: A's Bluetooth was chosen for B's mirror. Choosing B corrects it.
+    link.OnChoose(phoneA);check(link.pairs.Phone(senderB)==phoneA && link.Matches(phoneA));
+    link.OnChoose(phoneB);check(link.pairs.Phone(senderB)==phoneB && link.Matches(phoneB) && link.MustRelease(phoneA));
+    // A restart keeps every pair, and the phone last used is the one to reconnect.
+    PhoneLink restarted;
+    restarted.Start(link.pairs.Serialize(),phoneB,senderB,false);
+    check(restarted.wanted==phoneB && !restarted.Matches(phoneB) && !restarted.MustRelease(phoneB)); // no mirror yet
+    check(restarted.OnSender(senderA) && restarted.wanted==phoneA && restarted.MustRelease(phoneB));
+    // Settings from a version that kept one pair become the first entry.
+    PhoneLink migrated;
+    migrated.Start("",phoneA,senderA,false);
+    check(migrated.pairs.Phone(senderA)==phoneA && migrated.wanted==phoneA);
+    check(migrated.OnSender(senderA) && migrated.Matches(phoneA));
+    // A phone chosen while nothing mirrors belongs to the next new sender, never to a remembered one.
+    PhoneLink early;
+    early.Start(senderA+"="+phoneA,"","",false);
+    early.OnChoose(phoneB);
+    check(early.wanted==phoneB && !early.Matches(phoneB) && !early.MustRelease(phoneB));
+    check(early.OnSender(senderA) && early.wanted==phoneA && early.MustRelease(phoneB) && early.pairs.Phone(senderA)==phoneA);
+    early.OnMirrorEnded();early.OnChoose(phoneB);
+    check(early.OnSender(senderB) && early.Matches(phoneB) && early.pairs.Phone(senderB)==phoneB);
+    // A sender with no identity is never remembered and never matches.
+    PhoneLink anonymous;
+    anonymous.Start(senderA+"="+phoneA,phoneA,senderA,false);
+    check(!anonymous.OnSender("") && anonymous.MustRelease(phoneA) && !anonymous.Matches(phoneA));
+    anonymous.OnChoose(phoneA);check(!anonymous.Matches(phoneA) && anonymous.pairs.Serialize()==senderA+"="+phoneA);
+    // Disconnect keeps Bluetooth closed through later mirrors until the user asks again.
+    PhoneLink detached;
+    detached.Start(senderA+"="+phoneA,phoneA,senderA,false);
+    detached.OnDisconnect();
+    check(detached.wanted.empty() && !detached.OnSender(senderA) && detached.wanted==phoneA);
+    detached.OnPair();detached.OnMirrorEnded();check(detached.OnSender(senderA));
+    // --control-phone: the first sender is that phone's, whatever was remembered before.
+    PhoneLink forced;
+    forced.Start(senderA+"="+phoneA,phoneB,"",true);
+    check(forced.wanted==phoneB && forced.OnSender(senderA) && forced.Matches(phoneB) && forced.pairs.Phone(senderA)==phoneB);
+    forced.OnMirrorEnded();check(!forced.OnSender(senderC) && forced.wanted.empty()); // only the first
+    std::cout<<checks<<" control queue, coordinate and phone selection checks passed\n";
 }

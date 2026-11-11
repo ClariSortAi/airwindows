@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "log.h"
+#include "phone_pairs.h"
 
 namespace {
 
@@ -115,6 +116,7 @@ void Settings::Load() {
     if(controlPhone.size()!=16 || controlPhone.find_first_not_of("0123456789abcdef")!=std::string::npos)controlPhone.clear();
     controlSender = WideToUtf8(ReadString(path, L"NativeControlSender", L""));
     if(controlSender.size()!=16 || controlSender.find_first_not_of("0123456789abcdef")!=std::string::npos)controlSender.clear();
+    controlPairs = PhonePairs::Parse(WideToUtf8(ReadString(path, L"NativeControlPairs", L""))).Serialize();
     windowLeft = ReadInt(path, L"WindowLeft", 0);
     windowTop = ReadInt(path, L"WindowTop", 0);
     windowRight = ReadInt(path, L"WindowRight", 0);
@@ -138,6 +140,7 @@ void Settings::Save() const {
     WriteString(path, L"MacAddress", Utf8ToWide(macAddress));
     WriteString(path, L"NativeControlPhone", Utf8ToWide(controlPhone));
     WriteString(path, L"NativeControlSender", Utf8ToWide(controlSender));
+    WriteString(path, L"NativeControlPairs", Utf8ToWide(controlPairs));
     WriteString(path, L"WindowLeft", std::to_wstring(windowLeft));
     WriteString(path, L"WindowTop", std::to_wstring(windowTop));
     WriteString(path, L"WindowRight", std::to_wstring(windowRight));

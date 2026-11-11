@@ -22,11 +22,13 @@ public:
     void Initialize(bool diagnosticReads = false); // local service only, never advertises
     void Advertise(unsigned seconds);   // bounded 1..120 second discovery
     void ExtendDiscovery(unsigned seconds); // keep an open window at least this long; 10-minute cap
+    void OpenDiscovery(unsigned seconds);   // Advertise, or restart the window of an open publication
     void SetTrace(std::function<void(const std::string&)> trace); // pointer reports with a button down or changing
     void Poll();                       // expire discovery; invoke at least 10 Hz
     bool PublicationStopFailed() const; // caller must end this backend/process
     std::string Status() const;         // JSON; no raw peer identifiers
-    void Bind(const std::string& fingerprint);
+    void Bind(const std::string& fingerprint); // select a subscribed phone; releases the one it replaces
+    void Unbind();                     // release and deselect; the service and every subscription stay
     void EnableOneAction();            // expires in two seconds
     NativeHidView Inspect();           // worker only; resolves names without pairing
     void KeepPublishedWhileBound(bool keep); // GUI connected mode; CLI defaults false

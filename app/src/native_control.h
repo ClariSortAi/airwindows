@@ -4,17 +4,24 @@
 #include <vector>
 #include "control_queue.h"
 
-struct ControlPeer { std::string token, name; };
+struct ControlPeer {
+    std::string token, name;
+    bool elsewhere = false; // chosen for another mirror, so probably not the phone on screen
+};
 struct NativeControlState {
     std::vector<ControlPeer> peers;
     std::string bound, sender, message = "Bluetooth control disconnected";
+    std::string pairs;      // every remembered sender and phone, as settings.ini stores them
     bool ready = false, focused = false, published = false, busy = false;
+    bool waiting = false;   // the phone for this mirror is known; its Bluetooth has not connected yet
 };
 class NativeControl {
 public:
     NativeControl();
     ~NativeControl();
-    void Start(std::string rememberedPhone = {}, std::string rememberedSender = {}, bool bootstrap = false);
+    // `pairs` is every remembered sender and phone; the other two are the pair last in use.
+    // With `bootstrap`, the first sender to mirror is taken as rememberedPhone's.
+    void Start(const std::string& pairs = {}, std::string rememberedPhone = {}, std::string rememberedSender = {}, bool bootstrap = false);
     void Shutdown();
     void Pair();
     void Bind(std::string token);

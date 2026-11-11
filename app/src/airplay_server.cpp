@@ -365,7 +365,9 @@ bool AirPlayServer::Start(const ServerConfig& config, IMediaSink* sink, HWND not
     // An empty key file makes the library derive its Ed25519 key from the device
     // id, so the receiver keeps one identity for as long as the MAC stays the same.
     LOGD("server start: raop_init2");
-    if (raop_init2(raop, 0 /* nohold */, config.macAddress.c_str(), "")) {
+    // nohold: a device that starts mirroring takes over from the one on screen, as on an
+    // Apple TV. With hold, a second iPhone was refused until the first stopped mirroring.
+    if (raop_init2(raop, 1 /* nohold */, config.macAddress.c_str(), "")) {
         LOGE("raop_init2 failed");
         Stop();
         return false;

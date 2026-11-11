@@ -95,7 +95,7 @@ try {
     }
     $sourceBackend = Join-Path $top 'native-ble-prototype'
     New-Item -ItemType Directory -Path $sourceBackend -Force | Out-Null
-    foreach ($name in @('native_hid_backend.cpp','native_hid_backend.h','absolute_buttons.h','battery_level.h','discovery_window.h','subscriber_selection.h','test_discovery_window.cpp','README.md','LICENSE-iphone-use')) {
+    foreach ($name in @('native_hid_backend.cpp','native_hid_backend.h','absolute_buttons.h','battery_level.h','discovery_window.h','subscriber_selection.h','peer_state.h','test_discovery_window.cpp','README.md','LICENSE-iphone-use')) {
         Copy-Item -LiteralPath (Join-Path $backend $name) -Destination $sourceBackend
     }
     Copy-Item -LiteralPath (Join-Path $repo 'requirements-dev.txt') -Destination $top

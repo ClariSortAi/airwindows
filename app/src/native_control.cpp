@@ -1,5 +1,6 @@
 #include "native_control.h"
 #include "native_hid_backend.h"
+#include "phone_pairs.h"
 #include "subscriber_selection.h"
 #include "log.h"
 #include <windows.h>
@@ -25,8 +26,11 @@ struct NativeControl::Impl {
     bool live=false; // the chosen phone was on screen, unpaused, at the last inspection
     int width=0,height=0;
     ControlFrameGate frameGate;
-    std::string bind, expected, sender, expectedSender;
-    bool learnSender=false;
+    std::string bind;
+    PhoneLink link;      // which phone the mirror on screen belongs to
+    bool reopen=false;   // a remembered phone started mirroring: publish so its Bluetooth can connect
+    bool refresh=false;  // the sender changed: inspect now, not at the next quarter second
+    bool selectRefused=false; // worker only: the last attempt to select the saved phone failed; logged once
     bool held=false;
     int pointerX=0,pointerY=0;
     uint64_t pressedAt=0, holdExpires=0, holdLimit=0;
@@ -57,7 +61,7 @@ struct NativeControl::Impl {
         if (current) current->Shutdown(); // releases precede withdrawal
         held=false;
         std::lock_guard<std::mutex> lock(mutex);
-        DropInput(); state.ready=false; state.published=false; state.bound.clear(); state.peers.clear();
+        DropInput(); state.ready=false; state.published=false; state.waiting=false; state.bound.clear(); state.peers.clear();
     }
     void FailedAction(const std::optional<ControlAction>& action,const std::string& message) {
         {std::lock_guard<std::mutex> lock(mutex);
@@ -72,13 +76,14 @@ struct NativeControl::Impl {
     void Loop() {
         winrt::init_apartment(winrt::apartment_type::multi_threaded);
         for (;;) {
-            bool doPair,doDisconnect,doStop,quit;
+            bool doPair,doDisconnect,doStop,quit,doReopen,doRefresh;
             std::string doBind;
             std::optional<ControlAction> action;
             {
                 std::unique_lock<std::mutex> lock(mutex);
                 if(queue.Size()==0)wake.wait_for(lock,std::chrono::milliseconds(30));
                 quit=quitting; doPair=pair; pair=false; doDisconnect=disconnect; disconnect=false;
+                doReopen=reopen; reopen=false; doRefresh=refresh; refresh=false;
                 doStop=stop; stop=false; doBind.swap(bind);
                 action=queue.Pop(GetTickCount64());
                 processing=action.has_value();
@@ -94,28 +99,31 @@ struct NativeControl::Impl {
                 if (current && (doStop || (held && (!queue.Armed() || GetTickCount64()>=holdExpires || GetTickCount64()>=holdLimit)))) {
                     current->Stop(); held=false;
                 }
-                if (doPair) {
+                // doReopen: a remembered phone began to mirror. Its Bluetooth can only reach a
+                // published service, and the window from the last Pair click may have closed.
+                if (doPair || doReopen) {
                     if (!current) {
                         current=std::make_shared<NativeHidBackend>(); current->Initialize(true);
                         current->SetTrace([](const std::string& line){LOGI("[BLE] %s",line.c_str());});
                         std::atomic_store(&backend,current);
                     }
-                    if (!current->Inspect().published) {
-                        current->Advertise(120);
-                        LOGI("[CONTROL] Native Bluetooth publication opened for 120 seconds");
-                    } else {
-                        current->ExtendDiscovery(120);
-                        LOGI("[CONTROL] Native Bluetooth publication already open; extended to 120 seconds from now");
+                    const bool open=current->Inspect().published;
+                    current->OpenDiscovery(120);
+                    if (!open) LOGI("[CONTROL] Native Bluetooth publication opened for 120 seconds");
+                    else LOGI("[CONTROL] Native Bluetooth publication already open; extended to 120 seconds from now");
+                    if (doPair) {
+                        std::lock_guard<std::mutex> lock(mutex);
+                        state.message="Pairing is open for two minutes: on the iPhone, open Settings > Bluetooth and tap this PC";
                     }
-                    std::lock_guard<std::mutex> lock(mutex);
-                    state.message="Pairing is open for two minutes: on the iPhone, open Settings > Bluetooth and tap this PC";
                 }
                 if (!current) continue;
                 if (!doBind.empty()) {
                     current->Bind(doBind); current->KeepPublishedWhileBound(true);
-                    LOGI("[CONTROL] Selected phone %s; persistent publication",doBind.c_str());
                     std::lock_guard<std::mutex> lock(mutex);
-                    expected=doBind;expectedSender=sender;learnSender=sender.empty();
+                    link.OnChoose(doBind);
+                    LOGI("[CONTROL] Selected phone %s; persistent publication; %s",doBind.c_str(),
+                         link.wantedSender.empty()?"its mirror is not known yet":("remembered for mirror "+link.wantedSender).c_str());
+                    state.pairs=link.pairs.Serialize();
                     state.bound=doBind; state.message="Click the mirrored phone to control it; click elsewhere to return";
                 }
                 current->Poll();
@@ -133,31 +141,56 @@ struct NativeControl::Impl {
                     Close(); std::lock_guard<std::mutex> lock(mutex);
                     state.message="Bluetooth publication could not stop; disconnected"; continue;
                 }
-                if (GetTickCount64() >= inspectAt || !doBind.empty() || doPair) {
+                if (GetTickCount64() >= inspectAt || !doBind.empty() || doPair || doReopen || doRefresh) {
                     inspectAt=GetTickCount64()+250;
                     auto view=current->Inspect();
                     std::string remembered;
-                    {std::lock_guard<std::mutex> lock(mutex);remembered=expected;}
+                    bool release;
+                    {std::lock_guard<std::mutex> lock(mutex);remembered=link.wanted;release=link.MustRelease(view.bound);}
+                    if(release) {
+                        // The mirror now comes from another iPhone. Let go of this one without closing
+                        // Bluetooth: it stays connected, so switching back needs no pairing.
+                        const std::string left=view.bound;
+                        current->Unbind(); held=false; view=current->Inspect();
+                        LOGI("[CONTROL] Released phone %s; the mirror comes from another iPhone",left.c_str());
+                        std::lock_guard<std::mutex> lock(mutex);
+                        state.bound.clear();state.ready=false;
+                    }
                     const auto savedPeer=UniqueSubscriber(view.peers,[&](const auto& peer){return peer.absolute && peer.fingerprint==remembered;});
                     if(view.bound.empty() && !remembered.empty() && savedPeer!=view.peers.end()) {
-                        current->Bind(remembered); current->KeepPublishedWhileBound(true); view=current->Inspect();
-                        LOGI("[CONTROL] Reconnected saved phone %s",remembered.c_str());
-                        std::lock_guard<std::mutex> lock(mutex);
-                        state.bound=remembered;state.message="Click the mirrored phone to control it; click elsewhere to return";
+                        try {
+                            current->Bind(remembered); current->KeepPublishedWhileBound(true); view=current->Inspect();
+                            LOGI("[CONTROL] Reconnected saved phone %s",remembered.c_str());
+                            selectRefused=false;
+                            std::lock_guard<std::mutex> lock(mutex);
+                            state.bound=remembered;state.message="Click the mirrored phone to control it; click elsewhere to return";
+                        } catch (const winrt::hresult_error& error) {
+                            // Windows can refuse for a moment while it restores the phone's link (seen as
+                            // 0x80070057 a third of a second after a drop). The next inspection tries again.
+                            if(!selectRefused)LOGW("[CONTROL] Saved phone %s cannot be selected yet (hr=0x%08x); trying again",
+                                remembered.c_str(),static_cast<uint32_t>(error.code()));
+                            selectRefused=true;
+                        }
                     }
                     bool lost=false;
                     {
                         std::lock_guard<std::mutex> lock(mutex);
                         state.peers.clear();
-                        for (auto& peer:view.peers) if (peer.absolute) state.peers.push_back({peer.fingerprint,peer.name});
+                        bool candidate=false; // a listed phone that could be the one on screen
+                        for (auto& peer:view.peers) if (peer.absolute) {
+                            const bool elsewhere=link.Elsewhere(peer.fingerprint);
+                            candidate=candidate || !elsewhere;
+                            state.peers.push_back({peer.fingerprint,peer.name,elsewhere});
+                        }
                         state.published=view.published;
                         const auto selected=UniqueSubscriber(state.peers,[&](const auto& peer){return peer.token==state.bound;});
                         const bool subscribed=!state.bound.empty() && view.bound==state.bound && selected!=state.peers.end();
-                        const bool ready=subscribed && !sender.empty() && sender==expectedSender;
+                        const bool ready=subscribed && link.Matches(state.bound);
                         if(ready!=state.ready)LOGI("[CONTROL] Ready=%d; matching Bluetooth and AirPlay identities",ready?1:0);
                         state.ready=ready;
-                        state.sender=state.ready?expectedSender:"";
+                        state.sender=state.ready?link.wantedSender:"";
                         lost=!state.bound.empty()&&!subscribed;
+                        state.waiting=!lost && state.bound.empty() && !link.wanted.empty() && view.published;
                         // "Live": the chosen phone is the one on screen right now. The status line follows
                         // that rather than the identity match alone, which outlives a mirror that stopped.
                         const bool nowLive=state.ready && mirror && picture && !paused;
@@ -167,12 +200,32 @@ struct NativeControl::Impl {
                         else if(becameLive)state.message="Click the mirrored phone to control it; click elsewhere to return";
                         else if(subscribed && state.ready && mirror && paused)state.message="Mirroring is paused. Unlock the iPhone to continue.";
                         else if(subscribed && !nowLive)state.message="Bluetooth connected; mirror the selected iPhone";
+                        // The phone on screen is a remembered one whose Bluetooth has not arrived. Do not
+                        // ask for a choice: the phones listed meanwhile are other phones.
+                        else if(state.waiting)state.message=std::string("Waiting for ")+(link.session?"this":"the saved")+
+                            " iPhone's Bluetooth. If it does not connect, open Settings > Bluetooth on the iPhone and tap this PC.";
                         // A phone has paired and nothing is chosen yet: say what the next click is.
-                        else if(state.bound.empty() && !state.peers.empty())state.message="iPhone paired. Click the phone button and choose it to connect.";
+                        else if(state.bound.empty() && !state.peers.empty())state.message=
+                            !link.session ? "iPhone paired. Click the phone button and choose it to connect."
+                            : candidate ? "Click the phone button and choose the iPhone you are mirroring."
+                            : "This iPhone has no Bluetooth link yet. Click the phone button, then Pair Bluetooth.";
                         else if (!view.published) state.message="Pairing closed after two minutes. Click the phone button to open it again.";
                         RefreshFocus();
                     }
-                    if (lost) { Close(); std::lock_guard<std::mutex> lock(mutex); focused=false; pair=!expected.empty(); continue; }
+                    if (lost) {
+                        // The selected phone's Bluetooth dropped. The service stays up: the phone comes
+                        // back to it by itself, and the other phones never notice. Closing and reopening
+                        // the service here made every phone reconnect, and on 2026-11-11 that reconnection
+                        // dropped the link again, five times in a row.
+                        LOGI("[CONTROL] The selected phone's Bluetooth dropped; keeping the service open for its return");
+                        // Pending input is dropped, but the phone window keeps the keyboard: when the same
+                        // phone is selected again a moment later, control resumes without another click.
+                        {std::lock_guard<std::mutex> lock(mutex); DropInput(); state.bound.clear(); state.ready=false;}
+                        current->Unbind(); held=false;
+                        current->OpenDiscovery(120); // while no phone is connected, wait two minutes, as after Pair
+                        inspectAt=0;
+                        continue;
+                    }
                 }
                 if (action && queue.Valid(*action,GetTickCount64())) {
                     const auto command=*action;
@@ -212,7 +265,7 @@ struct NativeControl::Impl {
                 const auto code=static_cast<uint32_t>(error.code());
                 LOGW("[CONTROL] Bluetooth failure hr=0x%08x; input stopped",code);
                 // Opening the service fails like this when the radio is off; say so instead of blaming an action.
-                FailedAction(action,doPair && !action
+                FailedAction(action,(doPair || doReopen) && !action
                     ? "Bluetooth could not start. Check that Bluetooth is on in Windows, then click Pair Bluetooth."
                     : "Bluetooth action failed. Click the mirror to retry; actions are never replayed.");
             } catch (const std::exception& error) {
@@ -225,9 +278,9 @@ struct NativeControl::Impl {
 };
 NativeControl::NativeControl():impl_(std::make_unique<Impl>()){}
 NativeControl::~NativeControl(){Shutdown();}
-void NativeControl::Start(std::string rememberedPhone,std::string rememberedSender,bool bootstrap){
-    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->expected=std::move(rememberedPhone);impl_->expectedSender=std::move(rememberedSender);
-      impl_->learnSender=bootstrap;impl_->pair=!impl_->expected.empty();}
+void NativeControl::Start(const std::string& pairs,std::string rememberedPhone,std::string rememberedSender,bool bootstrap){
+    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->link.Start(pairs,rememberedPhone,rememberedSender,bootstrap);
+      impl_->state.pairs=impl_->link.pairs.Serialize();impl_->pair=!impl_->link.wanted.empty();}
     if(!impl_->worker.joinable())impl_->worker=std::thread([this]{impl_->Loop();});
 }
 void NativeControl::Shutdown(){
@@ -235,7 +288,7 @@ void NativeControl::Shutdown(){
     impl_->Cancel();if(impl_->worker.joinable())impl_->worker.join();
 }
 void NativeControl::Pair(){
-    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->DropInput();impl_->focused=false;impl_->pair=true;}
+    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->DropInput();impl_->focused=false;impl_->pair=true;impl_->link.OnPair();}
     impl_->Cancel();
 }
 void NativeControl::Bind(std::string token){
@@ -243,7 +296,7 @@ void NativeControl::Bind(std::string token){
     impl_->Cancel();
 }
 void NativeControl::Disconnect(){
-    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->DropInput();impl_->focused=false;impl_->disconnect=true;impl_->expected.clear();}
+    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->DropInput();impl_->focused=false;impl_->disconnect=true;impl_->link.OnDisconnect();}
     impl_->Cancel();
 }
 void NativeControl::Focus(bool value){
@@ -251,7 +304,8 @@ void NativeControl::Focus(bool value){
     if(!value)impl_->Cancel();else impl_->wake.notify_one();
 }
 void NativeControl::Mirror(bool value){
-    {std::lock_guard<std::mutex> lock(impl_->mutex);if(impl_->mirror!=value){impl_->DropInput();impl_->focused=false;}impl_->mirror=value;impl_->RefreshFocus();}
+    {std::lock_guard<std::mutex> lock(impl_->mutex);if(impl_->mirror!=value){impl_->DropInput();impl_->focused=false;}impl_->mirror=value;
+      if(!value)impl_->link.OnMirrorEnded();impl_->RefreshFocus();}
     impl_->Cancel();
 }
 void NativeControl::Pause(bool value){
@@ -302,13 +356,20 @@ void NativeControl::Sender(const std::string& identity){
     uint64_t hash=14695981039346656037ull;for(unsigned char c:identity){hash^=c;hash*=1099511628211ull;}
     std::ostringstream out;out<<std::hex<<std::setfill('0')<<std::setw(16)<<hash;
     const std::string token=identity.empty()?"":out.str();
+    std::string wanted;
+    bool changed,known;
     {std::lock_guard<std::mutex> lock(impl_->mutex);
       impl_->DropInput();impl_->focused=false;
-      if(!token.empty() && impl_->learnSender){impl_->expectedSender=token;impl_->learnSender=false;}
-      if((!impl_->expectedSender.empty() && impl_->expectedSender!=token) || (!impl_->sender.empty() && impl_->sender!=token)){
-          impl_->disconnect=true;impl_->expected.clear();impl_->state.ready=false;
-      }
-      impl_->sender=token;}
+      changed=token!=impl_->link.sender;
+      // A different iPhone no longer closes Bluetooth. The worker lets go of the phone that was
+      // selected and selects this sender's phone, which normally is still connected.
+      if(impl_->link.OnSender(token))impl_->reopen=true;
+      wanted=impl_->link.wanted;known=!wanted.empty();
+      if(!impl_->link.Matches(impl_->state.bound))impl_->state.ready=false; // no input until the worker has switched
+      impl_->state.pairs=impl_->link.pairs.Serialize();
+      impl_->refresh=true;}
+    if(changed)LOGI("[CONTROL] Mirror sender %s; %s",token.empty()?"unknown":token.c_str(),
+        known?("its phone is "+wanted).c_str():"no phone is remembered for it");
     impl_->Cancel();
 }
 NativeControlState NativeControl::State()const{

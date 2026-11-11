@@ -26,8 +26,9 @@ struct Settings {
     bool alwaysOnTop = false;
     bool allowH265 = true;
     std::string macAddress;                  // "aa:bb:cc:dd:ee:ff"; AirPlay device id
-    std::string controlPhone;                // explicitly selected BLE peer fingerprint
+    std::string controlPhone;                // BLE peer fingerprint of the phone last controlled
     std::string controlSender;               // matching AirPlay sender fingerprint
+    std::string controlPairs;                // every chosen phone: "sender=phone;sender=phone", newest first
     // Window position from the last run; all zero until one has been saved.
     int windowLeft = 0, windowTop = 0, windowRight = 0, windowBottom = 0;
     bool windowMaximized = false;

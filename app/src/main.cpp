@@ -1452,7 +1452,11 @@ void ShowPhoneMenu(App& app) {
     HMENU menu = CreatePopupMenu();
     for (size_t i = 0; i < app.controlPeers.size() && kPeerFirst + static_cast<int>(i) <= kPeerLast; ++i) {
         const UINT checked = app.controlPeers[i].token == state.bound ? MF_CHECKED : MF_UNCHECKED;
-        AppendMenuW(menu, MF_STRING | checked, static_cast<UINT_PTR>(kPeerFirst) + i, PhoneName(app, app.controlPeers[i]).c_str());
+        // A phone chosen for another mirror stays selectable: an iPhone's AirPlay identity
+        // can change, and the user may be correcting an earlier choice.
+        const std::wstring name = PhoneName(app, app.controlPeers[i]) +
+                                  (app.controlPeers[i].elsewhere ? L"  (a different iPhone)" : L"");
+        AppendMenuW(menu, MF_STRING | checked, static_cast<UINT_PTR>(kPeerFirst) + i, name.c_str());
     }
     if (app.controlPeers.empty()) {
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0,
@@ -1626,12 +1630,15 @@ void UpdateControlUi(App& app) {
     if(state.ready && (state.bound!=app.settings.controlPhone || state.sender!=app.settings.controlSender)){
         app.settings.controlPhone=state.bound;app.settings.controlSender=state.sender;app.settings.Save();
     }
+    // Every phone chosen so far, so a mirror from any of them finds its phone again.
+    if(state.pairs!=app.settings.controlPairs){app.settings.controlPairs=state.pairs;app.settings.Save();}
     if(state.focused){
         app.lastFocusedTick=GetTickCount64();
         if(!app.settings.setupControlled){app.settings.setupControlled=true;app.settings.Save();}
     }
     bool peersChanged=state.peers.size()!=app.controlPeers.size();
-    if(!peersChanged)for(size_t i=0;i<state.peers.size();++i)if(state.peers[i].token!=app.controlPeers[i].token || state.peers[i].name!=app.controlPeers[i].name)peersChanged=true;
+    if(!peersChanged)for(size_t i=0;i<state.peers.size();++i)if(state.peers[i].token!=app.controlPeers[i].token || state.peers[i].name!=app.controlPeers[i].name ||
+        state.peers[i].elsewhere!=app.controlPeers[i].elsewhere)peersChanged=true;
     if(peersChanged)app.controlPeers=state.peers;
     app.controlState=state;
 
@@ -1660,8 +1667,13 @@ void UpdateControlUi(App& app) {
         label=boundPeer!=app.controlPeers.end() ? PhoneName(app,*boundPeer) : L"iPhone";
         // Green means usable now: connected, and that phone is the one on screen.
         dot=state.ready && app.hasPicture ? ui::kGood : ui::kWarn;
+    }else if(state.waiting){
+        // The phone for this mirror is known; the phones listed meanwhile are other phones.
+        label=L"Waiting for iPhone…";dot=ui::kAccent;
     }else if(!app.controlPeers.empty()){
-        label=L"Choose phone";dot=ui::kWarn;
+        // Every listed phone belongs to another mirror: the one on screen still has to pair.
+        const bool candidate=std::any_of(app.controlPeers.begin(),app.controlPeers.end(),[](const ControlPeer& peer){return !peer.elsewhere;});
+        label=candidate ? L"Choose phone" : L"Pair this iPhone";dot=ui::kWarn;
     }else if(state.published){
         label=L"Waiting for iPhone…";dot=ui::kAccent;
     }else{
@@ -2315,7 +2327,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
     GetClientRect(app.window,&client);
     LayoutControls(app,client.right,client.bottom);
-    app.control.Start(app.settings.controlPhone,app.settings.controlSender,!app.controlPhoneOverride.empty());
+    app.control.Start(app.settings.controlPairs,app.settings.controlPhone,app.settings.controlSender,!app.controlPhoneOverride.empty());
 
     if (!StartVideo(app)) {
         MessageBoxW(app.window, L"Direct3D 11 could not be initialized, so video cannot be shown.", kAppTitle,
