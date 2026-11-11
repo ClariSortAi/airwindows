@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Sound from a mirroring iPhone plays. Every release up to 0.3.1-rc.5 was silent. The AirPlay engine's UDP read failed on Windows builds made with MSVC (Winsock error 10014), so the receiver never read the phone's timing replies or its audio packets. The fix is in `compat/msvc/msvc_prelude.h`; the UxPlay sources stay unmodified.
+- Control follows the iPhone that is mirroring. AirWindows remembers a Bluetooth phone for each AirPlay sender (`NativeControlPairs` in `settings.ini`), so each phone is chosen once. When a different iPhone starts mirroring, the receiver lets go of the selected phone and selects the one remembered for that mirror. It used to close Bluetooth and forget the saved phone, so every switch meant pairing and choosing again.
+- A device that starts Screen Mirroring takes over from the one on screen. A second iPhone used to be refused until the first stopped mirroring.
+- A phone that is connected but not selected no longer stops input to the selected phone. An iPhone reports a suspend state when it locks, and the receiver kept one value for all phones. A locked phone on the desk blocked every click on the other one. Each phone now has its own state.
+- If the selected phone's Bluetooth drops, the service stays published and the phone is selected again when it returns. The receiver used to close and republish the service. That made every paired phone reconnect and, with two phones, the loss could repeat several times in a row.
+- The phone button reads "Waiting for iPhone…" while the mirroring phone's Bluetooth has not connected. It used to say "Choose phone" and list whichever other phone was connected. A phone chosen for another mirror is marked "(a different iPhone)" in the list. When only such phones are listed, the button reads "Pair this iPhone".
+- An input that is not sent says why in the status bar: it was canceled, it took too long, or the selected iPhone is asleep. The last one usually means the selected phone is not the one on screen.
+- The log records each change of mirror sender, each phone released and each phone selected, and when a paired phone sleeps or wakes.
+- The log says when sound starts arriving from the sender, then every ten seconds how much arrived, how loud it was and the volume the sender asked for. It could not tell a silent sender from lost sound before.
+
+Settings from 0.3.1-rc.5 carry over: the saved phone and sender become the first remembered pair.
+
+Tested on an iPhone15,2 and an iPhone16,2 paired at once, both named "iPhone": both reconnected within a second of launch and the phone used last was selected; the idle phone slept without stopping input to the other; a mirror from the unselected phone released the selected one in 0.1 s without closing Bluetooth, and after one choice the user controlled it with the mouse; a later mirror from that phone needed no choice; four drops of the selected phone's Bluetooth session each healed in about a second with the other phone still connected. Sound from the iPhone15,2 played through the PC's speakers: the log counted 909 audio packets in ten seconds and Windows' meter showed the receiver's output. Untested on hardware: a mirror from a remembered phone while a different phone is selected, and a second phone taking over a running mirror. The policy checks cover the first of these.
+
+Known problem: with `--debug`, the receiver stopped with "invalid parameter passed to a C runtime function" a quarter of a second after the sound stream opened. That was before the sound fix, while every timing request was timing out and being logged. It has not been tried again since.
+
 ## 0.3.1-rc.5 (2026-11-10)
 
 - New window. The menu bar, grey buttons and phone list are gone. One dark row holds a phone button, Home, Screenshot, Record, Full screen and Menu, and a status bar shows what Bluetooth control is doing. The title bar matches, and full screen hides everything but the picture.

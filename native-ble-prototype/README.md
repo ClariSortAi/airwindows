@@ -4,6 +4,6 @@ This directory supplies the BLE keyboard and absolute mouse used by AirWindows. 
 
 The adapter must support Bluetooth Low Energy peripheral mode. The implementation uses Windows GATT services, encrypted HID reports and a selected peer fingerprint. It remembers the selected phone through the application's settings.
 
-`test_discovery_window.cpp` checks discovery expiry and battery reporting without opening a Bluetooth adapter. `app/tests/control_policy_check.cpp` covers coordinates, input queues, paste validation and button release behavior. Run both with `scripts/check.ps1` from the repository root.
+`test_discovery_window.cpp` checks discovery expiry and battery reporting without opening a Bluetooth adapter. `app/tests/control_policy_check.cpp` covers coordinates, input queues, paste validation and button release behavior. It also covers the state kept for each phone (`peer_state.h`) and the choice of phone when more than one iPhone is paired. Run both with `scripts/check.ps1` from the repository root.
 
 The absolute report descriptor is adapted from [iphone-use](https://github.com/xhoantran/iphone-use). Its MIT notice is in [LICENSE-iphone-use](LICENSE-iphone-use). The surrounding AirWindows implementation is covered by the [application license](../app/LICENSE).

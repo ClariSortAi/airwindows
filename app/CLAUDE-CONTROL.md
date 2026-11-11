@@ -113,7 +113,9 @@ For a desktop tool that exposes message-based operations: input belongs to the *
 | Repeated Ready=0/Ready=1 or reconnect entries | Treat as connection instability. Stop new input, wait for stable status, then re-observe. Do not spam Pair or replay clicks. |
 | Frame reader reports stale/inactive or wrong generation | Do not act on the previous PNG. Check mirroring and obtain a valid current observation. Recalculate coordinates after geometry changes. If only the screen is still, start the batch with `wake`. |
 | `Windows denied focus` from `iosctl` | The terminal is not the foreground window. Bring it forward and retry. No press was sent. |
-| Status is ready but the wrong phone responds | Bluetooth binding and mirroring are not checked against each other. Confirm the selected phone in AirWindows before sending input. |
+| Status is ready but the wrong phone responds | Bluetooth binding and mirroring are not checked against each other. Confirm the selected phone in AirWindows before sending input. In builds after 0.3.1-rc.5, choose the other phone from the phone button; the receiver remembers that choice for this mirror. |
+| Status says the selected iPhone is asleep | The selected phone is probably not the one on screen. Choose the mirroring phone from the phone button. Entries marked `(a different iPhone)` belong to another mirror. |
+| Phone button reads `Waiting for iPhone…` during mirroring | The receiver knows this mirror's phone and is waiting for its Bluetooth. Do not choose another phone. If it lasts over a minute, ask the user to open Settings > Bluetooth on that iPhone and tap the PC. |
 | No desktop-input tool is available | State that observation works but GUI input is unavailable in this Claude session. Do not claim a phone or BLE failure. |
 
 ## Minimal qualification

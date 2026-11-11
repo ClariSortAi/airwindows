@@ -28,7 +28,7 @@ The setup guide beside the picture walks through these steps and ticks each one 
 4. In AirWindows, click the phone button, which reads **Pair Bluetooth** until a phone is paired. Pair the PC from the iPhone's main Settings > Bluetooth screen, then click the phone button again and choose the phone.
 5. Click a control inside the mirrored phone. You can now use the mouse and keyboard there.
 
-The app remembers the selected Bluetooth phone and its matching AirPlay sender. Run one receiver at a time. Pairing details and recovery steps are in [Native control](app/NATIVE-CONTROL.md).
+The app remembers each Bluetooth phone you choose and the AirPlay sender it belongs to. With more than one iPhone paired, control follows whichever of them is mirroring. Run one receiver at a time. Pairing details and recovery steps are in [Native control](app/NATIVE-CONTROL.md).
 
 ## Using it
 
@@ -46,7 +46,7 @@ The app remembers the selected Bluetooth phone and its matching AirPlay sender. 
 
 For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in AirWindows, then assign the detected Button 2 to **Home**. Dragging up from the bottom edge also goes Home.
 
-Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste and wheel input still need separate live checks. Unicode input and general keyboard shortcuts are not supported. This candidate keeps input bound to the selected phone when another subscriber appears. The two-phone behavior still needs a live-device check.
+Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste and wheel input still need separate live checks. Unicode input and general keyboard shortcuts are not supported. Input goes only to the selected phone when more than one is paired. Builds after 0.3.1-rc.5 were tried with two iPhones paired at once; [Native control](app/NATIVE-CONTROL.md#verification-and-troubleshooting) lists what was seen and the two cases still untested.
 
 ## Using a desktop agent
 
