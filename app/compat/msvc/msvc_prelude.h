@@ -35,4 +35,20 @@ typedef SSIZE_T ssize_t;
 #define SOL_TCP IPPROTO_TCP
 #endif
 
+/*
+ * UxPlay's kernel_timestamp_session_recv (raop_ntp.c) reads every UDP packet of a
+ * session: timing replies, audio control and audio data. Built without
+ * SIO_TIMESTAMPING, as here, it calls
+ *     recvfrom(sock, buf, len, 0, src_addr, (socklen_t *) &addrlen)
+ * where addrlen is its own "int *" parameter and every caller passes NULL for both.
+ * &addrlen then points at a null pointer, Winsock reads an address length of 0 and
+ * fails with WSAEFAULT (10014). No packet was ever read, so the clock never
+ * synchronized and a mirroring iPhone had no sound. When no address is wanted,
+ * pass no length either.
+ */
+static __inline int airwindows_recvfrom(SOCKET s, char* buf, int len, int flags, struct sockaddr* from, int* fromlen) {
+    return recvfrom(s, buf, len, flags, from, from ? fromlen : NULL);
+}
+#define recvfrom airwindows_recvfrom
+
 #endif /* AIRPLAY_COMPAT_MSVC_PRELUDE_H */

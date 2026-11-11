@@ -171,6 +171,11 @@ struct AudioPipeline::Impl {
     uint8_t codecCt = 0;
     unsigned badFrames = 0;
     std::vector<float> convertBuffer;
+    // What the log needs to tell "no sound was sent" from "sound was sent and lost".
+    bool arrivalLogged = false;   // the first packet since the last format announcement
+    uint64_t statPackets = 0, statFrames = 0;
+    float statPeak = 0.0f;
+    ULONGLONG statSince = 0;
 
     // Ring buffer of interleaved float samples, shared with the render thread.
     mutable std::mutex bufferMutex;
@@ -236,6 +241,7 @@ void AudioPipeline::SetFormat(uint8_t compressionType) {
     if (s.EnsureDecoder(compressionType)) {
         LOGI("[AUDIO] decoder ready: %s 44100 Hz stereo", CompressionName(compressionType));
     }
+    s.arrivalLogged = false;
 }
 
 void AudioPipeline::Push(const uint8_t* data, int size, uint8_t compressionType) {
@@ -258,6 +264,23 @@ void AudioPipeline::Push(const uint8_t* data, int size, uint8_t compressionType)
         return;
     }
     memcpy(s.packet->data, data, static_cast<size_t>(size));
+    const ULONGLONG now = GetTickCount64();
+    if (!s.arrivalLogged) {
+        s.arrivalLogged = true;
+        s.statPackets = s.statFrames = 0;
+        s.statPeak = 0.0f;
+        s.statSince = now;
+        LOGI("[AUDIO] sound is arriving: first packet %d bytes, sender volume gain %.2f", size, s.gain.load());
+    } else if (now - s.statSince >= 10000) {
+        // A loudest sample of 0 means the sender is sending silence; a gain of 0 means its volume is at the bottom.
+        LOGI("[AUDIO] last %llu s: %llu packets, %llu frames decoded, loudest sample %.3f, sender volume gain %.2f",
+             static_cast<unsigned long long>((now - s.statSince) / 1000), static_cast<unsigned long long>(s.statPackets),
+             static_cast<unsigned long long>(s.statFrames), s.statPeak, s.gain.load());
+        s.statPackets = s.statFrames = 0;
+        s.statPeak = 0.0f;
+        s.statSince = now;
+    }
+    ++s.statPackets;
     int result = avcodec_send_packet(s.codec, s.packet);
     av_packet_unref(s.packet);
     if (result < 0 && result != AVERROR(EAGAIN)) {
@@ -297,6 +320,11 @@ void AudioPipeline::Push(const uint8_t* data, int size, uint8_t compressionType)
             const int produced = swr_convert(s.resampler, outPlanes, capacity,
                                              const_cast<const uint8_t**>(f->extended_data), f->nb_samples);
             if (produced > 0) {
+                s.statFrames += static_cast<uint64_t>(produced);
+                for (size_t i = 0; i < static_cast<size_t>(produced) * kChannels; ++i) {
+                    const float level = std::fabs(s.convertBuffer[i]);
+                    if (level > s.statPeak) s.statPeak = level;
+                }
                 s.Enqueue(s.convertBuffer.data(), static_cast<size_t>(produced));
             }
         }

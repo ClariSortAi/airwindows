@@ -215,6 +215,7 @@ struct AirPlayServer::Callbacks {
             gain = std::pow(10.0, 0.05 * static_cast<double>(volume));
         }
         self->clientVolumeDb_ = static_cast<double>(volume < -30.0f ? -30.0f : volume);
+        LOGI("[AUDIO] sender volume %.1f dB, gain %.2f", static_cast<double>(volume), gain);
         self->sink_->OnAudioVolume(gain);
     }
 
