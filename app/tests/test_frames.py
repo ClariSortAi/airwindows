@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from airwindows_frames import validate_metadata
+import airwindows_frames
+from airwindows_frames import data_folder_for, receiver_data_folder, validate_metadata
 
 
 def frame():
@@ -41,3 +42,16 @@ def test_retained_image_does_not_bypass_legacy_freshness_check():
 def test_additional_diagnostics_do_not_break_fresh_capture():
     validate_metadata({**frame(), "status_tick_ms": 2050, "mirror_active": True,
                        "mirror_paused": False, "frame_age_ms": 50, "frame_fresh": True}, 2050, 123)
+
+
+def test_data_folder_unpackaged_and_packaged():
+    base = r"X:\LocalAppData"
+    assert data_folder_for(None, base) == Path(base) / "AirWindows"
+    assert data_folder_for("Example.App_abc123", base) == Path(base) / "Packages" / "Example.App_abc123" / "LocalState"
+
+
+def test_data_folder_without_localappdata(monkeypatch):
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setattr(airwindows_frames, "package_family", lambda pid: None)
+    with pytest.raises(OSError, match="LOCALAPPDATA"):
+        receiver_data_folder(123)

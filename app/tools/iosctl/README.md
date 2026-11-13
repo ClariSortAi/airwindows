@@ -2,13 +2,13 @@
 
 `iosctl.exe` brings Claude Code's tap, drag, typing, Home and image-inspection workflow into the Windows package. It uses the existing receiver window for input and its decoded-frame pipe for images. It does not start another Bluetooth controller.
 
-The helper runs on Windows x64 with .NET Framework 4.8. Python is optional. Start AirWindows with **Start-AirWindows.cmd**, pair the intended phone and map Button 2 to Home. Follow [the operating guide](../../CLAUDE-CONTROL.md) for those steps.
+The helper runs on Windows x64 with .NET Framework 4.8. Python is optional. Start AirWindows with **Start-AirWindows.cmd** (ZIP download), or from the Start menu or with `airwindows --frames` (Microsoft Store install), pair the intended phone and map Button 2 to Home. Follow [the operating guide](../../CLAUDE-CONTROL.md) for those steps.
 
 Use input commands only where your agent environment permits desktop automation through a local CLI. This helper does not override tool restrictions. Observation commands read the phone-only pipe and leave focus alone. Input commands bring AirWindows forward, check focus and restore the previous foreground window when finished; `--keep-focus` leaves AirWindows active.
 
 ## First use
 
-Run from the extracted `AirWindows` folder:
+Run from the extracted `AirWindows` folder. A Microsoft Store install puts `iosctl` on the command path instead: type `iosctl` in place of `.\iosctl.exe` from any folder.
 
 ```powershell
 .\iosctl.exe --doctor
@@ -85,7 +85,7 @@ One `iosctl` input batch may control a receiver at a time. A competing batch fai
 
 Normal capture, input and verification reject images older than one second. For an idle screen, run `snapshot` alone: it saves the last decoded picture with `frame_age_ms`, `frame_fresh` and `purpose:inspection_only` in its result. The adjacent JSON preserves the frame's original timestamps. It cannot distinguish a static screen from a stalled stream, so it cannot authorize input or verify an action. Pause, disconnect and screen-generation changes invalidate the retained picture. Never reuse an older PNG after a failed capture.
 
-`iosctl --doctor` finds a single running receiver and reports the next setup step without focus changes or input. It identifies a missing receiver, duplicate receivers, unavailable frame interface, stopped/paused mirroring, missing picture, stale control status, incomplete control connection, busy input and idle image. With several receivers, use `--doctor --pid PID` to inspect one explicitly. It does not alter pairing, firewall settings or processes. A `ready` result means software prerequisites passed; test actual click, text and Home behavior on the phone.
+`iosctl --doctor` finds a single running receiver and reports the next setup step without focus changes or input. It identifies a missing receiver, duplicate receivers, unavailable frame interface, stopped/paused mirroring, missing picture, stale control status, incomplete control connection, busy input and idle image. With several receivers, use `--doctor --pid PID` to inspect one explicitly. It does not alter pairing, firewall settings or processes. Every result includes `data_folder`, where the receiver keeps `settings.ini`, `debug.txt` and `crashes`: `%LOCALAPPDATA%\AirWindows` for the ZIP and source builds, the package's `LocalState` folder for a Microsoft Store install (`data_folder_basis` says which). A `ready` result means software prerequisites passed; test actual click, text and Home behavior on the phone.
 
 `wake` requires the helper from **0.3.1-rc.3 or later**. Doctor and idle snapshots require the receiver from **0.3.1-rc.2 or later**. Older receivers still support fresh captures; upgrade both executables together for the new commands. `preflight` remains the three-observation check before input.
 

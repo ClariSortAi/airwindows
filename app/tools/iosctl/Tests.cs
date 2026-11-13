@@ -116,6 +116,14 @@ static class Tests {
         Reject(()=>Doctor.Select(new int[0],0),"doctor reports no receiver");
         Reject(()=>Doctor.Select(new[]{42,43},0),"doctor refuses arbitrary receiver");
         Reject(()=>Doctor.Select(new[]{42},43),"doctor rejects absent requested PID");
+        Check(Doctor.StartHint(true).Contains("airwindows --frames") && !Doctor.StartHint(true).Contains("Start-AirWindows.cmd")
+            && Doctor.StartHint(false).Contains("Start-AirWindows.cmd"),"doctor names the Store install's start, not the ZIP's");
+        Check(DataFolder.ForFamily("Example.App_abc123").EndsWith(@"\Packages\Example.App_abc123\LocalState",StringComparison.OrdinalIgnoreCase)
+            && DataFolder.Classic().EndsWith(@"\AirWindows",StringComparison.OrdinalIgnoreCase),"data folder paths for packaged and unpackaged receivers");
+        {string basis;var own=DataFolder.Resolve(Process.GetCurrentProcess().Id,out basis);
+         Check(DataFolder.OwnFamily()==null?basis=="receiver_unpackaged" && own==DataFolder.Classic():basis=="receiver_package","data folder follows the process's package identity");}
+        {string basis,note;DataFolder.Resolve(0x7FFFFFF0,out basis,out note);
+         Check(basis=="receiver_unknown" && note!=null && note.Contains("assumed"),"a receiver that cannot be inspected is reported as unknown, with the assumption");}
         Check(Doctor.Assess(m,42,now).ready,"doctor ready with unfocused fresh control");
         var diagnostic=new Dictionary<string,object>(m);diagnostic["control_focused"]=false;
         Check(Doctor.Assess(diagnostic,42,now).ready,"doctor does not require focus or take it");

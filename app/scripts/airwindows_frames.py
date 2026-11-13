@@ -5,6 +5,7 @@ import ctypes
 from ctypes import wintypes as w
 import io
 import json
+import os
 import struct
 import time
 from pathlib import Path
@@ -33,6 +34,51 @@ def validate_metadata(meta: dict, now_ms: int, expected_pid: int, *, allow_selft
             raise ValueError("AirPlay frame is stale or has an invalid clock")
     if meta["received_tick_ms"] > meta["decoded_tick_ms"]:
         raise ValueError("Decode timestamp precedes packet receipt")
+
+
+def data_folder_for(package_family: str | None, local_appdata: str) -> Path:
+    """Where a receiver keeps settings.ini, debug.txt and crashes.
+
+    Unpackaged (ZIP, source build): %LOCALAPPDATA%\\AirWindows. Installed from the
+    Microsoft Store (MSIX): the package's local data folder,
+    %LOCALAPPDATA%\\Packages\\<package family>\\LocalState.
+    """
+    base = Path(local_appdata)
+    return base / "Packages" / package_family / "LocalState" if package_family else base / "AirWindows"
+
+
+def package_family(pid: int) -> str | None:
+    """The package family name of a running process, or None when it is unpackaged."""
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.GetPackageFamilyName.argtypes = [w.HANDLE, ctypes.POINTER(ctypes.c_uint32), w.LPWSTR]
+    kernel.GetPackageFamilyName.restype = w.LONG
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        length = ctypes.c_uint32(0)
+        if kernel.GetPackageFamilyName(handle, ctypes.byref(length), None) != 122:  # ERROR_INSUFFICIENT_BUFFER
+            return None  # APPMODEL_ERROR_NO_PACKAGE: unpackaged
+        name = ctypes.create_unicode_buffer(length.value)
+        if kernel.GetPackageFamilyName(handle, ctypes.byref(length), name) != 0:
+            return None
+        return name.value
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def receiver_data_folder(pid: int) -> Path:
+    """The data folder of the running receiver `pid`, packaged or not.
+
+    Raises OSError when LOCALAPPDATA is not set or the process cannot be inspected.
+    """
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        raise OSError("LOCALAPPDATA is not set, so the receiver's data folder cannot be located")
+    return data_folder_for(package_family(pid), local)
 
 
 class _Overlapped(ctypes.Structure):
