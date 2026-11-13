@@ -41,7 +41,9 @@ jobs:
             ~/AppData/Local/vcpkg/archives
           key: windows-2022-vcpkg-${{ hashFiles('app/scripts/bootstrap.ps1', 'app/vcpkg.json', 'app/vcpkg-ports/**') }}
       - run: ./app/scripts/bootstrap.ps1
+      # The target keeps its old name; it writes app/build/Release/bin/PhonePort.exe.
       - run: ./app/scripts/build.ps1 -Target AirWindowsNative
+      - run: if (-not (Test-Path ./app/build/Release/bin/PhonePort.exe)) { throw 'PhonePort.exe was not built' }
       - run: ./app/build/Release/bin/iosctl.exe --self-test
       - run: ./app/scripts/build.ps1 -Target FrameServerCheck
       - run: ./app/build/Release/bin/FrameServerCheck.exe

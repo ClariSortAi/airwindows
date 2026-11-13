@@ -1,10 +1,11 @@
-AirWindows
-==========
+PhonePort
+=========
 
 Mirror an iPhone on Windows and control it with the PC's mouse and keyboard.
+PhonePort was called AirWindows before; only the name changed.
 Source and documentation: https://github.com/ClariSortAi/airwindows
 
-Double-click Start-AirWindows.cmd. It starts the receiver with frame access
+Double-click Start-PhonePort.cmd. It starts the receiver with frame access
 enabled for desktop agents. Manual use needs no Python or build tools.
 Allow it through Windows Firewall on your private network. On the phone,
 open Control Center > Screen Mirroring and choose the receiver's name.
@@ -23,18 +24,19 @@ to return focus to the PC. Text input supports US ASCII. Ctrl+V accepts
 up to 1,024 ASCII characters. Unicode and general shortcuts are unsupported.
 
 For Home, open AssistiveTouch > Devices > your PC > Customize Additional
-Buttons. Click Home in AirWindows, then assign the detected Button 2 to
+Buttons. Click Home in PhonePort, then assign the detected Button 2 to
 Home on the phone. Right-click inside the phone picture invokes the same
 assigned action. Right-click outside the picture, the Menu button or the
-Alt key opens the AirWindows menu.
+Alt key opens the PhonePort menu.
 
-Screenshot (F8) saves the phone's picture as a PNG in Pictures\AirWindows
+Screenshot (F8) saves the phone's picture as a PNG in Pictures\PhonePort
 and copies it to the clipboard. Record (F9) saves an MP4 with the phone's
-sound in Videos\AirWindows; press it again to stop. Recordings have a
+sound in Videos\PhonePort; press it again to stop. Recordings have a
 constant frame rate: the one under Video > Frame rate, 60 unless changed.
-F11 is full screen.
+F11 is full screen. Captures made before the rename stay in
+Pictures\AirWindows and Videos\AirWindows.
 
-Starting AirWindows again brings the running window forward; it does not
+Starting PhonePort again brings the running window forward; it does not
 open a second receiver. For Claude Code or Codex, start with FOR-AGENTS.md.
 Run iosctl.exe --doctor for a read-only diagnosis and the next setup step.
 Use iosctl.exe --pid PID "snapshot idle.png" to inspect an idle picture;
@@ -49,12 +51,13 @@ requires BLE peripheral mode and has been tested on Windows 11. The helper
 uses .NET Framework 4.8. The revised helper, two-phone behavior, paste,
 wheel input and other adapter/iOS combinations still need live acceptance.
 
-Logs and settings: %LOCALAPPDATA%\AirWindows
+Logs and settings: %LOCALAPPDATA%\AirWindows (the folder keeps the former
+name, so paired phones and settings carry over).
 For connection problems, start with --debug and inspect debug.txt.
-If AirWindows stops unexpectedly, it saves a crash report in the crashes
+If PhonePort stops unexpectedly, it saves a crash report in the crashes
 folder there and shows where it is. Nothing is uploaded.
 
-AirWindows is GPL-3.0-or-later, without warranty. See LICENSE.txt,
+PhonePort is GPL-3.0-or-later, without warranty. See LICENSE.txt,
 THIRD-PARTY.txt and licenses/. Distribute the matching source archive and
 SHA256SUMS.txt with this binary. AirPlay and iPhone are Apple trademarks;
 this project is not affiliated with Apple.

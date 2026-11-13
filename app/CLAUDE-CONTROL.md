@@ -6,7 +6,7 @@ For a new user or a fresh PC, complete [the setup runbook](../FOR-AGENTS.md) fir
 
 ## Start with the correct interface
 
-The iPhone controls are pixels inside a Windows video window. They are not browser DOM elements or Windows accessibility controls. Browser automation, UI Automation `SetValue`, and searching for an accessible iPhone “Settings” button will not operate them. Windows accessibility tools may expose the AirWindows toolbar itself.
+The iPhone controls are pixels inside a Windows video window. They are not browser DOM elements or Windows accessibility controls. Browser automation, UI Automation `SetValue`, and searching for an accessible iPhone “Settings” button will not operate them. Windows accessibility tools may expose the PhonePort toolbar itself.
 
 Use the bundled [iosctl helper](tools/iosctl/README.md) where your environment permits local CLI-based desktop input, or a supported Windows desktop tool. The helper supplies taps, typing, paced drags, Home, fresh image capture and preflight. Follow your environment's tool restrictions; a bundled executable does not authorize a prohibited input mechanism. If neither input route is available, identify the missing capability before attempting phone operations.
 
@@ -17,13 +17,15 @@ The decoded-frame pipe is read-only. `iosctl` reads it for observation and sends
 Run these read-only checks in PowerShell from the package folder or repository root:
 
 ```powershell
-# Package layout first, then a source build.
-$receiverPath = @('.\AirWindowsNative.exe', '.\app\build\Release\bin\AirWindowsNative.exe') |
+# Package layout first, then a source build. AirWindowsNative.exe is the same receiver
+# from 0.3.1-rc.5 and earlier, before the rename to PhonePort.exe.
+$receiverPath = @('.\PhonePort.exe', '.\AirWindowsNative.exe',
+    '.\app\build\Release\bin\PhonePort.exe', '.\app\build\Release\bin\AirWindowsNative.exe') |
     Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1 | Resolve-Path | ForEach-Object Path
 if (-not $receiverPath) { throw 'Receiver executable not found; set $receiverPath to its location.' }
 $iosctlExe = Join-Path (Split-Path -Parent $receiverPath) 'iosctl.exe'
 $receivers = @(Get-CimInstance Win32_Process | Where-Object {
-    $_.Name -eq 'AirWindowsNative.exe' -and $_.ExecutablePath -eq $receiverPath
+    $_.Name -in @('PhonePort.exe', 'AirWindowsNative.exe') -and $_.ExecutablePath -eq $receiverPath
 })
 if ($receivers.Count -ne 1) {
     throw 'Expected exactly one native receiver. Inspect processes before proceeding.'
@@ -35,13 +37,13 @@ $dataFolder = (& $iosctlExe --doctor --pid $receiverPid | ConvertFrom-Json).data
 Get-Content -LiteralPath (Join-Path $dataFolder 'debug.txt') -Tail 60
 ```
 
-For another location, set `$receiverPath` and `$iosctlExe` to the actual files. A Microsoft Store install runs from a protected `WindowsApps` folder: set `$iosctlExe = 'iosctl.exe'` (its command alias), take the PID from `iosctl.exe --list`, and start the receiver from the Start menu or with `airwindows --frames`. Its data folder is `%LOCALAPPDATA%\Packages\<package name>\LocalState`, not `%LOCALAPPDATA%\AirWindows`. Discover the PID again after a restart. Start the receiver with `--frames` to enable decoded capture. Its window title shows the AirPlay receiver name; the PC's Bluetooth name may differ.
+For another location, set `$receiverPath` and `$iosctlExe` to the actual files. A Microsoft Store install runs from a protected `WindowsApps` folder: set `$iosctlExe = 'iosctl.exe'` (its command alias), take the PID from `iosctl.exe --list`, and start the receiver from the Start menu or with `phoneport --frames`. Its data folder is `%LOCALAPPDATA%\Packages\<package name>\LocalState`, not `%LOCALAPPDATA%\AirWindows` (the ZIP's folder, which keeps the former name). Discover the PID again after a restart. Start the receiver with `--frames` to enable decoded capture. Its window title shows the AirPlay receiver name; the PC's Bluetooth name may differ.
 
 Reuse the running receiver. Do not start a second copy, delete pairings or restart just to acquire focus. A restart interrupts Screen Mirroring. If disconnected, reconnect on the phone through Control Center > Screen Mirroring > the receiver name. Keep the phone unlocked with AssistiveTouch enabled. Use [Native control](NATIVE-CONTROL.md) for first-time pairing and select the intended phone explicitly.
 
 ## Observe, act once, observe again
 
-1. With iosctl, run `preflight` and `shot`. Its coordinates are phone pixels, and its input commands bring AirWindows forward themselves. With another desktop tool, bring the existing window forward, obtain a fresh desktop screenshot and locate the actual phone picture, excluding the title bar, the button row above the picture, the status bar below it, the setup guide panel on the right when it is open, and letterbox bars.
+1. With iosctl, run `preflight` and `shot`. Its coordinates are phone pixels, and its input commands bring PhonePort forward themselves. With another desktop tool, bring the existing window forward, obtain a fresh desktop screenshot and locate the actual phone picture, excluding the title bar, the button row above the picture, the status bar below it, the setup guide panel on the right when it is open, and letterbox bars.
 2. Check that the intended phone is mirroring and the control status is ready. `[CONTROL] Ready=1` means the BLE and AirPlay identities matched at that log timestamp; an old entry does not establish current readiness.
 3. Choose one visible target. A left click inside the picture both focuses the video and sends a phone click. It is not a harmless focus-only action. Choose the intended button or text field.
 4. Complete one click, text entry or bounded drag. Keep focus in the picture until it finishes. Switching focus to a terminal, chat, toolbar or another window cancels pending input.
@@ -79,7 +81,7 @@ desktop_x = L + x * Dw / W
 desktop_y = T + y * Dh / H
 ```
 
-Use consistent units: if the desktop tool scales screenshots, follow its screenshot-to-input coordinate rules. Do not assume 100% Windows DPI. Do not pass phone pixels, a full-window rectangle or HID values `0..32767` directly to a desktop click tool. AirWindows performs its own absolute HID mapping after receiving the window input.
+Use consistent units: if the desktop tool scales screenshots, follow its screenshot-to-input coordinate rules. Do not assume 100% Windows DPI. Do not pass phone pixels, a full-window rectangle or HID values `0..32767` directly to a desktop click tool. PhonePort performs its own absolute HID mapping after receiving the window input.
 
 ## Inputs that this build accepts
 
@@ -91,14 +93,14 @@ Use consistent units: if the desktop tool scales screenshots, follow its screens
 | Editing/navigation keys | Enter, Backspace, Tab and arrow keys. Other shortcuts, including Ctrl+A and Cmd+H, are not established phone commands. |
 | Scroll | A left-button drag within a list, then release. Start moving at once: a press that rests on a row before moving opens the row. Wheel input becomes short swipes; extra steps are dropped while Bluetooth is busy rather than queued. |
 | Edge gesture | Start a drag at the picture edge, or up to 16 px into the bar beside it; the press snaps to the edge. Left edge goes back; bottom edge goes Home. |
-| Home | AirWindows **Home** button in the button row, or right-click inside the phone picture, after mapping accessory Button 2 to Home. |
-| Save the phone's picture | **Screenshot** button or F8: a native-size PNG in `Pictures\AirWindows`, also copied to the clipboard. For observation keep using `iosctl shot`, which does not touch the clipboard. |
-| Record | **Record** button or F9 starts and stops an MP4 with the phone's sound in `Videos\AirWindows`. The status bar shows `REC` and a clock while it runs. The file has a constant frame rate (Video > Frame rate, default 60); a still screen is filled with repeats. |
+| Home | PhonePort **Home** button in the button row, or right-click inside the phone picture, after mapping accessory Button 2 to Home. |
+| Save the phone's picture | **Screenshot** button or F8: a native-size PNG in `Pictures\PhonePort` (`Pictures\AirWindows` in 0.3.1-rc.5 and earlier), also copied to the clipboard. For observation keep using `iosctl shot`, which does not touch the clipboard. |
+| Record | **Record** button or F9 starts and stops an MP4 with the phone's sound in `Videos\PhonePort` (`Videos\AirWindows` in 0.3.1-rc.5 and earlier). The status bar shows `REC` and a clock while it runs. The file has a constant frame rate (Video > Frame rate, default 60); a still screen is filled with repeats. |
 | Return to PC | Click another application. A click far out in the bars sends nothing and leaves control on. No Enable step or Escape sequence is required. |
 
 Prefer the Home button for Home; a bottom-edge drag also works. For list drags, send down, paced intermediate moves and up; a hover or single final move is not a complete drag. Always release. Avoid flooding mouse moves: the queue holds 32 actions, pointer actions expire after two seconds, and held input has idle/total time limits.
 
-One-time Home setup on the iPhone: Settings > Accessibility > Touch > AssistiveTouch > Devices > your PC > Customize Additional Buttons. Trigger AirWindows Home or right-click inside the mirrored picture, then assign the detected Button 2 to **Home**. Test from an app. Right-click in the bars or chrome intentionally opens the PC menu. A keyboard context-menu command is not the same as right-button input inside the picture.
+One-time Home setup on the iPhone: Settings > Accessibility > Touch > AssistiveTouch > Devices > your PC > Customize Additional Buttons. Trigger PhonePort Home or right-click inside the mirrored picture, then assign the detected Button 2 to **Home**. Test from an app. Right-click in the bars or chrome intentionally opens the PC menu. A keyboard context-menu command is not the same as right-button input inside the picture.
 
 For a desktop tool that exposes message-based operations: input belongs to the **video child window**, not merely the top-level receiver. The implementation handles `WM_LBUTTONDOWN`, `WM_MOUSEMOVE`, `WM_LBUTTONUP`, right-button release, focused `WM_MOUSEWHEEL`, printable `WM_CHAR`, supported `WM_KEYDOWN` keys, and explicit `WM_PASTE`. Setting an accessibility value or injecting a background message without proper focus is not equivalent to this input sequence.
 
@@ -115,7 +117,7 @@ For a desktop tool that exposes message-based operations: input belongs to the *
 | Repeated Ready=0/Ready=1 or reconnect entries | Treat as connection instability. Stop new input, wait for stable status, then re-observe. Do not spam Pair or replay clicks. |
 | Frame reader reports stale/inactive or wrong generation | Do not act on the previous PNG. Check mirroring and obtain a valid current observation. Recalculate coordinates after geometry changes. If only the screen is still, start the batch with `wake`. |
 | `Windows denied focus` from `iosctl` | The terminal is not the foreground window. Bring it forward and retry. No press was sent. |
-| Status is ready but the wrong phone responds | Bluetooth binding and mirroring are not checked against each other. Confirm the selected phone in AirWindows before sending input. In builds after 0.3.1-rc.5, choose the other phone from the phone button; the receiver remembers that choice for this mirror. |
+| Status is ready but the wrong phone responds | Bluetooth binding and mirroring are not checked against each other. Confirm the selected phone in PhonePort before sending input. In builds after 0.3.1-rc.5, choose the other phone from the phone button; the receiver remembers that choice for this mirror. |
 | Status says the selected iPhone is asleep | The selected phone is probably not the one on screen. Choose the mirroring phone from the phone button. Entries marked `(a different iPhone)` belong to another mirror. |
 | Phone button reads `Waiting for iPhone…` during mirroring | The receiver knows this mirror's phone and is waiting for its Bluetooth. Do not choose another phone. If it lasts over a minute, ask the user to open Settings > Bluetooth on that iPhone and tap the PC. |
 | No desktop-input tool is available | State that observation works but GUI input is unavailable in this Claude session. Do not claim a phone or BLE failure. |

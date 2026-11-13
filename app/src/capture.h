@@ -10,12 +10,12 @@
 
 namespace capture {
 
-// Pictures\AirWindows and Videos\AirWindows, or `overrideDirectory` for both
+// Pictures\PhonePort and Videos\PhonePort, or `overrideDirectory` for both
 // when it is set (--capture-dir). Created on demand; empty if that fails.
 std::wstring PicturesFolder(const std::wstring& overrideDirectory);
 std::wstring VideosFolder(const std::wstring& overrideDirectory);
 
-// "AirWindows 2026-11-10 10.15.30", from the local clock.
+// "PhonePort 2026-11-10 10.15.30", from the local clock.
 std::wstring TimestampName();
 
 // <folder>\<name><extension>, or "<name> (2)<extension>" and so on if taken.

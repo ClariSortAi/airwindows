@@ -1,5 +1,5 @@
 <#
-Agent driver for the AirWindows receiver. Runs the real AirWindowsNative.exe in
+Agent driver for the PhonePort receiver. Runs the real PhonePort.exe in
 self-test mode (a looping H.264 clip instead of an iPhone), then observes and
 pokes the running window from outside without taking focus.
 
@@ -11,16 +11,18 @@ Commands:
   launch [seconds] [bt]  Start the receiver on the clip (default safety exit 600 s).
                       Saved phones are hidden so no iPhone binds; 'bt' keeps them.
                       -Exe <path> runs another build (or $env:AIRWINDOWS_DRIVER_EXE);
+                      default app\build\Release\bin\PhonePort.exe, or the
+                      AirWindowsNative.exe a build from before the rename wrote;
                       -ReceiverArgs a,b adds arguments; -NoFrame waits for the window
                       only (automatic with --selftest-license expired).
                       -Clip <file> plays another Annex-B clip (.h265/.hevc = H.265);
                       -NoClip runs without --selftest-video (idle screen; pass a
                       --selftest-* flag in -ReceiverArgs so it stays a self-test).
                       -Packaged starts the registered MSIX package through its
-                      airwindows.exe alias (-IdentityName, default GraniteAi.AirWindows.Dev)
+                      phoneport.exe alias (-IdentityName, default GraniteAi.PhonePort.Dev)
                       and works on the package's data folder.
                       -KnownFolders leaves out --capture-dir: captures go to the real
-                      Pictures\AirWindows and Videos\AirWindows (delete them after).
+                      Pictures\PhonePort and Videos\PhonePort (delete them after).
   status              Process, window title and frame-pipe metadata (JSON)
   frame <out.png>     Save the decoded picture at native size (frame pipe)
   ss <out.png>        Save the whole receiver window, chrome included
@@ -42,13 +44,22 @@ param([Parameter(Position = 0)][string]$Command = 'help',
       [switch]$NoClip,
       [switch]$Packaged,
       [switch]$KnownFolders,
-      [string]$IdentityName = 'GraniteAi.AirWindows.Dev',
+      [string]$IdentityName = 'GraniteAi.PhonePort.Dev',
       [Parameter(Position = 1, ValueFromRemainingArguments)][string[]]$Rest)
 
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 if (-not $Exe) { $Exe = $env:AIRWINDOWS_DRIVER_EXE }
-$Exe = if ($Exe) { [IO.Path]::GetFullPath($Exe, (Get-Location).Path) } else { Join-Path $Root 'app\build\Release\bin\AirWindowsNative.exe' }
+# Process names of a receiver: PhonePort.exe now, and the same program's names from
+# before the rename (AirWindowsNative.exe, AirWindows.exe).
+$ReceiverNames = @('PhonePort', 'AirWindowsNative', 'AirWindows')
+if ($Exe) {
+    $Exe = [IO.Path]::GetFullPath($Exe, (Get-Location).Path)
+} else {
+    $Exe = Join-Path $Root 'app\build\Release\bin\PhonePort.exe'
+    $older = Join-Path $Root 'app\build\Release\bin\AirWindowsNative.exe'
+    if (-not (Test-Path $Exe) -and (Test-Path $older)) { $Exe = $older }
+}
 $Work = Join-Path $Root '.local\run-airwindows'
 $StateFile = Join-Path $Work 'state.json'
 $DefaultClip = Join-Path $Work 'clip.h264'
@@ -73,7 +84,7 @@ $Commands = [ordered]@{
     screenshot = 40060; record = 40061; fullscreen = 40040; fit = 40041
     ontop = 40042; details = 40043; guide = 40052; 'guide-open' = 41011
     'guide-close' = 41012; 'dump-menu' = 41200
-    # Help > Buy AirWindows (Store trial). With --selftest-license it simulates a
+    # Help > Buy PhonePort (Store trial). With --selftest-license it simulates a
     # successful purchase; a self-test never reaches the Store.
     buy = 40053
     # With --selftest-license only: the simulated trial runs out now (then 'buy').
@@ -189,7 +200,7 @@ switch ($Command) {
         "clip: $Clip ($((Get-Item $Clip).Length) bytes, ${w}x${h})"
     }
     'launch' {
-        if (-not $Packaged -and -not (Test-Path $Exe)) { throw "Missing $Exe. Build: ./app/scripts/build.ps1 -Target AirWindowsNative" }
+        if (-not $Packaged -and -not (Test-Path $Exe)) { throw "Missing $Exe. Build: ./app/scripts/build.ps1 -Target AirWindowsNative (it writes PhonePort.exe)" }
         if (-not $NoClip -and -not (Test-Path $Clip)) {
             if ($Clip -ne $DefaultClip) { throw "Missing clip $Clip" }
             & $PSCommandPath clip
@@ -232,9 +243,9 @@ switch ($Command) {
         $argList = @()
         if (-not $NoClip) { $argList += @('--selftest-video', "`"$Clip`"") }
         $argList += @('--frames', '--selftest-menu', '--exit-after', $seconds)
-        # -KnownFolders: screenshots and recordings go to the user's real Pictures\AirWindows and
-        # Videos\AirWindows. Delete the files the log names afterwards.
-        if (-not $KnownFolders) { $argList += @('--capture-dir', "`"$capture`"") } else { $capture = 'Pictures\AirWindows and Videos\AirWindows (known folders)' }
+        # -KnownFolders: screenshots and recordings go to the user's real Pictures\PhonePort and
+        # Videos\PhonePort. Delete the files the log names afterwards.
+        if (-not $KnownFolders) { $argList += @('--capture-dir', "`"$capture`"") } else { $capture = 'Pictures\PhonePort and Videos\PhonePort (known folders)' }
         $argList += $ReceiverArgs | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }
         # A locked receiver (trial over) shows the unlock panel and plays no clip.
         $joined = $ReceiverArgs -join ' '
@@ -243,12 +254,12 @@ switch ($Command) {
         if ($Packaged) {
             # The execution alias gives the process package identity; running the exe by
             # its path would not. uap10:Parameters (--frames) applies to Start menu launches only.
-            $p = Start-Process -FilePath 'airwindows.exe' -ArgumentList $argList -PassThru
+            $p = Start-Process -FilePath 'phoneport.exe' -ArgumentList $argList -PassThru
             Start-Sleep -Milliseconds 300
-            if ($p.HasExited -or $p.ProcessName -ne 'AirWindowsNative') {
-                $p = Get-Process AirWindowsNative -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge $launchedAt.AddSeconds(-1) } |
+            if ($p.HasExited -or $p.ProcessName -notin $ReceiverNames) {
+                $p = Get-Process -Name $ReceiverNames -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -ge $launchedAt.AddSeconds(-1) } |
                     Sort-Object StartTime | Select-Object -Last 1
-                if (-not $p) { if ($backup) { Copy-Item $backup $Settings -Force }; throw 'airwindows.exe alias did not leave a receiver process. Run: log' }
+                if (-not $p) { if ($backup) { Copy-Item $backup $Settings -Force }; throw 'phoneport.exe alias did not leave a receiver process. Run: log' }
             }
             $Exe = $p.Path
         } else {

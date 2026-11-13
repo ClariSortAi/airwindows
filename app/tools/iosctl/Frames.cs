@@ -1,4 +1,4 @@
-// AirWindows GPL-3.0-or-later. Phone-only capture; never captures the desktop.
+// PhonePort GPL-3.0-or-later. Phone-only capture; never captures the desktop.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -38,7 +38,7 @@ static class Frames {
         return (bool)value;
     }
     internal static void ValidateStatus(Dictionary<string,object> m,int pid,long now) {
-        if(!m.ContainsKey("status_tick_ms"))throw new InvalidDataException("Diagnostics and idle snapshots require AirWindows 0.3.1-rc.2 or later");
+        if(!m.ContainsKey("status_tick_ms"))throw new InvalidDataException("Diagnostics and idle snapshots require a receiver from 0.3.1-rc.2 or later");
         if(Number(m,"protocol")!=1 || Text(m,"source")!="airplay" || Number(m,"receiver_pid")!=pid)throw new InvalidDataException("Wrong receiver or status protocol");
         ulong instance;
         if(!UInt64.TryParse(Text(m,"instance"),out instance) || instance==0)throw new InvalidDataException("Invalid receiver instance");
@@ -66,7 +66,7 @@ static class Frames {
         if(w<1 || h<1 || w>4096 || h>4096 || bytes<1 || bytes>51000000) throw new InvalidDataException("Frame exceeds limits");
     }
     internal static void RequireControl(Dictionary<string,object> m,long now) {
-        if(!m.ContainsKey("control_ready")) throw new InvalidDataException("Input requires AirWindows 0.3.1 or later");
+        if(!m.ContainsKey("control_ready")) throw new InvalidDataException("Input requires a receiver from 0.3.1 or later");
         if(!Flag(m,"control_ready")) throw new InvalidDataException("Selected phone control is not ready");
         long age=now-Number(m,"control_tick_ms");
         if(age<0 || age>1000 || Number(m,"control_epoch")<1) throw new InvalidDataException("Control status is stale");

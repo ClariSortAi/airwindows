@@ -43,7 +43,7 @@ static class Tests {
             });worker.IsBackground=true;worker.Start();
             if(stall)Reject(()=>{using(var f=Frames.Read(pid)){}},"bounded stalled-pipe read");
             else if(save) {
-                string path=Path.Combine(Path.GetTempPath(),"AirWindows-snapshot-test-"+Guid.NewGuid().ToString("N")+".png");
+                string path=Path.Combine(Path.GetTempPath(),"PhonePort-snapshot-test-"+Guid.NewGuid().ToString("N")+".png");
                 try {
                     Check(Program.Execute(pid,new Plan("snapshot '"+path+"'"),new Targets(null),false)==0,"standalone snapshot command over real pipe");
                     using(var image=new Bitmap(path))Check(image.Width==2 && image.GetPixel(0,0).R==255,"snapshot saves actual decoded pixels");
@@ -116,8 +116,11 @@ static class Tests {
         Reject(()=>Doctor.Select(new int[0],0),"doctor reports no receiver");
         Reject(()=>Doctor.Select(new[]{42,43},0),"doctor refuses arbitrary receiver");
         Reject(()=>Doctor.Select(new[]{42},43),"doctor rejects absent requested PID");
-        Check(Doctor.StartHint(true).Contains("airwindows --frames") && !Doctor.StartHint(true).Contains("Start-AirWindows.cmd")
-            && Doctor.StartHint(false).Contains("Start-AirWindows.cmd"),"doctor names the Store install's start, not the ZIP's");
+        Check(Doctor.StartHint(true).Contains("phoneport --frames") && !Doctor.StartHint(true).Contains("Start-PhonePort.cmd")
+            && Doctor.StartHint(false).Contains("Start-PhonePort.cmd") && Doctor.StartHint(false).IndexOf("airwindows",StringComparison.OrdinalIgnoreCase)<0,
+            "doctor names the Store install's start, not the ZIP's");
+        Check(Receiver.IsReceiverName("PhonePort") && Receiver.IsReceiverName("AirWindowsNative") && Receiver.IsReceiverName("AirWindows")
+            && !Receiver.IsReceiverName("iosctl"),"receiver discovery accepts PhonePort.exe and the exe names from before the rename");
         Check(DataFolder.ForFamily("Example.App_abc123").EndsWith(@"\Packages\Example.App_abc123\LocalState",StringComparison.OrdinalIgnoreCase)
             && DataFolder.Classic().EndsWith(@"\AirWindows",StringComparison.OrdinalIgnoreCase),"data folder paths for packaged and unpackaged receivers");
         {string basis;var own=DataFolder.Resolve(Process.GetCurrentProcess().Id,out basis);
@@ -150,7 +153,7 @@ static class Tests {
             byte[] b=new byte[a.Length];for(int i=0;i<b.Length;i++)b[i]=(byte)(a[i]>127?0:255);
             Check(Vision.Difference(a,b)==1000,"changed pixels");
             Reject(()=>Vision.Difference(null,a),"missing baseline is not success");
-            string dir=Path.Combine(Path.GetTempPath(),"AirWindows-iosctl-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(dir);
+            string dir=Path.Combine(Path.GetTempPath(),"PhonePort-iosctl-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(dir);
             try {
                 string path=Path.Combine(dir,"phone.png");Vision.Save(frame,path,1,new Rectangle(0,0,2,2));
                 Check(File.Exists(path) && File.Exists(Path.ChangeExtension(path,".json")),"PNG and metadata saved");

@@ -10,8 +10,8 @@ parser.add_argument("directory", type=Path)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 directory = args.directory
-binary, = directory.glob("AirWindows-*-win-x64.zip")
-source, = directory.glob("AirWindows-*-source.zip")
+binary, = directory.glob("PhonePort-*-win-x64.zip")
+source, = directory.glob("PhonePort-*-source.zip")
 seen = set()
 for line in (directory / "SHA256SUMS.txt").read_text().splitlines():
     expected, name = line.split()
@@ -27,12 +27,12 @@ with zipfile.ZipFile(binary) as archive:
     for suffix in ("/LICENSE.txt", "/licenses/iphone-use-MIT.txt", "/licenses/FFmpeg-LGPL-2.1.txt"):
         if not any(name.endswith(suffix) for name in names):
             raise SystemExit(f"Binary package is missing {suffix}")
-    if not any(name.endswith(("/AirWindowsNative.exe", "/AirWindows.exe")) for name in names):
-        raise SystemExit("Binary package has no receiver.")
-    if "AirWindows/iosctl.exe" not in names:
+    if "PhonePort/PhonePort.exe" not in names:
+        raise SystemExit("Binary package has no PhonePort.exe receiver.")
+    if "PhonePort/iosctl.exe" not in names:
         raise SystemExit("Windows package has no iosctl helper.")
     packaged_files = {
-        "Start-AirWindows.cmd": "app/packaging/Start-AirWindows.cmd",
+        "Start-PhonePort.cmd": "app/packaging/Start-PhonePort.cmd",
         "README.txt": "app/packaging/README.txt",
         **{name: name for name in (
             "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "requirements-agent.txt", "app/README.md",
@@ -43,7 +43,7 @@ with zipfile.ZipFile(binary) as archive:
         )},
     }
     for relative, original in packaged_files.items():
-        entry = "AirWindows/" + relative
+        entry = "PhonePort/" + relative
         if entry not in names or archive.read(entry) != (root / original).read_bytes():
             raise SystemExit(f"Windows package missing or mismatched: {relative}")
     for name in names:
@@ -64,7 +64,7 @@ with zipfile.ZipFile(binary) as archive:
 with zipfile.ZipFile(source) as archive:
     names = archive.namelist()
     for name in (
-        "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "requirements-agent.txt", "app/packaging/Start-AirWindows.cmd",
+        "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "requirements-agent.txt", "app/packaging/Start-PhonePort.cmd",
         "app/CMakeLists.txt", "app/src/CMakeLists.txt", "app/src/main.cpp",
         "app/src/frame_server.cpp", "app/src/control_queue.h", "app/src/crash.cpp", "app/src/crash.h",
         "app/src/mdnsd_win.c", "app/src/ui.cpp", "app/src/ui.h", "app/src/guide.cpp", "app/src/guide.h",

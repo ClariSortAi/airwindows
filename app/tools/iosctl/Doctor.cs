@@ -6,8 +6,18 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 
+// Process names of a receiver: PhonePort.exe now; AirWindowsNative.exe and AirWindows.exe
+// are the same program from before the rename and still work with this iosctl.
+static class Receiver {
+    internal static readonly string[] ProcessNames={"PhonePort","AirWindowsNative","AirWindows"};
+    internal static bool IsReceiverName(string processName) {
+        return Array.Exists(ProcessNames,n=>string.Equals(n,processName,StringComparison.OrdinalIgnoreCase));
+    }
+}
+
 // Where the receiver keeps settings.ini, debug.txt and crashes\. An unpackaged receiver
-// (ZIP or source build) uses %LOCALAPPDATA%\AirWindows. A receiver installed from the
+// (ZIP or source build) uses %LOCALAPPDATA%\AirWindows, a folder that keeps the product's
+// former name so settings carry over. A receiver installed from the
 // Microsoft Store (MSIX) uses its package's local data folder, which Windows keeps at
 // %LOCALAPPDATA%\Packages\<package family name>\LocalState and which any program of the
 // same user can read.
@@ -86,20 +96,20 @@ static class Doctor {
         return new Finding{code=code,next=next,ready=ready};
     }
     // How to start the receiver with frame access: the Store install has a Start menu entry
-    // (which passes --frames) and an airwindows alias; the ZIP has Start-AirWindows.cmd.
+    // (which passes --frames) and a phoneport alias; the ZIP has Start-PhonePort.cmd.
     internal static string StartHint(bool packaged) {
-        return packaged?"Start AirWindows from the Start menu, or run `airwindows --frames`."
-                       :"Extract the package and open Start-AirWindows.cmd. From a Microsoft Store install, start AirWindows from the Start menu, or run `airwindows --frames`.";
+        return packaged?"Start PhonePort from the Start menu, or run `phoneport --frames`."
+                       :"Extract the package and open Start-PhonePort.cmd. From a Microsoft Store install, start PhonePort from the Start menu, or run `phoneport --frames`.";
     }
     internal static Finding Assess(Dictionary<string,object> m,int pid,long now) {
         Frames.ValidateStatus(m,pid,now);
-        if(!Frames.Flag(m,"mirror_active"))return Result("not_mirroring","On iPhone: Control Center > Screen Mirroring > the receiver name shown in AirWindows.");
+        if(!Frames.Flag(m,"mirror_active"))return Result("not_mirroring","On iPhone: Control Center > Screen Mirroring > the receiver name shown in PhonePort.");
         if(Frames.Flag(m,"mirror_paused"))return Result("mirror_paused","Unlock the iPhone and resume Screen Mirroring.");
         if(!Frames.Flag(m,"ok"))return Result("no_picture","Wait for the first picture. If it stays blank, stop and reconnect Screen Mirroring.");
         Frames.Validate(m,pid,now,true);
         long tick=Frames.Number(m,"control_tick_ms");
-        if(now<tick || now-tick>1000)return Result("control_status_stale","The receiver is not updating its control status. Wait briefly; if it persists, finish active work and restart AirWindows.");
-        if(!Frames.Flag(m,"control_ready"))return Result("control_not_ready","Enable AssistiveTouch; pair this PC from iPhone Settings > Bluetooth, then choose the mirrored phone from the phone button in AirWindows.");
+        if(now<tick || now-tick>1000)return Result("control_status_stale","The receiver is not updating its control status. Wait briefly; if it persists, finish active work and restart PhonePort.");
+        if(!Frames.Flag(m,"control_ready"))return Result("control_not_ready","Enable AssistiveTouch; pair this PC from iPhone Settings > Bluetooth, then choose the mirrored phone from the phone button in PhonePort.");
         Frames.RequireControl(m,now);
         if(Frames.Flag(m,"control_busy"))return Result("input_busy","Wait for the current input to finish. Inspect the result before starting another batch; do not replay it.");
         if(now-Frames.Number(m,"received_tick_ms")>1000 || now-Frames.Number(m,"decoded_tick_ms")>1000)
@@ -109,16 +119,16 @@ static class Doctor {
     }
     internal static int Select(int[] candidates,int requested) {
         if(requested!=0) {
-            if(!candidates.Contains(requested))throw new InvalidOperationException("The requested PID is not a running AirWindows receiver. Run --list again.");
+            if(!candidates.Contains(requested))throw new InvalidOperationException("The requested PID is not a running PhonePort receiver. Run --list again.");
             return requested;
         }
-        if(candidates.Length==0)throw new InvalidOperationException("No AirWindows receiver is running. "+StartHint(DataFolder.OwnFamily()!=null));
+        if(candidates.Length==0)throw new InvalidOperationException("No PhonePort receiver is running. "+StartHint(DataFolder.OwnFamily()!=null));
         if(candidates.Length>1)throw new InvalidOperationException("Multiple receivers are running. Close extra receivers after finishing active work, or inspect one with --doctor --pid PID. No receiver was selected.");
         return candidates[0];
     }
     internal static int Run(int requested) {
         var candidates=new List<int>();var receivers=new List<object>();
-        foreach(string name in new[]{"AirWindowsNative","AirWindows"})foreach(var p in Process.GetProcessesByName(name))using(p) {
+        foreach(string name in Receiver.ProcessNames)foreach(var p in Process.GetProcessesByName(name))using(p) {
             string path=null;
             try{path=p.MainModule.FileName;}catch(System.ComponentModel.Win32Exception){}catch(InvalidOperationException){}
             candidates.Add(p.Id);receivers.Add(new{pid=p.Id,path=path,package=DataFolder.ProcessFamily(p.Id)});

@@ -1,4 +1,4 @@
-// The Microsoft Store license of a packaged AirWindows: read off the UI thread,
+// The Microsoft Store license of a packaged PhonePort: read off the UI thread,
 // refreshed when the Store reports a change, and the Store's own purchase dialog.
 // Unpackaged runs never create a StoreContext.
 #pragma once
@@ -51,7 +51,7 @@ public:
     // Queues one more license read (for a trial past its local expiry).
     void Refresh();
     // Self-test only (a simulated Start): queue the answer the Store gives when a trial
-    // runs out while AirWindows is open. False, and nothing queued, for a real Store.
+    // runs out while PhonePort is open. False, and nothing queued, for a real Store.
     bool SimulateExpiry();
     // Call on the window's thread when `message` arrives. It also opens the purchase
     // dialog once the product lookup started by Buy has finished.

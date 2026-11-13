@@ -285,7 +285,7 @@ static class Program {
                 Console.WriteLine("iosctl --pid PID [--targets FILE] [--keep-focus] \"commands\"\nRead README.md for input permissions and examples.\nCommands: status, preflight, shot PATH [scale], crop PATH X Y W H [zoom],\ngrid [threshold], tap X Y, go NAME, home, type 'text', key NAME,\nswipe/flick X1 Y1 X2 Y2 [ms], page left|right, hold MS,\ndown X Y; move X Y; up X Y, wait MS, changed, settle [ms], targets.\nwake (first in a batch) moves the pointer without pressing so a still screen sends frames.\nsnapshot PATH [scale] saves a retained image for inspection only; run alone.\nQuotes preserve spaces and semicolons. No automatic retries.\n--doctor [--pid PID] diagnoses setup without input (exit 2: action needed).\n--list lists receiver processes; --self-test sends no input.");return 0;
             }
             if(args.Length==1 && args[0]=="--list") {
-                foreach(string name in new[]{"AirWindowsNative","AirWindows"})foreach(var p in Process.GetProcessesByName(name))using(p){
+                foreach(string name in Receiver.ProcessNames)foreach(var p in Process.GetProcessesByName(name))using(p){
                     string listed=null; // an elevated receiver denies MainModule; list it without a path
                     try{listed=p.MainModule.FileName;}
                     catch(System.ComponentModel.Win32Exception e){Console.Error.WriteLine("pid "+p.Id+": path unavailable ("+e.Message+")");}

@@ -1,6 +1,6 @@
-# AirWindows application
+# PhonePort application
 
-AirWindows displays an iPhone, iPad or Mac screen in a Windows window. The native control build also sends mouse and keyboard input to a paired iPhone over Bluetooth. See the [repository overview](https://github.com/ClariSortAi/airwindows) for setup and current test limits.
+PhonePort (formerly AirWindows) displays an iPhone, iPad or Mac screen in a Windows window. The native control build also sends mouse and keyboard input to a paired iPhone over Bluetooth. See the [repository overview](https://github.com/ClariSortAi/airwindows) for setup and current test limits.
 
 The application is a portable executable. It uses UxPlay for AirPlay, FFmpeg for decoding, Direct3D 11 for video and WASAPI for audio. The Windows mDNS responder advertises on active physical Ethernet and Wi-Fi interfaces.
 
@@ -13,29 +13,29 @@ From this `app` directory:
 ```powershell
 .\scripts\bootstrap.ps1
 .\scripts\build.ps1 -Target AirWindowsNative
-.\build\Release\bin\AirWindowsNative.exe --frames
+.\build\Release\bin\PhonePort.exe --frames
 ```
 
 Bootstrap fetches pinned UxPlay and vcpkg commits into this directory. The first build compiles OpenSSL, libplist and FFmpeg from source. Later builds reuse the results. The build scripts load the MSVC x64 environment and use Ninja; dependencies are not installed system-wide.
 
-Keep the sibling `native-ble-prototype` directory beside `app`. Both `AirWindowsNative` and `AirWindows` targets compile the same integrated source; the former is the documented control executable. For a ready-to-run build, use [the 0.3.1 release candidate](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5).
+Keep the sibling `native-ble-prototype` directory beside `app`. The `AirWindowsNative` target writes `PhonePort.exe`, the program that ships. The `AirWindows` target compiles the same source into `AirWindows.exe` under the old name; nothing ships it. Both targets keep their names so existing build commands still work. For a ready-to-run build, use [the 0.3.1 release candidate](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5).
 
 The vcpkg commit in `scripts/bootstrap.ps1` pins library versions. `vcpkg-ports/ffmpeg` enables H.264, H.265, AAC and ALAC decoding with D3D11VA acceleration. A custom CMake invocation must use the `x64-windows-static` triplet and the pinned vcpkg toolchain.
 
 ## Run and configure
 
-Allow AirWindows through Windows Firewall on the private network used by the phone. If Windows treats a connected network as Public, the idle screen and the setup guide say so and open the Settings page where it can be set to Private. Open Control Center > Screen Mirroring on the sender and choose the name shown in the receiver. See [Native control](NATIVE-CONTROL.md) to pair the Bluetooth input connection.
+Allow PhonePort through Windows Firewall on the private network used by the phone. If Windows treats a connected network as Public, the idle screen and the setup guide say so and open the Settings page where it can be set to Private. Open Control Center > Screen Mirroring on the sender and choose the name shown in the receiver. See [Native control](NATIVE-CONTROL.md) to pair the Bluetooth input connection.
 
-AirWindows follows the PC's network connections while it runs. When Wi-Fi reconnects, a cable is plugged in or the address changes, discovery joins that network within a few seconds, and the receiver can be started before any network is up. Discovery uses each active physical interface and returns that interface's address to queries on its network. Wi-Fi and Ethernet may use different firewall profiles.
+PhonePort follows the PC's network connections while it runs. When Wi-Fi reconnects, a cable is plugged in or the address changes, discovery joins that network within a few seconds, and the receiver can be started before any network is up. Discovery uses each active physical interface and returns that interface's address to queries on its network. Wi-Fi and Ethernet may use different firewall profiles.
 
-Starting AirWindows while it is already running brings the running window forward instead of opening a second receiver. If the new launch asked for `--frames`, the running receiver turns frame access on.
+Starting PhonePort while it is already running brings the running window forward instead of opening a second receiver. If the new launch asked for `--frames`, the running receiver turns frame access on.
 
 The window has one row of buttons above the picture and a status bar below it. From the left: the phone button (pair Bluetooth, choose a phone, disconnect), then Home, Screenshot, Record, Full screen and Menu. In a narrow window the middle buttons keep only their icons.
 
 | Action | Control |
 |---|---|
-| Screenshot | Screenshot button or F8. Saves the phone's picture at its own size as a PNG in `Pictures\AirWindows` and copies it to the clipboard |
-| Record | Record button or F9; press again to stop. Saves an MP4 (H.264 video at a constant frame rate, AAC sound) in `Videos\AirWindows`. A new file starts if the phone rotates |
+| Screenshot | Screenshot button or F8. Saves the phone's picture at its own size as a PNG in `Pictures\PhonePort` and copies it to the clipboard |
+| Record | Record button or F9; press again to stop. Saves an MP4 (H.264 video at a constant frame rate, AAC sound) in `Videos\PhonePort`. A new file starts if the phone rotates |
 | Full screen | Full screen button, F11 or Alt+Enter; Escape leaves. The buttons and status bar hide while it is on |
 | Menu | Menu button, the Alt key, or a right-click outside the picture |
 | Setup guide | Opens beside the picture on a first launch; Help > Setup guide brings it back |
@@ -47,9 +47,9 @@ The window has one row of buttons above the picture and a status bar below it. F
 
 Rename, Resolution, Frame rate, Decoder and the H.265 setting restart the AirPlay service, which ends a session in progress. The idle screen then says so; start Screen Mirroring again.
 
-Recording uses the H.264 and AAC encoders that come with Windows. It encodes on the GPU when the PC has a hardware encoder. A recording has a constant frame rate: the one set under Video > Frame rate, 60 unless changed. A phone sends a picture only when its screen changes, so the recorder repeats the last picture until the next one arrives. Every frame in the file is then the same length, which video editors expect. A file is complete only after Record is pressed again or AirWindows is closed normally. Windows N editions need the Media Feature Pack for recording; everything else works without it.
+Recording uses the H.264 and AAC encoders that come with Windows. It encodes on the GPU when the PC has a hardware encoder. A recording has a constant frame rate: the one set under Video > Frame rate, 60 unless changed. A phone sends a picture only when its screen changes, so the recorder repeats the last picture until the next one arrives. Every frame in the file is then the same length, which video editors expect. A file is complete only after Record is pressed again or PhonePort is closed normally. Screenshots and recordings made before the rename stay in `Pictures\AirWindows` and `Videos\AirWindows`. Windows N editions need the Media Feature Pack for recording; everything else works without it.
 
-Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt` in the same folder. A copy installed from the Microsoft Store keeps them in its own folder, `%LOCALAPPDATA%\Packages\<package name>\LocalState`, and its first start copies `settings.ini` from `%LOCALAPPDATA%\AirWindows`, so phones paired with the ZIP version carry over. Receiver > Open log folder opens the folder in use, and `iosctl --doctor` prints it as `data_folder`. At 4 MB the log is renamed `debug.old.txt` and a new one starts. If AirWindows stops unexpectedly, it saves a crash report in the `crashes` folder there, keeps the five newest and shows a message with the location. Reports stay on the PC unless you send one. The window reopens where you left it. The executable is unsigned, so Windows may show a SmartScreen notice for downloaded copies. Check the source and checksum before running a download.
+Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt` in the same folder. The folder keeps the program's former name, so settings and paired phones carry over. A copy installed from the Microsoft Store keeps them in its own folder, `%LOCALAPPDATA%\Packages\<package name>\LocalState`, and its first start copies `settings.ini` from `%LOCALAPPDATA%\AirWindows`, so phones paired with the ZIP version carry over. Receiver > Open log folder opens the folder in use, and `iosctl --doctor` prints it as `data_folder`. At 4 MB the log is renamed `debug.old.txt` and a new one starts. If PhonePort stops unexpectedly, it saves a crash report in the `crashes` folder there, keeps the five newest and shows a message with the location. Reports stay on the PC unless you send one. The window reopens where you left it. The executable is unsigned, so Windows may show a SmartScreen notice for downloaded copies. Check the source and checksum before running a download.
 
 | Option | Purpose |
 |---|---|
@@ -109,7 +109,7 @@ After building, use a new output directory:
 .\scripts\package.ps1 -Release -OutDir .\dist\candidate-0.3.1-rc.5
 ```
 
-This creates the runnable folder, `AirWindows-0.3.1-rc.5-win-x64.zip`, a matching source zip, and `SHA256SUMS.txt`. It also writes `AirWindows-0.3.1-rc.5-symbols.zip`, the debug symbols for that build. Keep it with the release: a crash report can only be read with the symbols of the exact build that wrote it. The symbols are not part of the download. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, compiled `iosctl` helper, agent guides, optional Python reader, GPL and dependency notices. Building the receiver also builds the helper with the .NET Framework C# compiler. Both executable versions must match before packaging.
+This creates the runnable `PhonePort` folder, `PhonePort-<version>-win-x64.zip`, a matching `PhonePort-<version>-source.zip`, and `SHA256SUMS.txt`. Releases up to 0.3.1-rc.5 were published as `AirWindows-<version>-...`. It also writes `PhonePort-<version>-symbols.zip`, the debug symbols for that build. Keep it with the release: a crash report can only be read with the symbols of the exact build that wrote it. The symbols are not part of the download. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, compiled `iosctl` helper, agent guides, optional Python reader, GPL and dependency notices. Building the receiver also builds the helper with the .NET Framework C# compiler. Both executable versions must match before packaging.
 
 The source archive contains `app`, its sibling Bluetooth backend, UxPlay, and the upstream FFmpeg, OpenSSL and libplist source archives with the relevant ports. Those archives must be present in vcpkg's downloads directory. Publish the matching source and checksums with any binary. The separate AirDrop research is not bundled.
 

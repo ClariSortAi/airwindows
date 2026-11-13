@@ -109,12 +109,12 @@ struct Guide::Impl {
             L"Take control",
         };
         // The Store package brings its firewall rules for private networks, and a rule that
-        // already lets AirWindows in needs no word; the ZIP otherwise gets Windows' own prompt
+        // already lets PhonePort in needs no word; the ZIP otherwise gets Windows' own prompt
         // the first time it listens.
         const std::wstring notListed =
             state.packaged || state.firewallReady
                 ? L"\n\nNot in the list? Put the iPhone on the same network as this PC."
-                : L"\n\nNot in the list? Put the iPhone on the same network as this PC, and allow AirWindows "
+                : L"\n\nNot in the list? Put the iPhone on the same network as this PC, and allow PhonePort "
                   L"through Windows Firewall on private networks.";
         const std::wstring settingsHint =
             L"\n\nClick Open network settings, open the network's properties and set Network profile type to "
@@ -122,7 +122,7 @@ struct Guide::Impl {
         const std::wstring bodies[kSteps] = {
             state.networkBlocking
                 ? state.networkNote + settingsHint
-                : L"Connect this PC to the same Wi-Fi or wired network as your iPhone. AirWindows notices as soon as "
+                : L"Connect this PC to the same Wi-Fi or wired network as your iPhone. PhonePort notices as soon as "
                   L"it is connected.",
             L"On the iPhone, open Control Center, tap Screen Mirroring and choose “" + name + L"”." + notListed,
             L"1. On the iPhone, turn on Settings › Accessibility › Touch › AssistiveTouch.\n"
@@ -136,7 +136,7 @@ struct Guide::Impl {
         };
         const std::wstring results[kSteps] = {
             L"On " + state.addresses +
-                (state.firewallReady ? L"\nWindows Firewall already lets AirWindows in here." : L""),
+                (state.firewallReady ? L"\nWindows Firewall already lets PhonePort in here." : L""),
             state.mirrorDevice.empty() ? L"Mirroring" : L"Mirroring " + state.mirrorDevice,
             state.phones.empty() ? L"Paired" : L"Paired with " + state.phones.front(),
             L"Connected to the phone you are mirroring",
@@ -144,7 +144,7 @@ struct Guide::Impl {
         };
 
         int y = Dip(16);
-        y += Add(dc, L"Set up AirWindows", title, ui::kText, margin, y, client.right - margin * 2 - Dip(36)) + Dip(4);
+        y += Add(dc, L"Set up PhonePort", title, ui::kText, margin, y, client.right - margin * 2 - Dip(36)) + Dip(4);
         y += Add(dc, L"Each step ticks itself off as it happens.", text, ui::kTextFaint, margin, y,
                  client.right - margin * 2) + Dip(18);
         if (!state.terms.empty()) {

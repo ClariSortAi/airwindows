@@ -40,7 +40,7 @@ for name in (
     "native-ble-prototype/native_hid_backend.cpp", "app/scripts/observe-phone.py",
     ".github/workflows/ci.yml", "CONTRIBUTING.md", "SECURITY.md",
     "AGENTS.md", "CLAUDE.md", "FOR-AGENTS.md", "requirements-agent.txt",
-    "app/packaging/Start-AirWindows.cmd",
+    "app/packaging/Start-PhonePort.cmd",
     "app/tools/iosctl/Program.cs", "app/tools/iosctl/README.md",
     "native-ble-prototype/subscriber_selection.h",
 ):

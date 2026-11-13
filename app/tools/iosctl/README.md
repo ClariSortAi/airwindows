@@ -1,14 +1,14 @@
-# iosctl: AirWindows from a command line
+# iosctl: PhonePort from a command line
 
 `iosctl.exe` brings Claude Code's tap, drag, typing, Home and image-inspection workflow into the Windows package. It uses the existing receiver window for input and its decoded-frame pipe for images. It does not start another Bluetooth controller.
 
-The helper runs on Windows x64 with .NET Framework 4.8. Python is optional. Start AirWindows with **Start-AirWindows.cmd** (ZIP download), or from the Start menu or with `airwindows --frames` (Microsoft Store install), pair the intended phone and map Button 2 to Home. Follow [the operating guide](../../CLAUDE-CONTROL.md) for those steps.
+The helper runs on Windows x64 with .NET Framework 4.8. Python is optional. Start PhonePort (formerly AirWindows) with **Start-PhonePort.cmd** (ZIP download; **Start-AirWindows.cmd** in 0.3.1-rc.5 and earlier), or from the Start menu or with `phoneport --frames` (Microsoft Store install), pair the intended phone and map Button 2 to Home. Follow [the operating guide](../../CLAUDE-CONTROL.md) for those steps.
 
-Use input commands only where your agent environment permits desktop automation through a local CLI. This helper does not override tool restrictions. Observation commands read the phone-only pipe and leave focus alone. Input commands bring AirWindows forward, check focus and restore the previous foreground window when finished; `--keep-focus` leaves AirWindows active.
+Use input commands only where your agent environment permits desktop automation through a local CLI. This helper does not override tool restrictions. Observation commands read the phone-only pipe and leave focus alone. Input commands bring PhonePort forward, check focus and restore the previous foreground window when finished; `--keep-focus` leaves PhonePort active.
 
 ## First use
 
-Run from the extracted `AirWindows` folder. A Microsoft Store install puts `iosctl` on the command path instead: type `iosctl` in place of `.\iosctl.exe` from any folder.
+Run from the extracted `PhonePort` folder (`AirWindows` in 0.3.1-rc.5 and earlier). A Microsoft Store install puts `iosctl` on the command path instead: type `iosctl` in place of `.\iosctl.exe` from any folder.
 
 ```powershell
 .\iosctl.exe --doctor
@@ -17,6 +17,8 @@ Run from the extracted `AirWindows` folder. A Microsoft Store install puts `iosc
 .\iosctl.exe --pid $receiverPid 'preflight'
 .\iosctl.exe --pid $receiverPid 'shot ".local\phone.png"'
 ```
+
+`--list` and `--doctor` find receivers running as `PhonePort.exe`, and as `AirWindowsNative.exe` or `AirWindows.exe` from before the rename.
 
 Open the PNG with your image tool. Choose a visible target, then supply its coordinates in **native phone-image pixels**. The helper reads the current image dimensions and maps them to the displayed picture, including letterboxing and Windows DPI scaling. It rejects a changed receiver, binding or image geometry within a batch.
 

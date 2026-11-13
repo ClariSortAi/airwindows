@@ -47,6 +47,10 @@ target_link_options(${APP_TARGET} PRIVATE /DELAYLOAD:mfplat.dll /DELAYLOAD:mfrea
 set_target_properties(${APP_TARGET} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 endforeach()
+# The shipped receiver. The target keeps its name, so `build.ps1 -Target AirWindowsNative`
+# still works; the file it writes is PhonePort.exe (and PhonePort.pdb). The AirWindows
+# target is the older name of the same program, built for history and shipped by nothing.
+set_target_properties(AirWindowsNative PROPERTIES OUTPUT_NAME PhonePort)
 
 add_executable(ControlPolicyCheck EXCLUDE_FROM_ALL ../tests/control_policy_check.cpp)
 target_include_directories(ControlPolicyCheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../../native-ble-prototype")

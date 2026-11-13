@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Fetches the two source trees AirWindows needs that are not in this repository, at pinned commits.
+Fetches the two source trees PhonePort needs that are not in this repository, at pinned commits.
 
 .DESCRIPTION
 Run once on a fresh checkout, then run scripts\build.ps1. Nothing is installed

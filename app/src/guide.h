@@ -20,12 +20,12 @@ struct GuideState {
     bool ready = false;                // and it is the phone being mirrored
     bool controlled = false;           // the user has clicked or typed on the phone
     std::wstring bluetoothStatus;      // the status line, repeated under the pairing step
-    std::wstring terms;                // Store builds during the trial: what AirWindows costs after it
+    std::wstring terms;                // Store builds during the trial: what PhonePort costs after it
     std::wstring adapterProblem;       // the Bluetooth adapter cannot control a phone: why, in full
     std::wstring networkNote;          // about a Public network that may hide this PC; empty when none
     bool networkBlocking = false;      // the firewall shows no network lets the iPhone in: step 1 is not done
     bool packaged = false;             // installed from the MSIX package, whose firewall rules exist already
-    bool firewallReady = false;        // Windows Firewall lets AirWindows in on every connected network
+    bool firewallReady = false;        // Windows Firewall lets PhonePort in on every connected network
 
     bool operator==(const GuideState& other) const;
 };

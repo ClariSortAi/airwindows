@@ -1,4 +1,8 @@
-"""Read opt-in AirWindows decoded frames through its local, user-only pipe."""
+"""Read opt-in PhonePort decoded frames through its local, user-only pipe.
+
+The module, the pipe (AirWindows.Frames.<pid>) and the unpackaged data folder keep the
+product's former name, AirWindows, so older receivers and scripts keep working.
+"""
 from __future__ import annotations
 
 import ctypes
@@ -15,9 +19,9 @@ from PIL import Image
 
 def validate_metadata(meta: dict, now_ms: int, expected_pid: int, *, allow_selftest=False):
     if not meta.get("ok"):
-        raise ValueError(f"AirWindows: {meta.get('error', 'frame unavailable')}")
+        raise ValueError(f"PhonePort: {meta.get('error', 'frame unavailable')}")
     if meta.get("protocol") != 1 or meta.get("format") != "ppm":
-        raise ValueError("Unsupported AirWindows frame protocol")
+        raise ValueError("Unsupported PhonePort frame protocol")
     if meta.get("source") != "airplay" and not (allow_selftest and meta.get("source") == "selftest"):
         raise ValueError("Expected a real AirPlay source")
     if meta.get("receiver_pid") != expected_pid:
@@ -126,7 +130,7 @@ class AirPlayReader:
                 if k.WaitForSingleObject(ov.event, wait_ms) != 0:
                     k.CancelIoEx(handle, ctypes.byref(ov))
                     k.GetOverlappedResult(handle, ctypes.byref(ov), ctypes.byref(count), True)
-                    raise TimeoutError("AirWindows frame read timed out")
+                    raise TimeoutError("PhonePort frame read timed out")
                 if not k.GetOverlappedResult(handle, ctypes.byref(ov), ctypes.byref(count), False):
                     raise ctypes.WinError(ctypes.get_last_error())
             return count.value
@@ -137,11 +141,11 @@ class AirPlayReader:
         result = bytearray()
         while len(result) < length:
             if time.monotonic() >= deadline:
-                raise TimeoutError("AirWindows frame read timed out")
+                raise TimeoutError("PhonePort frame read timed out")
             buffer = ctypes.create_string_buffer(min(65536, length - len(result)))
             count = self._io(handle, buffer, deadline=deadline)
             if not count:
-                raise OSError("AirWindows closed an incomplete frame")
+                raise OSError("PhonePort closed an incomplete frame")
             result.extend(buffer.raw[:count])
         return bytes(result)
 
@@ -155,7 +159,7 @@ class AirPlayReader:
             if error == 231 and k.WaitNamedPipeW(pipe, int(timeout * 1000)):
                 handle = k.CreateFileW(pipe, 0xC0000000, 0, None, 3, 0x40000000, None)
             if handle == ctypes.c_void_p(-1).value:
-                raise OSError("AirWindows frame pipe unavailable; start this receiver with --frames")
+                raise OSError("PhonePort frame pipe unavailable; start this receiver with --frames")
         try:
             server_pid = w.ULONG()
             if not k.GetNamedPipeServerProcessId(handle, ctypes.byref(server_pid)) or server_pid.value != self.pid:

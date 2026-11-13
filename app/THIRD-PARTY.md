@@ -1,8 +1,8 @@
 # Third-party components
 
-AirWindows as a whole is distributed under the GNU General Public License, version 3 or later (see `LICENSE`), because it links UxPlay.
+PhonePort (formerly AirWindows) as a whole is distributed under the GNU General Public License, version 3 or later (see `LICENSE`), because it links UxPlay.
 
-Everything below is compiled from source and linked statically into `AirWindows.exe`.
+Everything below is compiled from source and linked statically into `PhonePort.exe`.
 
 | Component | Version used | License | How it is used |
 |---|---|---|---|

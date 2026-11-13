@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AirWindows application icon: a phone on a blue tile, its picture going out
+<!-- PhonePort application icon: a phone on a blue tile, its picture going out
      over the air, and the PC's pointer on its screen. Sizes of 40 pixels and up
      are rendered from this file; smaller sizes use app-icon-small.svg.
      scripts/make-icon.py turns both into src/app.ico. -->

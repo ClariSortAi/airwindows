@@ -1,4 +1,4 @@
-"""Protocol-level checks for a running AirWindows, with no Apple device.
+"""Protocol-level checks for a running PhonePort receiver, with no Apple device.
 
 It plays the opening moves of a real AirPlay sender against the receiver:
 

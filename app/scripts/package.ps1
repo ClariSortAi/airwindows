@@ -1,15 +1,16 @@
 <# Package a build and its notices; -Release adds matching source and checksums. #>
 param(
     [ValidateSet('Release', 'Debug', 'RelWithDebInfo')] [string] $Config = 'Release',
-    [ValidateSet('AirWindowsNative', 'AirWindows')] [string] $Target = 'AirWindowsNative',
+    # The CMake target that writes PhonePort.exe. Its older twin, AirWindows, is not shipped.
+    [ValidateSet('AirWindowsNative')] [string] $Target = 'AirWindowsNative',
     [string] $OutDir,
     [switch] $Release
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent $root
-$exe = Join-Path $root "build\$Config\bin\$Target.exe"
-if (-not (Test-Path -LiteralPath $exe)) { throw "Build $Target first with scripts/build.ps1 -Target $Target." }
+$exe = Join-Path $root "build\$Config\bin\PhonePort.exe"
+if (-not (Test-Path -LiteralPath $exe)) { throw "Build PhonePort.exe first with scripts/build.ps1 -Config $Config -Target $Target." }
 if (-not $OutDir) { $OutDir = Join-Path $root 'dist' }
 $OutDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutDir)
 $version = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
@@ -29,16 +30,16 @@ $licenses = [ordered]@{
 foreach ($source in $licenses.Values) {
     if (-not (Test-Path -LiteralPath $source)) { throw "License text missing: $source" }
 }
-$appDir = Join-Path $OutDir 'AirWindows'
-$binaryZip = Join-Path $OutDir "AirWindows-$version-win-x64.zip"
-$sourceZip = Join-Path $OutDir "AirWindows-$version-source.zip"
-$symbolsZip = Join-Path $OutDir "AirWindows-$version-symbols.zip"
+$appDir = Join-Path $OutDir 'PhonePort'
+$binaryZip = Join-Path $OutDir "PhonePort-$version-win-x64.zip"
+$sourceZip = Join-Path $OutDir "PhonePort-$version-source.zip"
+$symbolsZip = Join-Path $OutDir "PhonePort-$version-symbols.zip"
 $sumsPath = Join-Path $OutDir 'SHA256SUMS.txt'
 foreach ($targetPath in @($appDir, $binaryZip, $sourceZip, $symbolsZip, $sumsPath)) {
     if (Test-Path -LiteralPath $targetPath) { throw "Output exists; choose a new -OutDir: $targetPath" }
 }
 # A crash report can only be read with the symbols of the build that wrote it.
-$symbols = Join-Path $root "build\$Config\bin\$Target.pdb"
+$symbols = Join-Path $root "build\$Config\bin\PhonePort.pdb"
 if ($Release -and -not (Test-Path -LiteralPath $symbols)) { throw "Symbols missing: $symbols. Rebuild $Target before packaging a release." }
 $upstream = @()
 if ($Release) {
@@ -53,7 +54,7 @@ New-Item -ItemType Directory -Path (Join-Path $appDir 'licenses') -Force | Out-N
 Copy-Item -LiteralPath $exe -Destination $appDir
 Copy-Item -LiteralPath $iosctl -Destination $appDir
 Copy-Item -LiteralPath (Join-Path $root 'packaging\README.txt') -Destination $appDir
-Copy-Item -LiteralPath (Join-Path $root 'packaging\Start-AirWindows.cmd') -Destination $appDir
+Copy-Item -LiteralPath (Join-Path $root 'packaging\Start-PhonePort.cmd') -Destination $appDir
 Copy-Item -LiteralPath (Join-Path $repo 'FOR-AGENTS.md') -Destination $appDir
 foreach ($name in @('AGENTS.md','CLAUDE.md')) {
     Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $appDir
@@ -79,11 +80,11 @@ Copy-Item -LiteralPath (Join-Path $root 'THIRD-PARTY.md') -Destination (Join-Pat
 foreach ($name in $licenses.Keys) {
     Copy-Item -LiteralPath $licenses[$name] -Destination (Join-Path $appDir "licenses\$name")
 }
-Write-Host "Packaged $Target $version to $appDir"
+Write-Host "Packaged PhonePort $version to $appDir"
 if (-not $Release) { return }
 Compress-Archive -LiteralPath $appDir -DestinationPath $binaryZip
 $stage = Join-Path $OutDir ('.source-stage-' + [guid]::NewGuid().ToString('N'))
-$top = Join-Path $stage "AirWindows-$version-source"
+$top = Join-Path $stage "PhonePort-$version-source"
 try {
     $sourceApp = Join-Path $top 'app'
     New-Item -ItemType Directory -Path $sourceApp -Force | Out-Null
@@ -106,7 +107,7 @@ try {
     }
     New-Item -ItemType Directory -Path (Join-Path $top 'scripts') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $repo 'scripts\check.ps1') -Destination (Join-Path $top 'scripts')
-    @('# AirWindows source', '', 'Build from the app directory with scripts/bootstrap.ps1 and scripts/build.ps1 -Target AirWindowsNative.', 'See app/README.md for prerequisites, app/LICENSE for licensing and app/THIRD-PARTY.md for notices.', 'Keep app/ and native-ble-prototype/ beside each other. The archive includes the linked upstream sources.', 'The separate AirDrop research tree is not part of this application bundle.') |
+    @('# PhonePort source', '', 'Build from the app directory with scripts/bootstrap.ps1 and scripts/build.ps1 -Target AirWindowsNative.', 'See app/README.md for prerequisites, app/LICENSE for licensing and app/THIRD-PARTY.md for notices.', 'Keep app/ and native-ble-prototype/ beside each other. The archive includes the linked upstream sources.', 'The separate AirDrop research tree is not part of this application bundle.') |
         Set-Content -LiteralPath (Join-Path $top 'README.md') -Encoding utf8
     robocopy $uxplay (Join-Path $sourceApp 'third_party\UxPlay') /E /XD .git /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw 'UxPlay source copy failed.' }

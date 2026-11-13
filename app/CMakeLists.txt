@@ -53,7 +53,7 @@ file(GLOB UXPLAY_CORE_SOURCES CONFIGURE_DEPENDS
   "${UXPLAY_DIR}/lib/llhttp/*.c"
   "${UXPLAY_DIR}/lib/playfair/*.c")
 
-# AirWindows carries a Windows-specific mDNS responder for multi-interface discovery.
+# PhonePort carries a Windows-specific mDNS responder for multi-interface discovery.
 list(FILTER UXPLAY_CORE_SOURCES EXCLUDE REGEX "/lib/mdnsd/mdnsd\\.c$")
 list(APPEND UXPLAY_CORE_SOURCES "${CMAKE_SOURCE_DIR}/src/mdnsd_win.c")
 

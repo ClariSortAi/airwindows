@@ -8,7 +8,7 @@ The probe package is made from app/packaging/msix/AppxManifest.template.xml with
 the identity GraniteAi.AirWindows.Probe, so it declares the receiver's exact
 capabilities and extensions. Output goes to a new folder under app/dist.
 Needs Developer Mode and Visual Studio Build Tools; no elevation, no certificate.
-The Bluetooth step runs only when no AirWindowsNative/AirWindows process exists,
+The Bluetooth step runs only when no PhonePort/AirWindowsNative/AirWindows process exists,
 and only with -Bluetooth. It never launches the receiver.
 #>
 param(
@@ -134,9 +134,9 @@ try {
     }
 
     # ---- in-package checks, run by the receiver-slot exe that the firewall rules name
-    $receivers = @(Get-Process -Name 'AirWindowsNative', 'AirWindows' -ErrorAction SilentlyContinue)
+    $receivers = @(Get-Process -Name 'PhonePort', 'AirWindowsNative', 'AirWindows' -ErrorAction SilentlyContinue)
     $runBluetooth = $Bluetooth -and $receivers.Count -eq 0
-    if ($Bluetooth -and -not $runBluetooth) { Write-Host 'Bluetooth step not run: an AirWindows receiver is running.' }
+    if ($Bluetooth -and -not $runBluetooth) { Write-Host 'Bluetooth step not run: a PhonePort receiver is running.' }
     $checkArgs = @('checks'); if ($runBluetooth) { $checkArgs += '--bluetooth' }
     $public = @(Get-NetConnectionProfile | Where-Object NetworkCategory -eq 'Public')
     if ($public) {

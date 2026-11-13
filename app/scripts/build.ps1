@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Configures and builds AirWindows with CMake + Ninja and the project-local vcpkg.
+Configures and builds PhonePort with CMake + Ninja and the project-local vcpkg.
 
 .DESCRIPTION
 Loads the MSVC x64 environment from vcvars64.bat, then drives CMake with the
@@ -16,7 +16,7 @@ them from source and takes a while; later runs find them already built.
 Release (default), RelWithDebInfo or Debug.
 
 .PARAMETER Target
-Optional single CMake target to build.
+Optional single CMake target to build. AirWindowsNative writes PhonePort.exe.
 
 .PARAMETER HomeUrl
 Product page linked from About (https only). Default: https://graniteai.co/tools/airwindows.

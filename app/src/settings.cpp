@@ -56,7 +56,7 @@ std::wstring DefaultServerName() {
     if (GetComputerNameW(name, &size) && size > 0) {
         return name;
     }
-    return L"AirWindows";
+    return L"PhonePort";
 }
 
 }  // namespace

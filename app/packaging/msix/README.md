@@ -1,4 +1,4 @@
-# AirWindows MSIX package (Microsoft Store)
+# PhonePort MSIX package (Microsoft Store)
 
 Agent runbook for the Store package: assets, packaging, local registration, the capability probe and submission. All commands run from the repository root in PowerShell 7, unelevated. Developer Mode must be on for `-Register`.
 
@@ -19,24 +19,25 @@ Agent runbook for the Store package: assets, packaging, local registration, the 
 
 ## Package
 
-- Build the receiver and iosctl first (`./app/scripts/build.ps1 -Target AirWindowsNative`). The Store and the ZIP use the same binary. Then run `./app/scripts/package-msix.ps1 -OutDir app/dist/msix-<version>` with the Partner Center values (see Submit). The default `-ExePath` is `app\build\Release\bin\AirWindowsNative.exe`. iosctl is taken from the same folder unless you pass `-IosctlPath`.
+- Build the receiver and iosctl first (`./app/scripts/build.ps1 -Target AirWindowsNative`, which writes `PhonePort.exe`). The Store and the ZIP use the same binary. Then run `./app/scripts/package-msix.ps1 -OutDir app/dist/msix-<version>` with the Partner Center values (see Submit). The default `-ExePath` is `app\build\Release\bin\PhonePort.exe`; the layout always names it `PhonePort.exe`. iosctl is taken from the same folder unless you pass `-IosctlPath`.
 - `-OutDir` must not exist. The script never overwrites output.
 - `-Version` defaults to the receiver's numeric `ProductVersion` as `x.y.z.0`. The script refuses a first part of 0 unless you pass `-AllowZeroMajor`, which is for local tests only. It always refuses a fourth part other than 0.
-- Output: `<OutDir>\layout\` (loose package) and `<OutDir>\AirWindows-<version>-x64.msix` (unsigned).
-- The layout ships the same notices, agent guides and helper scripts as `package.ps1`. It also gets `SOURCE.txt`, which points to `AirWindows-<ProductVersion>-source.zip` on the matching GitHub release (GPL-3 section 6). Publish that release before submitting the build. Override the URL with `-SourceUrl`.
-- It leaves out `Start-AirWindows.cmd` and `README.txt` on purpose. Running the exe by path from the install folder gives it no package identity, and those files describe the ZIP.
+- Output: `<OutDir>\layout\` (loose package) and `<OutDir>\PhonePort-<version>-x64.msix` (unsigned).
+- The layout ships the same notices, agent guides and helper scripts as `package.ps1`. It also gets `SOURCE.txt`, which points to `PhonePort-<ProductVersion>-source.zip` on the matching GitHub release (GPL-3 section 6). Publish that release, built with `package.ps1 -Release`, before submitting the build. Override the URL with `-SourceUrl`.
+- It leaves out `Start-PhonePort.cmd` and `README.txt` on purpose. Running the exe by path from the install folder gives it no package identity, and those files describe the ZIP.
 - Version rule, quoted from [App package requirements](https://learn.microsoft.com/windows/apps/publish/publish-your-app/msix/app-package-requirements#version-numbering-for-windows-10-and-11-packages): "the last (fourth) section of the version number is reserved for Store use and must be left as 0 when you build your package ... The other sections must be set to an integer between 0 and 65535 (except for the first section, which cannot be 0)."
 
 ## Register locally (no certificate)
 
 - Register: add `-Register` to the package command. This registers `<OutDir>\layout\AppxManifest.xml`. Never launch the receiver from a test registration while the user's phone is connected to another receiver.
-- Check: `Get-AppxPackage -Name GraniteAi.AirWindows.Dev`, `Get-StartApps | ? AppID -like 'GraniteAi.AirWindows.Dev_*'`, `Get-Command iosctl.exe, airwindows.exe`.
+- Check: `Get-AppxPackage -Name GraniteAi.PhonePort.Dev`, `Get-StartApps | ? AppID -like 'GraniteAi.PhonePort.Dev_*'`, `Get-Command iosctl.exe, phoneport.exe`.
 - Unregister: `./app/scripts/package-msix.ps1 -Unregister` (add `-IdentityName <name>` for a non-default identity). Unregister before you delete a layout folder.
+- The dev identity was `GraniteAi.AirWindows.Dev` (`CN=AirWindows Dev`) before the rename. Remove a registration left from then with `./app/scripts/package-msix.ps1 -Unregister -IdentityName GraniteAi.AirWindows.Dev`.
 
 ## Run the capability probe
 
 - Run `./app/packaging/msix/probe/run-probe.ps1` and add `-Bluetooth` to include the GATT step. It builds, registers, runs the checks, then unregisters and removes everything it wrote. Output goes to `app\dist\msix-probe-<time>\`. Exit code 0 means no FAIL.
-- The Bluetooth step runs only when no `AirWindowsNative` or `AirWindows` process exists. It uses a random 128-bit service UUID, never 0x1812.
+- The Bluetooth step runs only when no `PhonePort`, `AirWindowsNative` or `AirWindows` process exists. The probe keeps its own names (`GraniteAi.AirWindows.Probe`, `AirWindowsProbe.exe`). It uses a random 128-bit service UUID, never 0x1812.
 - When any connected network is Public, the probe skips the wildcard UDP 5353 bind (`--no-wildcard`), because Windows would show a firewall prompt. TCP checks listen on loopback only.
 - The probe also prints the read-only Store license (`INFO store.license...`) from the receiver slot, through the console alias and unpackaged. It calls no purchase API. `probectl.exe store` runs only that query.
 - `probectl.exe bt` runs only the Bluetooth checks. Use it to compare a packaged run (through the `probectl.exe` alias) with an unpackaged one (`app\dist\msix-probe-*\build\probectl.exe bt`).
@@ -44,8 +45,8 @@ Agent runbook for the Store package: assets, packaging, local registration, the 
 ## Submit
 
 - In Partner Center, open the app > Product management > Product identity. Copy `Package/Identity/Name` to `-IdentityName`, `Package/Identity/Publisher` (the full `CN=...` string) to `-Publisher` and `Package/Properties/PublisherDisplayName` to `-PublisherDisplayName`. Values are case-sensitive ([View app identity details](https://learn.microsoft.com/windows/apps/publish/view-app-identity-details)).
-- `-DisplayName` must be a name reserved for the app in Partner Center (default `AirWindows`).
-- Upload `AirWindows-<version>-x64.msix` on the submission's Packages page. The Store re-signs MSIX uploads, so no certificate is needed ([App package requirements, code signing](https://learn.microsoft.com/windows/apps/publish/publish-your-app/msix/app-package-requirements#code-signing-for-microsoft-store-submissions)).
+- `-DisplayName` must be a name reserved for the app in Partner Center (default `PhonePort`).
+- Upload `PhonePort-<version>-x64.msix` on the submission's Packages page. The Store re-signs MSIX uploads, so no certificate is needed ([App package requirements, code signing](https://learn.microsoft.com/windows/apps/publish/publish-your-app/msix/app-package-requirements#code-signing-for-microsoft-store-submissions)).
 - `runFullTrust` is a restricted capability. In the submission's Submission options, explain that the app is a full-trust Win32 desktop app (an AirPlay receiver with a Bluetooth HID peripheral and a command-line helper).
 - Pricing, trial and pre-release testing: see the next section.
 - Run the Windows App Certification Kit before you submit. `appcert.exe` declares `requireAdministrator` and launches the app, so close the user's receiver and disconnect the phone first. From an elevated prompt in `C:\Program Files (x86)\Windows Kits\10\App Certification Kit`, run `appcert.exe reset`, register the layout, then run `appcert.exe test -packagefullname <PackageFullName> -reportoutputpath <new folder>\wack.xml` ([Windows App Certification Kit](https://learn.microsoft.com/windows/uwp/debug-test-perf/windows-app-certification-kit)). `-appxpackagepath <msix>` is the alternative, but it has to install the package, and that needs a signed package.
@@ -72,11 +73,12 @@ Agent runbook for the Store package: assets, packaging, local registration, the 
 | `Identity` Name, Publisher, Version, `ProcessorArchitecture="x64"` | Partner Center identity; version rules above | [Identity](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-identity) |
 | `TargetDeviceFamily Windows.Desktop` MinVersion `10.0.22000.0`, MaxVersionTested `10.0.26200.0` | Windows 11 only (Windows 10 is untested). Max is the newest build the probe and dry run ran on | [TargetDeviceFamily](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-targetdevicefamily) |
 | `Application` `uap10:RuntimeBehavior="packagedClassicApp"` `uap10:TrustLevel="mediumIL"` | Full-trust desktop app. Allowed in place of `EntryPoint` because MinVersion is at least 19041 | [Application](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-application) |
-| `uap10:Parameters="--frames"` on the receiver | Start menu launches pass `--frames`, as `Start-AirWindows.cmd` does. Not applied to alias launches (probe-verified) | [Application](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-application) |
-| `uap:VisualElements`, `uap:DefaultTile`, `Properties/Logo` | Start entry "AirWindows", tiles, Store logo; `BackgroundColor="transparent"` | [VisualElements](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-uap-visualelements), [icon sizes](https://learn.microsoft.com/windows/apps/design/iconography/app-icon-construction) |
-| `uap5:AppExecutionAlias desktop4:Subsystem="windows"`, alias `airwindows.exe` | Agents start the receiver with flags (`airwindows --frames`) without knowing the versioned, ACL-protected install path | [uap5:AppExecutionAlias](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-uap5-appexecutionalias), [uap5:ExecutionAlias](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-uap5-executionalias) |
+| `uap10:Parameters="--frames"` on the receiver | Start menu launches pass `--frames`, as `Start-PhonePort.cmd` does. Not applied to alias launches (probe-verified) | [Application](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-application) |
+| `uap:VisualElements`, `uap:DefaultTile`, `Properties/Logo` | Start entry "PhonePort", tiles, Store logo; `BackgroundColor="transparent"` | [VisualElements](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-uap-visualelements), [icon sizes](https://learn.microsoft.com/windows/apps/design/iconography/app-icon-construction) |
+| `Application Id="AirWindows"` | Part of the app's user model ID, never shown. Kept from before the rename; the probe starts the app by it | [Application](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-application) |
+| `uap5:AppExecutionAlias desktop4:Subsystem="windows"`, alias `phoneport.exe` | Agents start the receiver with flags (`phoneport --frames`) without knowing the versioned, ACL-protected install path | [uap5:AppExecutionAlias](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-uap5-appexecutionalias), [uap5:ExecutionAlias](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-uap5-executionalias) |
 | Second `Application Id="iosctl"`, `desktop4:Subsystem="console"`, `desktop4:SupportsMultipleInstances="true"`, `AppListEntry="none"`, alias `iosctl.exe` | `iosctl` on PATH in any terminal, sharing the caller's console, with no Start entry. Console apps must declare multi-instancing | [Application, multi-instancing notes](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-application) |
-| `desktop2:Extension Category="windows.firewallRules"`, `FirewallRules Executable="AirWindowsNative.exe"`, inbound TCP and UDP, `Profile="domainAndPrivate"` | No first-run firewall prompt on private and domain networks | [Create firewall exception](https://learn.microsoft.com/windows/apps/desktop/modernize/desktop-to-uwp-extensions#create-firewall-exception-for-your-app), [desktop2:FirewallRules](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-desktop2-firewallrules), [desktop2:Rule](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-desktop2-rule) |
+| `desktop2:Extension Category="windows.firewallRules"`, `FirewallRules Executable="PhonePort.exe"`, inbound TCP and UDP, `Profile="domainAndPrivate"` | No first-run firewall prompt on private and domain networks | [Create firewall exception](https://learn.microsoft.com/windows/apps/desktop/modernize/desktop-to-uwp-extensions#create-firewall-exception-for-your-app), [desktop2:FirewallRules](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-desktop2-firewallrules), [desktop2:Rule](https://learn.microsoft.com/uwp/schemas/appxpackage/uapmanifestschema/element-desktop2-rule) |
 | `rescap:Capability Name="runFullTrust"` | Required for a mediumIL app and for `windows.firewallRules` | [App capability declarations](https://learn.microsoft.com/windows/apps/package-and-deploy/app-capability-declarations) |
 | `DeviceCapability Name="bluetooth"` | Documented for GATT in `Windows.Devices.Bluetooth`. Declared for the GATT server and for Store disclosure | [Device capabilities](https://learn.microsoft.com/windows/apps/package-and-deploy/app-capability-declarations#device-capabilities) |
 
@@ -85,8 +87,8 @@ Agent runbook for the Store package: assets, packaging, local registration, the 
 ## Firewall design
 
 - The receiver binds dynamic ports: UxPlay's HTTP server, mirror TCP, audio and timing UDP all use port 0 (`airplay_server.cpp` passes zeros to `raop_set_tcp_ports` and `raop_set_udp_ports`). mDNS uses UDP 5353 (`mdnsd_win.c`). Port rules cannot cover OS-chosen ports.
-- The narrowest working set is therefore two inbound rules for TCP and UDP. Each is scoped to `AirWindowsNative.exe`, has no port limit and covers the private and domain profiles. There are no outbound rules, because Windows allows outbound by default.
-- Registration created both rules ("AirWindows", Inbound, Any port, Domain+Private), and unregistration removed them. Loose registration applies them, so a Store install is not needed to test them.
+- The narrowest working set is therefore two inbound rules for TCP and UDP. Each is scoped to `PhonePort.exe`, has no port limit and covers the private and domain profiles. There are no outbound rules, because Windows allows outbound by default.
+- Registration created both rules (named after the display name, "PhonePort", Inbound, Domain+Private), and unregistration removed them (measured again on 2026-11-13 after the rename). Loose registration applies them, so a Store install is not needed to test them.
 - On a network that Windows categorises as Public, the rules do not apply. Windows then shows its prompt the first time the receiver listens. To narrow the rules, make the receiver bind fixed ports, then add `LocalPortMin`/`LocalPortMax` per protocol.
 
 ## Probe findings (what the package changes for the receiver)

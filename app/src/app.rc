@@ -32,11 +32,11 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName", "GraniteAI"
-            VALUE "FileDescription", "AirWindows"
+            VALUE "FileDescription", "PhonePort"
             VALUE "FileVersion", APP_VERSION_STRING
-            VALUE "InternalName", "AirWindows"
-            VALUE "OriginalFilename", "AirWindows.exe"
-            VALUE "ProductName", "AirWindows"
+            VALUE "InternalName", "PhonePort"
+            VALUE "OriginalFilename", "PhonePort.exe"
+            VALUE "ProductName", "PhonePort"
             VALUE "ProductVersion", APP_VERSION_STRING
             VALUE "LegalCopyright", "GPL-3.0-or-later. Built on UxPlay, FFmpeg, OpenSSL and libplist."
         END

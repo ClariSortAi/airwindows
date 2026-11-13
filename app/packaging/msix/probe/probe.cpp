@@ -1,4 +1,4 @@
-// AirWindows MSIX capability probe. Built twice by run-probe.ps1 from this file:
+// PhonePort MSIX capability probe. Built twice by run-probe.ps1 from this file:
 //   probectl.exe        console subsystem (the iosctl slot of the manifest)
 //   AirWindowsProbe.exe windows subsystem, PROBE_GUI defined (the receiver slot)
 // Modes (probectl.exe; AirWindowsProbe.exe accepts 'checks' too and reports through the pipe):
@@ -117,7 +117,9 @@ bool ReceiverRunning() {
     PROCESSENTRY32W entry{sizeof(entry)};
     bool found = false;
     for (BOOL ok = Process32FirstW(snapshot, &entry); ok; ok = Process32NextW(snapshot, &entry)) {
-        if (_wcsicmp(entry.szExeFile, L"AirWindowsNative.exe") == 0 || _wcsicmp(entry.szExeFile, L"AirWindows.exe") == 0) found = true;
+        // PhonePort.exe, or the same receiver under its names from before the rename.
+        if (_wcsicmp(entry.szExeFile, L"PhonePort.exe") == 0 || _wcsicmp(entry.szExeFile, L"AirWindowsNative.exe") == 0 ||
+            _wcsicmp(entry.szExeFile, L"AirWindows.exe") == 0) found = true;
     }
     CloseHandle(snapshot);
     return found;
@@ -346,7 +348,7 @@ void NetworkChecks(bool wildcard) {
 // ---------------------------------------------------------------- bluetooth
 void BluetoothChecks(bool requested, bool discoverable = true) {
     if (!requested) { Skip("bt", "not requested (run-probe.ps1 passes --bluetooth only when no receiver is running)"); return; }
-    if (ReceiverRunning()) { Skip("bt", "an AirWindows receiver is running; Bluetooth step not run"); return; }
+    if (ReceiverRunning()) { Skip("bt", "a PhonePort receiver is running; Bluetooth step not run"); return; }
     try {
         auto adapter = BluetoothAdapter::GetDefaultAsync().get();
         if (!adapter) { Fail("bt.adapter", "no default Bluetooth adapter"); return; }

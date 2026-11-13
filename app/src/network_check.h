@@ -31,7 +31,7 @@ struct Result {
 // What to tell the user about a Public network.
 enum class Notice {
     None,         // nothing to say
-    Hard,         // the firewall blocks AirWindows on every Public network and nothing allows it anywhere
+    Hard,         // the firewall blocks PhonePort on every Public network and nothing allows it anywhere
     Conditional,  // a Public network may be blocked: "If your iPhone is on ..."
 };
 
@@ -39,7 +39,7 @@ struct Advice {
     Notice notice = Notice::None;
     std::vector<std::wstring> names;  // the Public networks the notice is about
     const wchar_t* settingsUri = L"ms-settings:network-status";
-    bool firewallReady = false;       // the firewall lets AirWindows in on every candidate network
+    bool firewallReady = false;       // the firewall lets PhonePort in on every candidate network
 };
 
 // Pure: decides from a Result.

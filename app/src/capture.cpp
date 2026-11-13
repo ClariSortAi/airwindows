@@ -21,7 +21,7 @@ std::wstring Folder(REFKNOWNFOLDERID known, const std::wstring& overrideDirector
             LOGE("[CAPTURE] could not locate the user's media folder");
             return {};
         }
-        folder = std::wstring(base) + L"\\AirWindows";
+        folder = std::wstring(base) + L"\\PhonePort";
         CoTaskMemFree(base);
     }
     const int result = SHCreateDirectoryExW(nullptr, folder.c_str(), nullptr);
@@ -52,7 +52,7 @@ std::wstring TimestampName() {
     SYSTEMTIME now;
     GetLocalTime(&now);
     wchar_t name[64];
-    swprintf_s(name, L"AirWindows %04d-%02d-%02d %02d.%02d.%02d", now.wYear, now.wMonth, now.wDay, now.wHour,
+    swprintf_s(name, L"PhonePort %04d-%02d-%02d %02d.%02d.%02d", now.wYear, now.wMonth, now.wDay, now.wHour,
                now.wMinute, now.wSecond);
     return name;
 }

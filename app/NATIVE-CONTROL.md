@@ -1,17 +1,17 @@
 # Native Bluetooth control
 
-AirWindows uses the PC's BLE keyboard and mouse service to control an iPhone while AirPlay supplies the picture. No phone app, USB connection or ESP32 is required. Build `AirWindowsNative`; older packaged receivers do not include this integration.
+PhonePort uses the PC's BLE keyboard and mouse service to control an iPhone while AirPlay supplies the picture. No phone app, USB connection or ESP32 is required. Build the `AirWindowsNative` target, which writes `PhonePort.exe`; older packaged receivers do not include this integration.
 
 ## Pair and connect
 
-1. Start `AirWindowsNative.exe --frames` and connect the phone through Screen Mirroring.
+1. Start `PhonePort.exe --frames` (`AirWindowsNative.exe` in 0.3.1-rc.5 and earlier) and connect the phone through Screen Mirroring.
 2. Enable AssistiveTouch on the iPhone.
 3. Click the phone button at the left of the button row. It reads **Pair Bluetooth** until a phone is paired. In the phone's main Settings > Bluetooth screen, select the PC's Bluetooth name. Its name may differ from a renamed AirPlay receiver.
 4. Click the phone button again and choose the phone you are mirroring. Its dot turns green when the Bluetooth and AirPlay identities match. Wait for that before sending input. You choose once for each phone.
 
 The first launch opens a setup guide beside the picture. It follows these steps and ticks each one off when the receiver sees it happen. Reopen it from Menu > Help > Setup guide. In 0.3.1-rc.4 and earlier, steps 3 and 4 are a **Pair Bluetooth** button, a phone list and a **Connect** button, and there is no guide.
 
-The adapter must support BLE peripheral mode. AirWindows checks this shortly after it starts; if the adapter is missing or lacks the peripheral role, the status bar and the setup guide say so before any pairing. A label saying Connected in AssistiveTouch alone does not prove that the phone subscribed to the HID reports. During the original test, pairing from the main Bluetooth settings established the encrypted link and report subscriptions.
+The adapter must support BLE peripheral mode. PhonePort checks this shortly after it starts; if the adapter is missing or lacks the peripheral role, the status bar and the setup guide say so before any pairing. A label saying Connected in AssistiveTouch alone does not prove that the phone subscribed to the HID reports. During the original test, pairing from the main Bluetooth settings established the encrypted link and report subscriptions.
 
 Click inside the picture to focus it and send input. Click another Windows application to return control to the PC. A press within 16 px of the picture, in the bar beside it, snaps to the nearest phone edge, so edge swipes can start in the bar. A click further out in a bar sends nothing and leaves control on. There is no separate Enable step or required Escape sequence. **Disconnect**, in the phone button's menu, releases input and withdraws this process's BLE services.
 
@@ -19,21 +19,21 @@ The application remembers each chosen phone with the AirPlay sender it was chose
 
 ## More than one iPhone
 
-Choose each phone once. After that, control follows whichever of them is mirroring. To switch, start Screen Mirroring on the other iPhone. It takes over the picture, and the first phone does not have to stop mirroring. When a different iPhone starts mirroring, AirWindows lets go of the selected phone and selects the one remembered for the new sender. Bluetooth stays open, so nothing is paired or chosen again. If that phone's Bluetooth has not connected yet, the phone button reads **Waiting for iPhone…** and publication reopens for 120 seconds.
+Choose each phone once. After that, control follows whichever of them is mirroring. To switch, start Screen Mirroring on the other iPhone. It takes over the picture, and the first phone does not have to stop mirroring. When a different iPhone starts mirroring, PhonePort lets go of the selected phone and selects the one remembered for the new sender. Bluetooth stays open, so nothing is paired or chosen again. If that phone's Bluetooth has not connected yet, the phone button reads **Waiting for iPhone…** and publication reopens for 120 seconds.
 
-A sender that AirWindows has not seen before needs one choice from the phone button. In that list, a phone already chosen for another mirror is marked **(a different iPhone)**. If every listed phone is marked that way, the button reads **Pair this iPhone**: the phone on screen has no Bluetooth link yet, so pair it as in step 3.
+A sender that PhonePort has not seen before needs one choice from the phone button. In that list, a phone already chosen for another mirror is marked **(a different iPhone)**. If every listed phone is marked that way, the button reads **Pair this iPhone**: the phone on screen has no Bluetooth link yet, so pair it as in step 3.
 
-Windows cannot tell which Bluetooth phone is the one mirroring, so a wrong first choice is possible. The pointer then moves on the other phone, or the status bar says the selected iPhone is asleep. Choose the right phone and AirWindows remembers the correction. An iPhone's AirPlay identity is its private Wi-Fi address. A phone that joins a different network counts as a new sender and needs choosing once more.
+Windows cannot tell which Bluetooth phone is the one mirroring, so a wrong first choice is possible. The pointer then moves on the other phone, or the status bar says the selected iPhone is asleep. Choose the right phone and PhonePort remembers the correction. An iPhone's AirPlay identity is its private Wi-Fi address. A phone that joins a different network counts as a new sender and needs choosing once more.
 
-Each phone keeps its own state. A phone that is connected but not selected can lock, sleep or reconnect without stopping input to the selected one. If the selected phone's Bluetooth drops, AirWindows keeps the service published and selects the phone again when it returns. Input reports go only to the selected phone.
+Each phone keeps its own state. A phone that is connected but not selected can lock, sleep or reconnect without stopping input to the selected one. If the selected phone's Bluetooth drops, PhonePort keeps the service published and selects the phone again when it returns. Input reports go only to the selected phone.
 
 The diagnostic `--control-phone <fingerprint>` option binds the first observed AirPlay sender to that explicitly selected phone. Normal pairing uses the phone button; do not copy another machine's fingerprint or use the option on routine launches.
 
 ## Home and scrolling
 
-On the iPhone, open Settings > Accessibility > Touch > AssistiveTouch > Devices > your PC > Customize Additional Buttons. Click the AirWindows **Home** button, then assign the detected Button 2 to **Home**.
+On the iPhone, open Settings > Accessibility > Touch > AssistiveTouch > Devices > your PC > Customize Additional Buttons. Click the PhonePort **Home** button, then assign the detected Button 2 to **Home**.
 
-After that assignment, the Home button or a right-click inside the phone picture invokes Home. A right-click in the bars beside the picture opens the AirWindows menu, as do the Menu button and the Alt key. The Home control sends an 80 ms Button 2 pulse and releases at the same position; it does not require a descriptor or pairing change.
+After that assignment, the Home button or a right-click inside the phone picture invokes Home. A right-click in the bars beside the picture opens the PhonePort menu, as do the Menu button and the Alt key. The Home control sends an 80 ms Button 2 pulse and releases at the same position; it does not require a descriptor or pairing change.
 
 A left-button drag scrolls a list. Mouse-wheel and vertical trackpad input accumulate to one swipe per 120 Windows wheel units, so small trackpad packets no longer each launch a full swipe. Multiple notches are preserved up to four per event. Remainders expire after 500 ms and reset on focus loss, outside-picture scrolling or picture-generation changes. This follows [Windows wheel-delta guidance](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel). Horizontal trackpad scrolling is not implemented. A mouse drag from the bottom edge did not reliably reproduce Home; use the assigned button instead.
 

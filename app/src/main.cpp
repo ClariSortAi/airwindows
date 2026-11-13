@@ -1,4 +1,4 @@
-// AirWindows: an AirPlay screen mirroring receiver for Windows. This
+// PhonePort (formerly AirWindows): an AirPlay screen mirroring receiver for Windows. This
 // file is the host: window, menu, settings and the glue between the protocol
 // engine and the audio/video pipelines.
 
@@ -47,7 +47,9 @@ namespace {
 
 constexpr wchar_t kMainClass[] = L"AirWindowsMainWindow";
 constexpr wchar_t kVideoClass[] = L"AirWindowsVideoWindow";
-constexpr wchar_t kAppTitle[] = L"AirWindows";
+// The product name a user reads. The class names, mutex, property and message names
+// keep the old name: they are how a running receiver of any version finds this one.
+constexpr wchar_t kAppTitle[] = L"PhonePort";
 constexpr UINT_PTR kTickTimer = 1;
 constexpr UINT_PTR kExitTimer = 2;
 constexpr UINT_PTR kControlTimer = 3;
@@ -314,7 +316,7 @@ void Toast(App& app, const std::wstring& text) {
     }
 }
 
-// "Pictures\AirWindows\name.png" rather than the whole path: enough to find it.
+// "Pictures\PhonePort\name.png" rather than the whole path: enough to find it.
 std::wstring ShortPath(const std::wstring& path) {
     size_t cut = path.find_last_of(L'\\');
     for (int parts = 0; parts < 2 && cut != std::wstring::npos && cut > 0; ++parts) {
@@ -686,7 +688,7 @@ HMENU BuildMenu() {
     HMENU help = CreatePopupMenu();
     AppendMenuW(help, MF_STRING, IDM_SETUP_GUIDE, L"Setup &guide");
     AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(help, MF_STRING, IDM_ABOUT, L"&About AirWindows");
+    AppendMenuW(help, MF_STRING, IDM_ABOUT, L"&About PhonePort");
     AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"&Help");
     return bar;
 }
@@ -722,14 +724,14 @@ void SyncMenu(App& app) {
                 app.recording ? L"Stop &recording\tF9" : L"Start &recording\tF9");
     // ModifyMenu clears the grey state it replaces.
     EnableMenuItem(menu, IDM_RECORD, app.hasPicture || app.recording ? MF_ENABLED : MF_GRAYED);
-    // Help > Buy AirWindows… exists only while there is something to buy: during the
+    // Help > Buy PhonePort… exists only while there is something to buy: during the
     // Store trial and after it. It sits under Setup guide, the Help menu's first item.
     const store_license::Kind kind = app.licensing.state.kind;
     const bool buy = (kind == store_license::Kind::Trial || kind == store_license::Kind::Inactive) && app.licensing.canBuy;
     const bool present = GetMenuState(menu, IDM_BUY_APP, MF_BYCOMMAND) != static_cast<UINT>(-1);
     if (buy && !present) {
         HMENU help = GetSubMenu(menu, GetMenuItemCount(menu) - 1);
-        InsertMenuW(help, 1, MF_BYPOSITION | MF_STRING, IDM_BUY_APP, L"&Buy AirWindows…");
+        InsertMenuW(help, 1, MF_BYPOSITION | MF_STRING, IDM_BUY_APP, L"&Buy PhonePort…");
     } else if (!buy && present) {
         DeleteMenu(menu, IDM_BUY_APP, MF_BYCOMMAND);
     }
@@ -824,17 +826,17 @@ void ShowAbout(App& app) {
     config.hInstance = app.instance;
     config.dwFlags = TDF_ENABLE_HYPERLINKS | TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
     config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
-    config.pszWindowTitle = L"About AirWindows";
+    config.pszWindowTitle = L"About PhonePort";
     config.pszMainIcon = MAKEINTRESOURCEW(IDI_APP);
-    config.pszMainInstruction = L"AirWindows " APP_VERSION_STRING;
+    config.pszMainInstruction = L"PhonePort " APP_VERSION_STRING;
     config.pszContent = summary.c_str();
     config.pszFooter = kNotices;
     config.pfCallback = OpenLinkCallback;
     const HRESULT hr = TaskDialogIndirect(&config, nullptr, nullptr, nullptr);
     if (FAILED(hr)) {
         LOGW("[UI] About dialog could not be shown (0x%08lX); using a message box", hr);
-        const std::wstring text = std::wstring(L"AirWindows " APP_VERSION_STRING L"\n") + HomeLabel() + L"\n\n" + kNotices;
-        MessageBoxW(app.window, text.c_str(), L"About AirWindows", MB_OK | MB_ICONINFORMATION);
+        const std::wstring text = std::wstring(L"PhonePort " APP_VERSION_STRING L"\n") + HomeLabel() + L"\n\n" + kNotices;
+        MessageBoxW(app.window, text.c_str(), L"About PhonePort", MB_OK | MB_ICONINFORMATION);
     }
 }
 
@@ -911,14 +913,14 @@ UnlockLayout LayoutUnlock(App& app, HDC dc, const UnlockFonts& fonts, const RECT
     // No price here: the Store's dialog shows the buyer's own price.
     const std::vector<Part> above = {
         {L"Your free trial has ended", fonts.headline, ui::kText, Scale(window, 12)},
-        {L"Buy AirWindows to keep mirroring and controlling your iPhone.", fonts.lead, ui::kText, Scale(window, 4)},
+        {L"Buy PhonePort to keep mirroring and controlling your iPhone.", fonts.lead, ui::kText, Scale(window, 4)},
         {app.licensing.canBuy ? L"The Microsoft Store shows the price and handles the payment."
-                              : L"To buy it, start AirWindows without administrator rights. The Microsoft Store does "
+                              : L"To buy it, start PhonePort without administrator rights. The Microsoft Store does "
                                 L"not sell to an app running as administrator.",
          fonts.body, ui::kTextDim, Scale(window, 24)},
     };
     const std::vector<Part> below = {
-        {L"Mirroring and Bluetooth control are off until AirWindows is bought.", fonts.fine, ui::kTextFaint, 0},
+        {L"Mirroring and Bluetooth control are off until PhonePort is bought.", fonts.fine, ui::kTextFaint, 0},
     };
     const auto measure = [&](const Part& part) {
         HGDIOBJ old = SelectObject(dc, part.font);
@@ -1007,7 +1009,7 @@ std::wstring NetworkNotice(const App& app) {
                     : L" In Windows Settings, set it to Private if it is a network you trust, such as your home Wi-Fi.";
     // The ZIP has no firewall rule of its own; allowing it for public networks also works.
     if (!app.packaged) {
-        text += L" Allowing AirWindows through Windows Firewall on public networks also works.";
+        text += L" Allowing PhonePort through Windows Firewall on public networks also works.";
     }
     return text;
 }
@@ -1318,7 +1320,7 @@ bool SelfTestFeeds(const App& app) {
 // What a locked receiver holds back, in launch order: Bluetooth control, the
 // AirPlay service, and in a self-test the clip that stands in for a phone.
 // A second call comes after the license became active again (a purchase after the trial
-// ended while AirWindows was open). StopService disconnected Bluetooth control; this
+// ended while PhonePort was open). StopService disconnected Bluetooth control; this
 // restores it the way a launch does: the remembered pairs, and the phone used last
 // published for, so the mirroring iPhone does not have to be chosen again.
 void StartControl(App& app) {
@@ -1415,16 +1417,16 @@ void InitLicensing(App& app) {
     if (licensing.asked && store_license::IsElevated()) {
         licensing.canBuy = false;
         LOGW("[LICENSE] running as administrator: the Microsoft Store does not support purchases from an elevated "
-             "app, so Buy AirWindows is hidden");
+             "app, so Buy PhonePort is hidden");
     }
 }
 
 std::wstring PurchaseMessage(store_license::Purchase outcome) {
     switch (outcome) {
     case store_license::Purchase::Succeeded:
-        return L"Thank you for buying AirWindows.";
+        return L"Thank you for buying PhonePort.";
     case store_license::Purchase::AlreadyPurchased:
-        return L"This Microsoft account already owns AirWindows.";
+        return L"This Microsoft account already owns PhonePort.";
     case store_license::Purchase::NotPurchased:
         return L"The purchase was not completed.";
     case store_license::Purchase::NetworkError:
@@ -1432,7 +1434,7 @@ std::wstring PurchaseMessage(store_license::Purchase outcome) {
     case store_license::Purchase::ServerError:
         return L"The Microsoft Store reported a problem. Try again later.";
     case store_license::Purchase::NotListed:
-        return L"The Microsoft Store does not list this copy of AirWindows.";
+        return L"The Microsoft Store does not list this copy of PhonePort.";
     case store_license::Purchase::Failed:
         break;
     }
@@ -1456,12 +1458,12 @@ void ApplyLicense(App& app, const store_license::State& state, bool thank) {
         StartService(app);
     } else {
         if (first) {
-            LOGI("[LICENSE] locked: AirPlay and Bluetooth stay off until AirWindows is bought");
+            LOGI("[LICENSE] locked: AirPlay and Bluetooth stay off until PhonePort is bought");
         }
         StopService(app);
     }
     if (thank) {
-        Toast(app, L"Thank you for buying AirWindows. It is unlocked.");
+        Toast(app, L"Thank you for buying PhonePort. It is unlocked.");
     }
     if (app.guideOpen) {
         app.guide.Update(MakeGuideState(app));
@@ -1528,22 +1530,22 @@ void OnLicenseWaitEnded(App& app) {
     ApplyLicense(app, app.licensing.tracker.Current(UnixNow()), false);  // no answer yet: full
 }
 
-// Help > Buy AirWindows and the unlock panel's button: the Store's own purchase dialog.
+// Help > Buy PhonePort and the unlock panel's button: the Store's own purchase dialog.
 void BuyApp(App& app) {
     const store_license::Kind kind = app.licensing.state.kind;
     if (kind != store_license::Kind::Trial && kind != store_license::Kind::Inactive) {
-        LOGW("[LICENSE] Buy AirWindows ignored: nothing to buy (%s)", store_license::KindName(kind));
+        LOGW("[LICENSE] Buy PhonePort ignored: nothing to buy (%s)", store_license::KindName(kind));
         return;
     }
     if (!app.licensing.canBuy) {
-        LOGW("[LICENSE] Buy AirWindows ignored: elevated process");
+        LOGW("[LICENSE] Buy PhonePort ignored: elevated process");
         return;
     }
     if (!app.licensing.store.Buy()) {
         Toast(app, L"The Microsoft Store purchase is already open.");
         return;
     }
-    LOGI("[LICENSE] Buy AirWindows: opening the Microsoft Store purchase dialog");
+    LOGI("[LICENSE] Buy PhonePort: opening the Microsoft Store purchase dialog");
     Toast(app, L"Opening the Microsoft Store…");
 }
 
@@ -1866,7 +1868,7 @@ GuideState MakeGuideState(const App& app) {
                                   : days == 0 ? L"This is a free trial, and today is its last day."
                                   : L"This is a free trial with " + std::to_wstring(days) +
                                         (days == 1 ? L" day left." : L" days left.");
-        guide.terms = left + (app.licensing.canBuy ? L" To buy AirWindows, open Menu › Help › Buy AirWindows." : L"");
+        guide.terms = left + (app.licensing.canBuy ? L" To buy PhonePort, open Menu › Help › Buy PhonePort." : L"");
     }
     guide.adapterProblem = bluetooth_check::GuideText(app.adapter);
     const network_check::Advice advice = network_check::Advise(app.network);
@@ -2038,7 +2040,7 @@ void CheckAdapter(App& app) {
     }
     const HWND window = app.window;
     // Detached: it touches nothing but the window handle, and a Bluetooth stack that
-    // never answers must not hold up closing AirWindows.
+    // never answers must not hold up closing PhonePort.
     std::thread([window] {
         const bluetooth_check::Adapter result = bluetooth_check::Probe();
         if (!PostMessageW(window, WM_APP_ADAPTER, static_cast<WPARAM>(result), 0)) {
@@ -2202,7 +2204,7 @@ void OnCommand(App& app, UINT id) {
                            (id >= static_cast<UINT>(kPeerFirst) && id <= static_cast<UINT>(kPeerLast));
     if (bluetooth && !app.serviceStarted) {
         LOGI("[LICENSE] Bluetooth command %u refused: Bluetooth control is not running", id);
-        Toast(app, Locked(app) ? L"Bluetooth control is off until AirWindows is bought."
+        Toast(app, Locked(app) ? L"Bluetooth control is off until PhonePort is bought."
                                : L"Bluetooth control is starting. Try again in a moment.");
         return;
     }
@@ -2581,7 +2583,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         return DefWindowProcW(window, message, wParam, lParam);
     }
     if (message == SecondLaunchMessage()) {
-        // AirWindows was started again. This receiver stays the only one; the new
+        // PhonePort was started again. This receiver stays the only one; the new
         // process has already brought this window forward and exited.
         const bool wantsFrames = (wParam & 1) != 0;
         LOGI("second launch%s handed over to this receiver", wantsFrames ? " (with --frames)" : "");
@@ -2979,7 +2981,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     app.instance = instance;
 
     applog::Init(AppDataDir() + L"\\debug.txt");
-    LOGI("--- AirWindows " APP_VERSION_STRING " starting ---");
+    LOGI("--- PhonePort " APP_VERSION_STRING " starting ---");
     app.packaged = package_info::HasIdentity();
     if (app.packaged) {
         LOGI("[PACKAGE] package identity: %ls", package_info::FamilyName().c_str());
@@ -2996,7 +2998,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     if (!SelfTesting(app)) {
         instanceMutex = CreateMutexW(nullptr, FALSE, kInstanceMutex);
         if (instanceMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
-            LOGI("AirWindows is already running; bringing that receiver forward and exiting");
+            LOGI("PhonePort is already running; bringing that receiver forward and exiting");
             HandOverToRunningReceiver(app.exportFrames);
             CloseHandle(instanceMutex);
             applog::Shutdown();
@@ -3123,8 +3125,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         };
         tip(app.controlPeer,L"Bluetooth mouse and keyboard for an iPhone: pair, choose the phone, or disconnect.");
         tip(app.controlHome,L"Home. One-time setup on the iPhone: Settings > Accessibility > Touch > AssistiveTouch > Devices > this PC > Customize Additional Buttons, press this button, then assign Button 2 to Home. Right-clicking the picture does the same.");
-        tip(app.controlShot,L"Screenshot (F8). Saves the phone's picture to Pictures\\AirWindows and copies it.");
-        tip(app.controlRecord,L"Record (F9). Saves video and the phone's sound to Videos\\AirWindows. Press again to stop.");
+        tip(app.controlShot,L"Screenshot (F8). Saves the phone's picture to Pictures\\PhonePort and copies it.");
+        tip(app.controlRecord,L"Record (F9). Saves video and the phone's sound to Videos\\PhonePort. Press again to stop.");
         tip(app.controlFull,L"Full screen (F11). Esc returns.");
         tip(app.controlMenu,L"Menu (Alt). Also opens with a right-click outside the picture.");
         SendMessageW(app.controlHelp,TTM_SETMAXTIPWIDTH,0,Scale(app.window,380));
@@ -3232,7 +3234,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
     WSACleanup();
     CoUninitialize();
-    LOGI("--- AirWindows exiting ---");
+    LOGI("--- PhonePort exiting ---");
     applog::Shutdown();
     g_app = nullptr;
     return static_cast<int>(message.wParam);

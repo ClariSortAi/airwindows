@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  AirWindows MSIX manifest template. app/scripts/package-msix.ps1 replaces every
+  PhonePort MSIX manifest template. app/scripts/package-msix.ps1 replaces every
   double-brace token (XML-escaped) and writes AppxManifest.xml into the package layout.
   app/packaging/msix/probe/run-probe.ps1 fills the same template with a probe
   identity and probe executables, so the probe tests these exact declarations.
@@ -38,6 +38,8 @@
 
   <Applications>
     <!-- The receiver: Start menu entry and a windowed alias. -->
+    <!-- Id is part of the app's AppUserModelID, which a user never sees. It keeps the
+         old product name: probe/run-probe.ps1 starts the app by "<family>!AirWindows". -->
     <Application
       Id="AirWindows"
       Executable="{{RECEIVER_EXE}}"

@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-Builds the AirWindows MSIX layout and .msix for the Microsoft Store, or registers
+Builds the PhonePort MSIX layout and .msix for the Microsoft Store, or registers
 the layout for a local test.
 
 .DESCRIPTION
 Writes into a new -OutDir:
   layout\              the loose package (AppxManifest.xml, resources.pri, Assets, binaries, notices)
-  AirWindows-<version>-x64.msix   the unsigned package to upload in Partner Center
+  PhonePort-<version>-x64.msix    the unsigned package to upload in Partner Center
 The Store signs MSIX uploads, so no certificate is used. -Register registers
 layout\ (needs Developer Mode, no elevation). -Unregister removes every installed
 package named -IdentityName and does nothing else. See app/packaging/msix/README.md.
@@ -17,10 +17,10 @@ package named -IdentityName and does nothing else. See app/packaging/msix/README
 param(
     [string] $ExePath,
     [string] $IosctlPath,
-    [string] $IdentityName = 'GraniteAi.AirWindows.Dev',
-    [string] $Publisher = 'CN=AirWindows Dev',
+    [string] $IdentityName = 'GraniteAi.PhonePort.Dev',
+    [string] $Publisher = 'CN=PhonePort Dev',
     [string] $PublisherDisplayName = 'GraniteAi, LLC',
-    [string] $DisplayName = 'AirWindows',
+    [string] $DisplayName = 'PhonePort',
     [string] $Version,
     [string] $SourceUrl,
     [string] $OutDir,
@@ -41,7 +41,7 @@ if ($Unregister) {
     return
 }
 
-if (-not $ExePath) { $ExePath = Join-Path $root 'build\Release\bin\AirWindowsNative.exe' }
+if (-not $ExePath) { $ExePath = Join-Path $root 'build\Release\bin\PhonePort.exe' }
 $ExePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ExePath)
 if (-not (Test-Path -LiteralPath $ExePath)) { throw "Receiver not found: $ExePath. Build it first or pass -ExePath." }
 if (-not $IosctlPath) { $IosctlPath = Join-Path (Split-Path -Parent $ExePath) 'iosctl.exe' }
@@ -77,9 +77,9 @@ foreach ($source in $licenses.Values) {
 }
 
 $layout = Join-Path $OutDir 'layout'
-$package = Join-Path $OutDir "AirWindows-$Version-x64.msix"
+$package = Join-Path $OutDir "PhonePort-$Version-x64.msix"
 New-Item -ItemType Directory -Path (Join-Path $layout 'licenses') -Force | Out-Null
-Copy-Item -LiteralPath $ExePath -Destination (Join-Path $layout 'AirWindowsNative.exe')
+Copy-Item -LiteralPath $ExePath -Destination (Join-Path $layout 'PhonePort.exe')
 Copy-Item -LiteralPath $IosctlPath -Destination (Join-Path $layout 'iosctl.exe')
 foreach ($name in @('FOR-AGENTS.md', 'AGENTS.md', 'CLAUDE.md', 'requirements-agent.txt')) {
     Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $layout
@@ -104,12 +104,12 @@ foreach ($name in $licenses.Keys) {
 }
 # GPL-3 section 6: say where the corresponding source for this exact build is.
 @(
-    "AirWindows $productVersion (package version $Version)",
+    "PhonePort $productVersion (package version $Version)",
     '',
-    'AirWindows is licensed under the GNU General Public License version 3 (LICENSE.txt).',
+    'PhonePort is licensed under the GNU General Public License version 3 (LICENSE.txt).',
     'The complete corresponding source for this build, including the linked',
     'upstream library sources, is published as',
-    "AirWindows-$productVersion-source.zip at:",
+    "PhonePort-$productVersion-source.zip at:",
     $SourceUrl,
     '',
     'Third-party notices: THIRD-PARTY.txt and the licenses folder.'
@@ -118,14 +118,14 @@ foreach ($name in $licenses.Keys) {
 New-AppxManifest @{
     IDENTITY_NAME = $IdentityName; PUBLISHER = $Publisher; PUBLISHER_DISPLAY_NAME = $PublisherDisplayName
     DISPLAY_NAME = $DisplayName; VERSION = $Version
-    RECEIVER_EXE = 'AirWindowsNative.exe'; RECEIVER_PARAMETERS = '--frames'; RECEIVER_ALIAS = 'airwindows.exe'
+    RECEIVER_EXE = 'PhonePort.exe'; RECEIVER_PARAMETERS = '--frames'; RECEIVER_ALIAS = 'phoneport.exe'
     IOSCTL_EXE = 'iosctl.exe'; IOSCTL_ALIAS = 'iosctl.exe'; IOSCTL_DISPLAY_NAME = 'iosctl'
 } (Join-Path $layout 'AppxManifest.xml')
 Copy-MsixAssets $layout
 New-ResourcesPri $layout $OutDir
 New-MsixFile $layout $package
 
-$fake = $IdentityName -eq 'GraniteAi.AirWindows.Dev' -or $Publisher -eq 'CN=AirWindows Dev'
+$fake = $IdentityName -eq 'GraniteAi.PhonePort.Dev' -or $Publisher -eq 'CN=PhonePort Dev'
 Write-Host "Layout:  $layout"
 Write-Host "Package: $package"
 Write-Host "Identity: Name=$IdentityName Publisher=$Publisher Version=$Version (x64)"

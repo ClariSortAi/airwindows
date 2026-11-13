@@ -1,8 +1,10 @@
 # For agents: zero to ready iPhone control
 
-Set up AirWindows, pair the user's iPhone, then prove that you can see, click, type, scroll and go Home. Work through these steps in order. Handle PC setup yourself and ask the user for one phone action at a time.
+Set up PhonePort (formerly AirWindows), pair the user's iPhone, then prove that you can see, click, type, scroll and go Home. Work through these steps in order. Handle PC setup yourself and ask the user for one phone action at a time.
 
 AirPlay supplies the picture; the PC's Bluetooth adapter sends mouse and keyboard input. No iPhone app, ESP32 or phone-to-PC cable is required.
+
+Names: builds after 0.3.1-rc.5 are PhonePort (`PhonePort.exe`, `Start-PhonePort.cmd`, a `PhonePort` folder in the ZIP). The 0.3.1-rc.5 download linked below still uses the old names (`AirWindowsNative.exe`, `Start-AirWindows.cmd`, an `AirWindows` folder). The commands below accept both.
 
 ## 1. Check the essentials
 
@@ -20,11 +22,11 @@ Check the host and any existing receiver:
 Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version
 Get-PnpDevice -Class Bluetooth -PresentOnly | Select-Object FriendlyName, Status
 Get-CimInstance Win32_Process |
-    Where-Object { $_.Name -like 'AirWindows*.exe' -or $_.Name -eq 'native_hid.exe' } |
+    Where-Object { $_.Name -in @('PhonePort.exe', 'AirWindowsNative.exe', 'AirWindows.exe', 'native_hid.exe') } |
     Select-Object ProcessId, ExecutablePath, CommandLine
 ```
 
-Confirm which iPhone the user wants to control. Reuse its receiver when possible; run one receiver at a time. Do not run the separate BLE bench provider alongside AirWindows.
+Confirm which iPhone the user wants to control. Reuse its receiver when possible; run one receiver at a time. Do not run the separate BLE bench provider alongside PhonePort.
 
 Follow your environment's tool restrictions. The phone's controls are pixels, not browser or Windows accessibility elements. The bundled helper supplies desktop input through the existing receiver window; it does not override a restriction on CLI-based input. If neither that route nor a supported desktop tool is available, complete setup with the user's mouse and report **manual control ready; agent input unavailable**.
 
@@ -38,7 +40,7 @@ Run this in PowerShell to download the package and check its SHA-256 checksum:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$setupRoot = Join-Path $env:USERPROFILE 'AirWindowsSetup'
+$setupRoot = Join-Path $env:USERPROFILE 'PhonePortSetup'
 $downloadDir = Join-Path $setupRoot 'downloads'
 $installDir = Join-Path $setupRoot '0.3.1-rc.5'
 if (Test-Path -LiteralPath $installDir) {
@@ -58,22 +60,26 @@ if ((Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash -ine $expected) 
     throw 'Checksum mismatch. Download the package again before continuing.'
 }
 Expand-Archive -LiteralPath $zipPath -DestinationPath $installDir
-$packageRoot = Join-Path $installDir 'AirWindows'
-$receiverExe = Join-Path $packageRoot 'AirWindowsNative.exe'
+# PhonePort ZIPs hold a PhonePort folder; 0.3.1-rc.5 and earlier an AirWindows folder.
+$packageRoot = @('PhonePort', 'AirWindows') | ForEach-Object { Join-Path $installDir $_ } |
+    Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$receiverExe = @('PhonePort.exe', 'AirWindowsNative.exe') | ForEach-Object { Join-Path $packageRoot $_ } |
+    Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $receiverExe) { throw 'No receiver found in the extracted package.' }
 Get-Item -LiteralPath $receiverExe | Select-Object FullName, Length
 ```
 
-Record `$packageRoot` and `$receiverExe` as full paths. Shell calls may start new processes, so recreate these variables when needed. A user who already extracted the ZIP can start here by supplying its `AirWindows` folder.
+Record `$packageRoot` and `$receiverExe` as full paths. Shell calls may start new processes, so recreate these variables when needed. A user who already extracted the ZIP can start here by supplying its `PhonePort` (or `AirWindows`) folder.
 
 The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5) also supplies matching source and checksums. Source is needed for development or redistribution, not normal setup. The receiver is unsigned; Windows may show a SmartScreen notice.
 
 **Checkpoint:** the verified package is extracted and its executable path is known.
 
-## 3. Start AirWindows
+## 3. Start PhonePort
 
-For the user, double-click **Start-AirWindows.cmd**. It opens the receiver with frame access enabled. From a Microsoft Store install, start AirWindows from the Start menu or run `airwindows --frames`; `iosctl` is on the command path.
+For the user, double-click **Start-PhonePort.cmd** (**Start-AirWindows.cmd** in 0.3.1-rc.5). It opens the receiver with frame access enabled. From a Microsoft Store install, start PhonePort from the Start menu or run `phoneport --frames`; `iosctl` is on the command path.
 
-For an agent, launch the executable directly when no intended receiver is already running (Store install: run `airwindows --frames`):
+For an agent, launch the executable directly when no intended receiver is already running (Store install: run `phoneport --frames`):
 
 ```powershell
 # Set $receiverExe to the full path recorded in Step 2.
@@ -94,27 +100,27 @@ Keep the window visible. 0.3.1-rc.5 and later have one button row: the phone but
 | The status line | Status bar at the bottom of the window | Line under the buttons |
 | The PC menu | **Menu** button, Alt, or right-click outside the picture | Menu bar, or right-click outside the picture |
 
-Allow this executable through Windows Firewall on the trusted private network in use (a Store install brings its own rule for private networks; if AirWindows reports a Public network, set it to Private). Keep the receiver and agent in the same normal Windows user session.
+Allow this executable through Windows Firewall on the trusted private network in use (a Store install brings its own rule for private networks; if PhonePort reports a Public network, set it to Private). Keep the receiver and agent in the same normal Windows user session.
 
-If an existing receiver lacks `--frames`: on 0.3.1-rc.5 and later, run `Start-AirWindows.cmd` again; the second launch turns frame access on in the running receiver and exits, and Screen Mirroring continues. On 0.3.1-rc.4 and earlier, finish any active operation, then restart the receiver. That restart interrupts Screen Mirroring. Rediscover its PID afterward.
+If an existing receiver lacks `--frames`: on 0.3.1-rc.5 and later, run the launcher (`Start-PhonePort.cmd`, or `Start-AirWindows.cmd` in 0.3.1-rc.5) again; the second launch turns frame access on in the running receiver and exits, and Screen Mirroring continues. On 0.3.1-rc.4 and earlier, finish any active operation, then restart the receiver. That restart interrupts Screen Mirroring. Rediscover its PID afterward.
 
 **Checkpoint:** one visible receiver, known PID, `--frames` enabled.
 
 ## 4. Connect the picture
 
-Ask the user: **“On the unlocked iPhone, open Control Center > Screen Mirroring and select the name shown in AirWindows. Is your phone's screen visible?”**
+Ask the user: **“On the unlocked iPhone, open Control Center > Screen Mirroring and select the name shown in PhonePort. Is your phone's screen visible?”**
 
 Have them open Settings and verify that the change appears in the mirror. If the receiver is absent, check network reachability, the firewall allowance and VPN/guest isolation. Restart after a network-interface change if necessary.
 
-**Checkpoint:** a visible change on the intended iPhone appears in AirWindows.
+**Checkpoint:** a visible change on the intended iPhone appears in PhonePort.
 
 ## 5. Connect Bluetooth input
 
 1. Ask the user to turn on **Settings > Accessibility > Touch > AssistiveTouch**.
-2. Click **Pair Bluetooth** in AirWindows. Discovery stays open for 120 seconds. If the status line says the Bluetooth adapter cannot act as a keyboard and mouse (0.3.1-rc.4 and earlier: `BLE peripheral role is unavailable`), resolve the adapter or driver limitation first. If it says no Bluetooth adapter was found or Bluetooth could not start, turn Bluetooth on in Windows and click **Pair Bluetooth** again.
-3. Ask the user to open the iPhone's **main Settings > Bluetooth** page and select the PC under Other Devices while discovery is still open. The PC's Bluetooth name can differ from the AirPlay receiver name. iOS can keep listing the PC after discovery closes; if pairing finishes then, iOS saves the pairing without AirWindows' input service.
+2. Click **Pair Bluetooth** in PhonePort. Discovery stays open for 120 seconds. If the status line says the Bluetooth adapter cannot act as a keyboard and mouse (0.3.1-rc.4 and earlier: `BLE peripheral role is unavailable`), resolve the adapter or driver limitation first. If it says no Bluetooth adapter was found or Bluetooth could not start, turn Bluetooth on in Windows and click **Pair Bluetooth** again.
+3. Ask the user to open the iPhone's **main Settings > Bluetooth** page and select the PC under Other Devices while discovery is still open. The PC's Bluetooth name can differ from the AirPlay receiver name. iOS can keep listing the PC after discovery closes; if pairing finishes then, iOS saves the pairing without PhonePort's input service.
 4. Complete any pairing prompt shown. The tested setup did not show a Windows code prompt; that alone is not a failure.
-5. Select the intended phone in AirWindows by choosing it from the phone button, with that same phone still mirroring.
+5. Select the intended phone in PhonePort by choosing it from the phone button, with that same phone still mirroring.
 
 The app should say to click the mirrored phone to control it. If discovery expires, click Pair Bluetooth again. If the selector stays empty, inspect the status and recent log entries:
 
@@ -123,13 +129,13 @@ Get-Content -LiteralPath "$env:LOCALAPPDATA\AirWindows\debug.txt" -Tail 100 |
     Select-String -Pattern '\[CONTROL\]'
 ```
 
-Store install: the log is in the `data_folder` that `iosctl --doctor` prints.
+The log folder keeps the former name, `AirWindows`, so settings carry over. Store install: the log is in the `data_folder` that `iosctl --doctor` prints.
 
 Readiness requires matching Bluetooth and AirPlay identities. An old `Ready=1` log entry or the phone's Connected label is insufficient. Do not copy device fingerprints or force saved identity settings.
 
-iOS shows the PC as Connected for any Bluetooth link, including classic Bluetooth, so that label does not mean AirWindows has the phone. The phone appears in the selector only after it subscribes to the keyboard and mouse reports, usually within a second of pairing. After a good pairing the PC can appear twice under My Devices. If the selector is still empty a minute after pairing, ask the user to forget the PC on the iPhone and remove the iPhone in Windows Bluetooth settings, then click Pair Bluetooth and have them select the PC under Other Devices within the window.
+iOS shows the PC as Connected for any Bluetooth link, including classic Bluetooth, so that label does not mean PhonePort has the phone. The phone appears in the selector only after it subscribes to the keyboard and mouse reports, usually within a second of pairing. After a good pairing the PC can appear twice under My Devices. If the selector is still empty a minute after pairing, ask the user to forget the PC on the iPhone and remove the iPhone in Windows Bluetooth settings, then click Pair Bluetooth and have them select the PC under Other Devices within the window.
 
-Select the intended phone explicitly if several subscribers appear. AirWindows does not check that the bound phone and the mirrored phone are the same device, so a different paired phone can bind and still report ready. Confirm the selection with the user before sending input. A bonded phone can take a minute or two to appear; keep Pair Bluetooth open and reopen it when it expires. In 0.3.1-rc.5 and earlier, mirroring a different phone closes Bluetooth control: click Pair Bluetooth and select that phone again. Later builds keep Bluetooth open, remember one phone per mirror and select it automatically; a mirror they have not seen needs one selection, and entries marked `(a different iPhone)` belong to another mirror. The receiver keeps notifications addressed to the selected device and remembers it for reconnection. If the connection is unstable, inspect the current binding and subscriptions; disconnect an unrelated subscriber only as a diagnostic. Preserve unrelated pairings.
+Select the intended phone explicitly if several subscribers appear. PhonePort does not check that the bound phone and the mirrored phone are the same device, so a different paired phone can bind and still report ready. Confirm the selection with the user before sending input. A bonded phone can take a minute or two to appear; keep Pair Bluetooth open and reopen it when it expires. In 0.3.1-rc.5 and earlier, mirroring a different phone closes Bluetooth control: click Pair Bluetooth and select that phone again. Later builds keep Bluetooth open, remember one phone per mirror and select it automatically; a mirror they have not seen needs one selection, and entries marked `(a different iPhone)` belong to another mirror. The receiver keeps notifications addressed to the selected device and remembers it for reconnection. If the connection is unstable, inspect the current binding and subscriptions; disconnect an unrelated subscriber only as a diagnostic. Preserve unrelated pairings.
 
 **Checkpoint:** the intended phone is selected, its picture is live and control remains ready.
 
@@ -140,9 +146,9 @@ Click a harmless visible Settings row inside the phone picture. Confirm that it 
 Set up Home once:
 
 1. On the phone, open **AssistiveTouch > Devices > your PC > Customize Additional Buttons**.
-2. Click **Home** in the AirWindows toolbar.
+2. Click **Home** in the PhonePort toolbar.
 3. Assign the detected **Button 2** to **Home** on the phone.
-4. Open an app, click AirWindows Home again and verify the Home Screen appears.
+4. Open an app, click PhonePort Home again and verify the Home Screen appears.
 
 Right-click inside the phone picture invokes the same assigned action. Right-click in the bars or window chrome opens the PC menu. Use a left-button drag to scroll a list; release and verify movement. Use the assigned button for Home; it is one pulse and does not depend on gesture timing.
 
@@ -160,7 +166,7 @@ if (-not (Test-Path -LiteralPath $iosctlExe)) {
     $iosctlExe = Join-Path $packageRoot 'app\build\Release\bin\iosctl.exe'
 }
 $receivers = @(Get-CimInstance Win32_Process | Where-Object {
-    $_.Name -eq 'AirWindowsNative.exe' -and $_.ExecutablePath -eq $receiverExe
+    $_.Name -in @('PhonePort.exe', 'AirWindowsNative.exe') -and $_.ExecutablePath -eq $receiverExe
 })
 if ($receivers.Count -ne 1) { throw 'Expected exactly one receiver at the selected path.' }
 $receiverPid = [int]$receivers[0].ProcessId
@@ -204,9 +210,9 @@ Report **ready for agent iPhone control** when the agent completes these tests. 
 
 ## Resume next time
 
-Start **Start-AirWindows.cmd**, unlock the same iPhone and reconnect Screen Mirroring. AirWindows remembers the selected Bluetooth phone and matching AirPlay sender. Wait for control readiness, rediscover the process and obtain a current image. Pairing is not required on every launch.
+Start the launcher (**Start-PhonePort.cmd**, or **Start-AirWindows.cmd** in 0.3.1-rc.5), unlock the same iPhone and reconnect Screen Mirroring. PhonePort remembers the selected Bluetooth phone and matching AirPlay sender. Wait for control readiness, rediscover the process and obtain a current image. Pairing is not required on every launch.
 
-Clicking another application returns control to Windows. Disconnect or closing AirWindows ends its Bluetooth control service. Do not replay actions from an earlier connection.
+Clicking another application returns control to Windows. Disconnect or closing PhonePort ends its Bluetooth control service. Do not replay actions from an earlier connection.
 
 ## Troubleshooting
 
@@ -233,6 +239,6 @@ An idle screen can exceed the normal one-second image limit. `iosctl --pid PID '
 | Frame is stale or wrong PID | Run `--doctor`; inspect an idle image with `snapshot`, then obtain a fresh observation before input |
 | Agent sees but cannot click | Use iosctl where permitted, or supply a supported native desktop-input tool |
 
-For source builds, follow [the build guide](app/README.md#build). Set `$packageRoot` to the source root and `$receiverExe` to `app\build\Release\bin\AirWindowsNative.exe`, then continue at Step 3. Keep `app` and `native-ble-prototype` beside each other.
+For source builds, follow [the build guide](app/README.md#build). Set `$packageRoot` to the source root and `$receiverExe` to `app\build\Release\bin\PhonePort.exe` (`AirWindowsNative.exe` from a build made before the rename), then continue at Step 3. Keep `app` and `native-ble-prototype` beside each other.
 
 Further reading: [native control](app/NATIVE-CONTROL.md), [agent operation](app/CLAUDE-CONTROL.md), [frame protocol](app/FRAME-INTERFACE.md).

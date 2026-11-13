@@ -1,20 +1,20 @@
-# AirWindows
+# PhonePort
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/jasontr)
 
 Mirror your iPhone on Windows, then click and type in the mirrored screen using the PC's mouse and keyboard.
 
-AirWindows receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
+PhonePort (formerly AirWindows) receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
 
 Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper. RC3 was run live on an iPhone16,2, and RC4 and RC5 on an iPhone15,2; wider adapter and iOS support is still pending.
 
 ## Get started
 
-**[Download AirWindows for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.5/AirWindows-0.3.1-rc.5-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5)
+**[Download for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.5/AirWindows-0.3.1-rc.5-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5)
 
-Extract the ZIP and double-click **Start-AirWindows.cmd**. The package includes the receiver, `iosctl.exe`, frame reader, licenses and setup guides. No compiler or GitHub account is required.
+Extract the ZIP and double-click **Start-AirWindows.cmd**. This download, 0.3.1-rc.5, came out before the rename, so its files still use the old name. Builds after it ship **Start-PhonePort.cmd** and `PhonePort.exe`. The package includes the receiver, `iosctl.exe`, frame reader, licenses and setup guides. No compiler or GitHub account is required.
 
-RC5 has a redesigned window. One row holds a phone button, Home, Screenshot, Record, Full screen and Menu, and a setup guide opens beside the picture on a first launch. Screenshot (F8) saves a PNG and Record (F9) saves an MP4 at a constant frame rate. AirWindows now keeps working when the PC's network changes, moves sound to a new default playback device, rebuilds its picture after a graphics driver reset and saves a crash report if it stops. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
+RC5 has a redesigned window. One row holds a phone button, Home, Screenshot, Record, Full screen and Menu, and a setup guide opens beside the picture on a first launch. Screenshot (F8) saves a PNG and Record (F9) saves an MP4 at a constant frame rate. It now keeps working when the PC's network changes, moves sound to a new default playback device, rebuilds its picture after a graphics driver reset and saves a crash report if it stops. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
 
 Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md), also included in the ZIP. It walks through installation, pairing, Home setup and the final agent-operated test.
 
@@ -22,10 +22,10 @@ You need a 64-bit Windows PC, an iPhone on the same reachable network, and a Blu
 
 The setup guide beside the picture walks through these steps and ticks each one off as it happens:
 
-1. Allow AirWindows through Windows Firewall on your private network.
-2. On the iPhone, open Control Center > Screen Mirroring and choose the receiver name shown in AirWindows.
+1. Allow PhonePort through Windows Firewall on your private network.
+2. On the iPhone, open Control Center > Screen Mirroring and choose the receiver name shown in PhonePort.
 3. Turn on Settings > Accessibility > Touch > AssistiveTouch.
-4. In AirWindows, click the phone button, which reads **Pair Bluetooth** until a phone is paired. Pair the PC from the iPhone's main Settings > Bluetooth screen, then click the phone button again and choose the phone.
+4. In PhonePort, click the phone button, which reads **Pair Bluetooth** until a phone is paired. Pair the PC from the iPhone's main Settings > Bluetooth screen, then click the phone button again and choose the phone.
 5. Click a control inside the mirrored phone. You can now use the mouse and keyboard there.
 
 The app remembers each Bluetooth phone you choose and the AirPlay sender it belongs to. With more than one iPhone paired, control follows whichever of them is mirroring. Run one receiver at a time. Pairing details and recovery steps are in [Native control](app/NATIVE-CONTROL.md).
@@ -39,12 +39,12 @@ The app remembers each Bluetooth phone you choose and the AirPlay sender it belo
 | Scroll a list | Drag with the left button held, or use the vertical wheel/trackpad |
 | Go Home | Use the Home button or right-click after assigning Button 2 to Home |
 | Return to Windows | Click another application |
-| Take a screenshot | Screenshot button or F8; saved in `Pictures\AirWindows` and copied to the clipboard |
-| Record the screen | Record button or F9, and again to stop; saved as an MP4 in `Videos\AirWindows` |
-| Open AirWindows settings | Menu button, the Alt key, or right-click outside the phone picture |
+| Take a screenshot | Screenshot button or F8; saved in `Pictures\PhonePort` and copied to the clipboard |
+| Record the screen | Record button or F9, and again to stop; saved as an MP4 in `Videos\PhonePort` |
+| Open PhonePort settings | Menu button, the Alt key, or right-click outside the phone picture |
 | Full screen | Full screen button, F11 or Alt+Enter; Escape leaves full screen |
 
-For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in AirWindows, then assign the detected Button 2 to **Home**. Dragging up from the bottom edge also goes Home.
+For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in PhonePort, then assign the detected Button 2 to **Home**. Dragging up from the bottom edge also goes Home.
 
 Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste and wheel input still need separate live checks. Unicode input and general keyboard shortcuts are not supported. Input goes only to the selected phone when more than one is paired. Builds after 0.3.1-rc.5 were tried with two iPhones paired at once; [Native control](app/NATIVE-CONTROL.md#verification-and-troubleshooting) lists what was seen and the two cases still untested.
 
@@ -83,11 +83,11 @@ The release script packages the executable, license notices, matching applicatio
 | `scripts` | Repository checks |
 | `airdrop-native` | Separate, unfinished AirDrop research; not needed for mirroring or control |
 
-AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). AirWindows does not receive video links from an app's cast button. Sound from a mirroring iPhone was confirmed on a real phone on 2026-11-13. H.265 from a real device and recovery from an unexpected network drop still need testing.
+AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). PhonePort does not receive video links from an app's cast button. Sound from a mirroring iPhone was confirmed on a real phone on 2026-11-13. H.265 from a real device and recovery from an unexpected network drop still need testing.
 
 ## Support the project
 
-AirWindows took a lot of time and thought to build. Getting AirPlay mirroring and Bluetooth input to work together on Windows meant plenty of testing on a real iPhone, and the AirDrop research is still unfinished. If AirWindows is useful to you, buying me a coffee helps keep the research going.
+PhonePort took a lot of time and thought to build. Getting AirPlay mirroring and Bluetooth input to work together on Windows meant plenty of testing on a real iPhone, and the AirDrop research is still unfinished. If PhonePort is useful to you, buying me a coffee helps keep the research going.
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/jasontr)
 

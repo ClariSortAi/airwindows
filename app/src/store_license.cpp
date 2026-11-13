@@ -178,7 +178,7 @@ struct StoreLicense::Impl {
         shared->Push(event);
     }
 
-    // Blocks the reader thread until the read finishes; closing AirWindows cancels it.
+    // Blocks the reader thread until the read finishes; closing PhonePort cancels it.
     template <typename Operation>
     bool Wait(const Operation& operation, std::chrono::milliseconds limit) {
         const auto deadline = Clock::now() + limit;

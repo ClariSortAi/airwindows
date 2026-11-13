@@ -1,5 +1,5 @@
 // Focused desktop input adapted from Claude Code's iosctl. No Bluetooth service
-// is created here: AirWindows retains identity, queue and HID ownership.
+// is created here: PhonePort retains identity, queue and HID ownership.
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -50,7 +50,7 @@ sealed class Desktop : IDisposable {
 
     internal Desktop(int pid,bool keep) {
         process=Process.GetProcessById(pid);started=process.StartTime.ToFileTimeUtc();
-        if(process.ProcessName!="AirWindowsNative" && process.ProcessName!="AirWindows") throw new ArgumentException("PID is not an AirWindows receiver");
+        if(!Receiver.IsReceiverName(process.ProcessName)) throw new ArgumentException("PID is not a PhonePort receiver");
         main=process.MainWindowHandle;
         if(main==IntPtr.Zero) throw new InvalidOperationException("Receiver window not found");
         video=FindWindowEx(main,IntPtr.Zero,"AirWindowsVideoWindow",null);
@@ -78,7 +78,7 @@ sealed class Desktop : IDisposable {
         if(!acquired) {
             if((GetAsyncKeyState(1)&0x8000)!=0 || (GetAsyncKeyState(2)&0x8000)!=0)throw new InvalidOperationException("Release the mouse buttons before starting scripted input");
             acquired=true;
-            if(GetForegroundWindow()!=main && !SetForegroundWindow(main)) throw new InvalidOperationException("Windows denied focus; click AirWindows and try a new action");
+            if(GetForegroundWindow()!=main && !SetForegroundWindow(main)) throw new InvalidOperationException("Windows denied focus; click PhonePort and try a new action");
             var timer=Stopwatch.StartNew();while(GetForegroundWindow()!=main && timer.ElapsedMilliseconds<500)Thread.Sleep(10);
         }
         Guard(false);

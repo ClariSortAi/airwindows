@@ -67,7 +67,7 @@ DWORD WINAPI WriteReport(LPVOID parameter) {
     SYSTEMTIME now;
     GetLocalTime(&now);
     wchar_t path[MAX_PATH];
-    swprintf_s(path, L"%ls\\AirWindows-%hs-%04d%02d%02d-%02d%02d%02d.dmp", g_directory, APP_VERSION_STRING,
+    swprintf_s(path, L"%ls\\PhonePort-%hs-%04d%02d%02d-%02d%02d%02d.dmp", g_directory, APP_VERSION_STRING,
                now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
 
     bool written = false;
@@ -102,19 +102,19 @@ DWORD WINAPI WriteReport(LPVOID parameter) {
         wchar_t text[900];
         if (written) {
             swprintf_s(text,
-                       L"AirWindows has stopped working.\n\n"
+                       L"PhonePort has stopped working.\n\n"
                        L"A crash report was saved in:\n%ls\n\n"
-                       L"Start AirWindows again to continue. If this keeps happening, send the newest .dmp file "
+                       L"Start PhonePort again to continue. If this keeps happening, send the newest .dmp file "
                        L"from that folder, together with debug.txt from the folder above it, when you report the "
                        L"problem.\n\nOpen the folder now?",
                        g_directory);
         } else {
             swprintf_s(text,
-                       L"AirWindows has stopped working, and a crash report could not be saved.\n\n"
-                       L"Start AirWindows again to continue. The log is in:\n%ls\n\nOpen that folder now?",
+                       L"PhonePort has stopped working, and a crash report could not be saved.\n\n"
+                       L"Start PhonePort again to continue. The log is in:\n%ls\n\nOpen that folder now?",
                        AppDataDir().c_str());
         }
-        if (MessageBoxW(nullptr, text, L"AirWindows", MB_YESNO | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST) == IDYES) {
+        if (MessageBoxW(nullptr, text, L"PhonePort", MB_YESNO | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST) == IDYES) {
             ShellExecuteW(nullptr, L"open", written ? g_directory : AppDataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
     }
