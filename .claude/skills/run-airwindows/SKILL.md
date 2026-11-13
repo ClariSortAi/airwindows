@@ -65,6 +65,7 @@ Full pre-push list (C++ policy checks, MdnsRefreshCheck, RecorderCheck) is in `A
 - **`cmd` posts and returns immediately.** Wait before reading `log` or files; a recording only exists after the second `record` (or `stop`).
 - **`ss` uses `PrintWindow(PW_RENDERFULLCONTENT)`.** It captures the D3D picture while the window is covered, but fails when minimized. The driver sets per-monitor DPI awareness, otherwise sizes come back scaled.
 - **`--selftest-video` needs Annex-B H.264/H.265**, not MP4. The driver's `clip` uses `-bsf:v h264_mp4toannexb -f h264`.
+- **An `ss` taken within ~1 s of `launch` shows `0 fps · 0.0 Mbps · software decode`** in the status bar. The stats fill in on the 1 s tick; the log already says `picture ... (D3D11)`. Re-take `ss` after 2 s before judging decode or fps.
 - The window title shows the receiver name from `settings.ini`; it is not an AirPlay session.
 
 ## Troubleshooting
