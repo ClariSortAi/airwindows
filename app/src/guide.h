@@ -20,6 +20,12 @@ struct GuideState {
     bool ready = false;                // and it is the phone being mirrored
     bool controlled = false;           // the user has clicked or typed on the phone
     std::wstring bluetoothStatus;      // the status line, repeated under the pairing step
+    std::wstring terms;                // Store builds during the trial: what AirWindows costs after it
+    std::wstring adapterProblem;       // the Bluetooth adapter cannot control a phone: why, in full
+    std::wstring networkNote;          // about a Public network that may hide this PC; empty when none
+    bool networkBlocking = false;      // the firewall shows no network lets the iPhone in: step 1 is not done
+    bool packaged = false;             // installed from the MSIX package, whose firewall rules exist already
+    bool firewallReady = false;        // Windows Firewall lets AirWindows in on every connected network
 
     bool operator==(const GuideState& other) const;
 };
@@ -27,11 +33,13 @@ struct GuideState {
 class Guide {
 public:
     // WM_COMMAND ids sent to the parent: pair, choose phone N (firstPhone + N),
-    // and close (the user is done with the guide or wants it out of the way).
+    // close (the user is done with the guide or wants it out of the way), and open
+    // Windows' network settings (the network is Public).
     struct Commands {
         int pair = 0;
         int firstPhone = 0;
         int close = 0;
+        int network = 0;
     };
     static constexpr int kMaxPhones = 3;
 

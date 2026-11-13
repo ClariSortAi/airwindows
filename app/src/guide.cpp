@@ -8,7 +8,7 @@ namespace {
 
 constexpr wchar_t kGuideClass[] = L"AirWindowsGuide";
 constexpr int kSteps = 5;
-constexpr int kCloseButton = 1, kPairButton = 2, kDoneButton = 3, kPhoneButton = 10;
+constexpr int kCloseButton = 1, kPairButton = 2, kDoneButton = 3, kNetworkButton = 4, kPhoneButton = 10;
 
 struct TextBlock {
     RECT rect;
@@ -29,12 +29,14 @@ bool GuideState::operator==(const GuideState& other) const {
     return receiverName == other.receiverName && addresses == other.addresses && mirroring == other.mirroring &&
            mirrorDevice == other.mirrorDevice && pairingOpen == other.pairingOpen && phones == other.phones &&
            chosen == other.chosen && ready == other.ready && controlled == other.controlled &&
-           bluetoothStatus == other.bluetoothStatus;
+           bluetoothStatus == other.bluetoothStatus && terms == other.terms && adapterProblem == other.adapterProblem &&
+           networkNote == other.networkNote && networkBlocking == other.networkBlocking && packaged == other.packaged &&
+           firewallReady == other.firewallReady;
 }
 
 struct Guide::Impl {
     HWND window = nullptr;
-    HWND closeButton = nullptr, pairButton = nullptr, doneButton = nullptr;
+    HWND closeButton = nullptr, pairButton = nullptr, doneButton = nullptr, networkButton = nullptr;
     HWND phoneButtons[Guide::kMaxPhones] = {};
     Guide::Commands commands;
     GuideState state;
@@ -71,7 +73,7 @@ struct Guide::Impl {
         }
         blocks.clear();
         badges.clear();
-        for (HWND button : {pairButton, doneButton, phoneButtons[0], phoneButtons[1], phoneButtons[2]}) {
+        for (HWND button : {pairButton, doneButton, networkButton, phoneButtons[0], phoneButtons[1], phoneButtons[2]}) {
             ShowWindow(button, SW_HIDE);
         }
         RECT client{};
@@ -83,7 +85,10 @@ struct Guide::Impl {
         const int buttonHeight = Dip(32);
         HDC dc = GetDC(window);
 
-        done[0] = !state.addresses.empty();
+        // When the firewall shows that no network lets the iPhone in, being on one is not done
+        // yet, unless a mirror shows that the phone got through anyway. A note that is only
+        // conditional ("If your iPhone is on ...") shows under the finished step instead.
+        done[0] = !state.addresses.empty() && (!state.networkBlocking || state.mirroring);
         done[1] = state.mirroring;
         done[2] = !state.phones.empty() || state.chosen || state.ready;
         done[3] = state.ready;
@@ -103,12 +108,23 @@ struct Guide::Impl {
             L"Choose your phone",
             L"Take control",
         };
+        // The Store package brings its firewall rules for private networks, and a rule that
+        // already lets AirWindows in needs no word; the ZIP otherwise gets Windows' own prompt
+        // the first time it listens.
+        const std::wstring notListed =
+            state.packaged || state.firewallReady
+                ? L"\n\nNot in the list? Put the iPhone on the same network as this PC."
+                : L"\n\nNot in the list? Put the iPhone on the same network as this PC, and allow AirWindows "
+                  L"through Windows Firewall on private networks.";
+        const std::wstring settingsHint =
+            L"\n\nClick Open network settings, open the network's properties and set Network profile type to "
+            L"Private network.";
         const std::wstring bodies[kSteps] = {
-            L"Connect this PC to the same Wi-Fi or wired network as your iPhone. AirWindows notices as soon as it "
-            L"is connected.",
-            L"On the iPhone, open Control Center, tap Screen Mirroring and choose “" + name +
-                L"”.\n\nNot in the list? Put the iPhone on the same network as this PC, and allow AirWindows "
-                L"through Windows Firewall on private networks.",
+            state.networkBlocking
+                ? state.networkNote + settingsHint
+                : L"Connect this PC to the same Wi-Fi or wired network as your iPhone. AirWindows notices as soon as "
+                  L"it is connected.",
+            L"On the iPhone, open Control Center, tap Screen Mirroring and choose “" + name + L"”." + notListed,
             L"1. On the iPhone, turn on Settings › Accessibility › Touch › AssistiveTouch.\n"
             L"2. Click Pair Bluetooth below.\n"
             L"3. On the iPhone, open Settings › Bluetooth and tap this PC under Other Devices.",
@@ -119,7 +135,8 @@ struct Guide::Impl {
             L"Customize Additional Buttons, press Home in the toolbar here, and assign Button 2 to Home.",
         };
         const std::wstring results[kSteps] = {
-            L"On " + state.addresses,
+            L"On " + state.addresses +
+                (state.firewallReady ? L"\nWindows Firewall already lets AirWindows in here." : L""),
             state.mirrorDevice.empty() ? L"Mirroring" : L"Mirroring " + state.mirrorDevice,
             state.phones.empty() ? L"Paired" : L"Paired with " + state.phones.front(),
             L"Connected to the phone you are mirroring",
@@ -130,12 +147,21 @@ struct Guide::Impl {
         y += Add(dc, L"Set up AirWindows", title, ui::kText, margin, y, client.right - margin * 2 - Dip(36)) + Dip(4);
         y += Add(dc, L"Each step ticks itself off as it happens.", text, ui::kTextFaint, margin, y,
                  client.right - margin * 2) + Dip(18);
+        if (!state.terms.empty()) {
+            y -= Dip(12);
+            y += Add(dc, state.terms, text, ui::kTextDim, margin, y, client.right - margin * 2) + Dip(18);
+        }
 
         for (int i = 0; i < kSteps; ++i) {
             if (i == 2) {
                 // Mirroring works without the rest; say so before asking for more.
                 y += Add(dc, L"To control an iPhone from this PC:", text, ui::kTextFaint, margin, y,
                          client.right - margin * 2) + Dip(12);
+                // Known from launch, so it shows before the user gets as far as pairing.
+                if (!state.adapterProblem.empty()) {
+                    y -= Dip(4);
+                    y += Add(dc, state.adapterProblem, text, ui::kWarn, margin, y, client.right - margin * 2) + Dip(14);
+                }
             }
             const bool isCurrent = i == current;
             badges.push_back({margin + badge / 2, y + badge / 2, i + 1, done[i], isCurrent});
@@ -144,10 +170,22 @@ struct Guide::Impl {
             if (done[i]) {
                 height += Dip(3);
                 height += Add(dc, results[i], text, ui::kTextDim, textLeft, top + height, textWidth);
+                if (i == 0 && !state.networkNote.empty()) {
+                    height += Dip(8);
+                    height += Add(dc, state.networkNote, text, ui::kWarn, textLeft, top + height, textWidth);
+                    height += Dip(10);
+                    Place(networkButton, textLeft, top + height, std::min(textWidth, Dip(220)), buttonHeight);
+                    height += buttonHeight;
+                }
             } else if (isCurrent) {
                 height += Dip(6);
-                height += Add(dc, bodies[i], text, ui::kTextDim, textLeft, top + height, textWidth);
-                if (i == 2) {
+                height += Add(dc, bodies[i], text, i == 0 && state.networkBlocking ? ui::kWarn : ui::kTextDim, textLeft,
+                              top + height, textWidth);
+                if (i == 0 && state.networkBlocking) {
+                    height += Dip(10);
+                    Place(networkButton, textLeft, top + height, std::min(textWidth, Dip(220)), buttonHeight);
+                    height += buttonHeight;
+                } else if (i == 2) {
                     if (!state.bluetoothStatus.empty()) {
                         height += Dip(8);
                         height += Add(dc, state.bluetoothStatus, text, state.pairingOpen ? ui::kAccent : ui::kWarn,
@@ -241,6 +279,9 @@ struct Guide::Impl {
         } else if (item.hwndItem == pairButton) {
             look.kind = ui::ButtonKind::Accent;
             look.glyph = ui::kGlyphBluetooth;
+        } else if (item.hwndItem == networkButton) {
+            look.kind = ui::ButtonKind::Accent;
+            look.glyph = ui::kGlyphSettings;
         } else if (item.hwndItem == doneButton) {
             const bool all = std::all_of(std::begin(done), std::end(done), [](bool step) { return step; });
             look.kind = all ? ui::ButtonKind::Accent : ui::ButtonKind::Plain;
@@ -282,6 +323,8 @@ struct Guide::Impl {
             int command = 0;
             if (id == kPairButton) {
                 command = self->commands.pair;
+            } else if (id == kNetworkButton) {
+                command = self->commands.network;
             } else if (id == kCloseButton || id == kDoneButton) {
                 command = self->commands.close;
             } else if (id >= kPhoneButton && id < kPhoneButton + Guide::kMaxPhones) {
@@ -330,6 +373,7 @@ bool Guide::Create(HWND parent, HINSTANCE instance, const Commands& commands) {
     s.closeButton = button(L"Close setup guide", kCloseButton);
     s.pairButton = button(L"Pair Bluetooth", kPairButton);
     s.doneButton = button(L"Close guide", kDoneButton);
+    s.networkButton = button(L"Open network settings", kNetworkButton);
     for (int i = 0; i < kMaxPhones; ++i) {
         s.phoneButtons[i] = button(L"", kPhoneButton + i);
     }

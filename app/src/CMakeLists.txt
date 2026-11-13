@@ -1,4 +1,5 @@
 configure_file(version.h.in "${CMAKE_CURRENT_BINARY_DIR}/generated/version.h" @ONLY)
+configure_file(build_config.h.in "${CMAKE_CURRENT_BINARY_DIR}/generated/build_config.h" @ONLY)
 
 set(AIRWINDOWS_SOURCES
   main.cpp
@@ -14,13 +15,18 @@ set(AIRWINDOWS_SOURCES
   capture.cpp
   recorder.cpp
   native_control.cpp
+  license_state.cpp
+  store_license.cpp
+  package_info.cpp
+  bluetooth_check.cpp
+  network_check.cpp
   ../../native-ble-prototype/native_hid_backend.cpp
   app.rc
   app.manifest)
 
 # SDK19041 C++/WinRT async headers rely on legacy template lookup under VS2019.
 # Match the physically qualified bench compiler mode for this source only.
-set_source_files_properties(../../native-ble-prototype/native_hid_backend.cpp PROPERTIES COMPILE_OPTIONS /permissive)
+set_source_files_properties(../../native-ble-prototype/native_hid_backend.cpp store_license.cpp package_info.cpp bluetooth_check.cpp PROPERTIES COMPILE_OPTIONS /permissive)
 
 foreach(APP_TARGET AirWindows AirWindowsNative)
 add_executable(${APP_TARGET} WIN32 ${AIRWINDOWS_SOURCES})
@@ -31,7 +37,7 @@ target_compile_definitions(${APP_TARGET} PRIVATE
 target_compile_options(${APP_TARGET} PRIVATE /W4 /permissive- /utf-8 /wd5105)
 target_link_libraries(${APP_TARGET} PRIVATE
   uxplay_core ffmpeg
-  d3d11 dxgi dxguid d3dcompiler ole32 avrt user32 gdi32 shell32 comctl32 iphlpapi ws2_32 advapi32 dbghelp
+  d3d11 dxgi dxguid d3dcompiler ole32 oleaut32 userenv avrt user32 gdi32 shell32 comctl32 iphlpapi ws2_32 advapi32 dbghelp
   gdiplus dwmapi windowscodecs mfplat mfreadwrite mfuuid propsys delayimp windowsapp)
 # Windows N editions have no Media Foundation until the Media Feature Pack is
 # installed. Loading it on first use lets the receiver start there; recording
@@ -64,6 +70,13 @@ target_compile_definitions(RecorderCheck PRIVATE UNICODE _UNICODE NOMINMAX WIN32
 target_compile_options(RecorderCheck PRIVATE /W4 /permissive- /utf-8)
 target_link_libraries(RecorderCheck PRIVATE mfplat mfreadwrite mfuuid ole32 propsys)
 set_target_properties(RecorderCheck PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# What a Microsoft Store license answer means (trial days, inactive, fail-open)
+# and the --selftest-license parser. No Store call, no window.
+add_executable(LicenseCheck EXCLUDE_FROM_ALL ../tests/license_check.cpp license_state.cpp)
+target_include_directories(LicenseCheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_options(LicenseCheck PRIVATE /W4 /permissive- /utf-8)
+set_target_properties(LicenseCheck PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 add_executable(FrameServerCheck EXCLUDE_FROM_ALL ../tests/frame_server_check.cpp frame_server.cpp log.cpp)
 target_include_directories(FrameServerCheck PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

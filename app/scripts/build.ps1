@@ -17,10 +17,15 @@ Release (default), RelWithDebInfo or Debug.
 
 .PARAMETER Target
 Optional single CMake target to build.
+
+.PARAMETER HomeUrl
+Product page linked from About (https only). Default: https://graniteai.co/tools/airwindows.
+Left out, the build directory keeps the value it was last configured with.
 #>
 param(
     [ValidateSet('Release', 'Debug', 'RelWithDebInfo')] [string] $Config = 'Release',
-    [string] $Target
+    [string] $Target,
+    [string] $HomeUrl
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +59,8 @@ cmd.exe /d /c "`"$vcvars`" >nul 2>&1 && set" | ForEach-Object {
 if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) { throw "cl.exe is not available after loading $vcvars" }
 
 $build = Join-Path $root "build\$Config"
+$extraArgs = @()
+if ($HomeUrl) { $extraArgs += "-DAIRWINDOWS_HOME_URL=$HomeUrl" }
 & $cmake -S $root -B $build -G Ninja `
     "-DCMAKE_MAKE_PROGRAM=$ninja" `
     "-DCMAKE_BUILD_TYPE=$Config" `
@@ -61,7 +68,8 @@ $build = Join-Path $root "build\$Config"
     "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
     '-DVCPKG_TARGET_TRIPLET=x64-windows-static' `
     '-DVCPKG_MANIFEST_MODE=ON' `
-    "-DVCPKG_INSTALLED_DIR=$(Join-Path $root '.deps\vcpkg_installed')"
+    "-DVCPKG_INSTALLED_DIR=$(Join-Path $root '.deps\vcpkg_installed')" `
+    @extraArgs
 if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
 
 $buildArgs = @('--build', $build)

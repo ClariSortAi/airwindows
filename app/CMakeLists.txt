@@ -84,4 +84,12 @@ target_include_directories(ffmpeg INTERFACE ${FFMPEG_INCLUDE_DIRS})
 target_link_directories(ffmpeg INTERFACE ${FFMPEG_LIBRARY_DIRS})
 target_link_libraries(ffmpeg INTERFACE ${FFMPEG_LIBRARIES})
 
+# The product page linked from About. Only characters that are safe inside a C
+# string literal and a URL.
+set(AIRWINDOWS_HOME_URL "https://graniteai.co/tools/airwindows" CACHE STRING "Product page shown in About")
+if(NOT AIRWINDOWS_HOME_URL MATCHES "^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$")
+  message(FATAL_ERROR "AIRWINDOWS_HOME_URL must be an https:// URL without spaces, quotes or backslashes; "
+                      "got '${AIRWINDOWS_HOME_URL}'.")
+endif()
+
 add_subdirectory(src)

@@ -1,0 +1,5 @@
+// Filled in by CMake from the AIRWINDOWS_* cache variables in the top-level CMakeLists.txt.
+#pragma once
+
+// Product page linked from About (build.ps1 -HomeUrl).
+#define AIRWINDOWS_HOME_URL L"@AIRWINDOWS_HOME_URL@"

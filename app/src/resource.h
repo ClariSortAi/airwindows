@@ -23,6 +23,8 @@
 #define IDM_SHOW_STATUS 40043
 #define IDM_ABOUT 40051
 #define IDM_SETUP_GUIDE 40052
+// Microsoft Store installs in trial (and --selftest-license): Help menu and the unlock panel's button.
+#define IDM_BUY_APP 40053
 #define IDM_SCREENSHOT 40060
 #define IDM_RECORD 40061
 #define IDM_OPEN_SCREENSHOTS 40062

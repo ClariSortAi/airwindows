@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "log.h"
+#include "package_info.h"
 #include "phone_pairs.h"
 
 namespace {
@@ -79,7 +80,39 @@ const VideoQuality& FindVideoQuality(const std::wstring& name) {
     return it != all.end() ? *it : all[2];  // FHD
 }
 
-std::wstring AppDataDir() {
+namespace {
+
+// What AppDataDir decided, written to the log by LogDataFolder once the log is open.
+struct DataNote {
+    bool warning;
+    std::wstring text;
+};
+std::vector<DataNote> g_dataNotes;
+
+// The first packaged run starts with an empty data folder. A user who ran the ZIP
+// before keeps the paired phones and the receiver name: settings.ini is copied, and
+// the original is only read. Later packaged runs keep their own copy.
+void CarryOverSettings(const std::wstring& from, const std::wstring& to) {
+    const std::wstring target = to + L"\\settings.ini";
+    if (GetFileAttributesW(target.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        return;
+    }
+    const std::wstring source = from + L"\\settings.ini";
+    if (GetFileAttributesW(source.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        g_dataNotes.push_back({false, L"no settings.ini in " + from + L" to carry over; starting with defaults"});
+        return;
+    }
+    if (CopyFileW(source.c_str(), target.c_str(), TRUE)) {
+        g_dataNotes.push_back({false, L"first packaged run: copied settings.ini from " + from});
+    } else {
+        g_dataNotes.push_back({true, L"could not copy settings.ini from " + from + L" (error " +
+                                         std::to_wstring(GetLastError()) + L"); starting with defaults"});
+    }
+}
+
+}  // namespace
+
+std::wstring ClassicDataDir() {
     static std::wstring dir;
     if (!dir.empty()) {
         return dir;
@@ -93,8 +126,45 @@ std::wstring AppDataDir() {
         GetTempPathW(ARRAYSIZE(temp), temp);
         dir = std::wstring(temp) + L"AirWindows";
     }
+    return dir;
+}
+
+std::wstring AppDataDir() {
+    static std::wstring dir;
+    if (!dir.empty()) {
+        return dir;
+    }
+    // Inside a package, a new %LOCALAPPDATA%\AirWindows would be redirected to a private
+    // copy that Explorer and unpackaged scripts never see. The package's own data folder
+    // is the same real folder for everyone.
+    if (package_info::HasIdentity()) {
+        std::wstring error;
+        const std::wstring packaged = package_info::LocalFolder(error);
+        if (!packaged.empty()) {
+            dir = packaged;
+            g_dataNotes.push_back({false, L"packaged run: data folder is the package's local folder"});
+            CreateDirectoryW(dir.c_str(), nullptr);
+            CarryOverSettings(ClassicDataDir(), dir);
+            return dir;
+        }
+        g_dataNotes.push_back({true, L"packaged run, but the package's local folder is unavailable: " + error +
+                                         L"; using " + ClassicDataDir() + L", which Windows may redirect"});
+    }
+    dir = ClassicDataDir();
     CreateDirectoryW(dir.c_str(), nullptr);
     return dir;
+}
+
+void LogDataFolder() {
+    LOGI("[DATA] data folder: %ls", AppDataDir().c_str());
+    for (const DataNote& note : g_dataNotes) {
+        if (note.warning) {
+            LOGW("[DATA] %ls", note.text.c_str());
+        } else {
+            LOGI("[DATA] %ls", note.text.c_str());
+        }
+    }
+    g_dataNotes.clear();
 }
 
 void Settings::Load() {

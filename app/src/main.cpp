@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <ctime>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,14 +24,20 @@
 
 #include "airplay_server.h"
 #include "audio_pipeline.h"
+#include "bluetooth_check.h"
+#include "build_config.h"
 #include "capture.h"
 #include "crash.h"
 #include "guide.h"
+#include "license_state.h"
 #include "log.h"
 #include "media_sink.h"
+#include "network_check.h"
+#include "package_info.h"
 #include "recorder.h"
 #include "resource.h"
 #include "settings.h"
+#include "store_license.h"
 #include "ui.h"
 #include "version.h"
 #include "video_pipeline.h"
@@ -57,8 +65,10 @@ constexpr UINT_PTR kSelfTestCaptureTimer = 6;  // --selftest-screenshot, --selft
 constexpr int kPairControl=41001, kPeerControl=41002, kBindControl=41003, kDisconnectControl=41004, kHomeControl=41005;
 constexpr int kShotControl=41006, kRecordControl=41007, kFullControl=41008, kMenuControl=41009;
 constexpr int kStatusControl=41010, kGuideOpenControl=41011, kGuideCloseControl=41012;
+constexpr int kNetworkControl=41013;              // "Open network settings" on the idle screen and in the guide
 constexpr int kPeerFirst=41100, kPeerLast=41131;  // phones in the phone button's menu and the setup guide
 constexpr int kDumpMenuCommand=41200;             // --selftest-menu: write the menu, as it would open now, to the log
+constexpr int kExpireCommand=41201;               // --selftest-license only: the simulated trial ends now
 // Heights at 96 DPI: the button row above the picture and the status bar below it.
 constexpr int kTopBar = 52;
 constexpr int kStatusBar = 30;
@@ -66,6 +76,16 @@ constexpr int kMinClientWidth = 560;
 constexpr DWORD kCursorHideMs = 3000;
 constexpr DWORD kToastMs = 5000;
 constexpr UINT WM_APP_RECORDER = WM_APP + 20;  // lParam: RecorderNotice* (receiver deletes)
+constexpr UINT WM_APP_LICENSE = WM_APP + 21;  // the Store license layer queued events; see StoreLicense::Take
+constexpr UINT_PTR kLicenseWaitTimer = 7;      // no Store answer in time: start as fully licensed
+constexpr UINT kLicenseWaitMs = 20000;
+constexpr UINT_PTR kLicenseTickTimer = 9;      // recounts trial days; asks the Store once the trial's date passes
+constexpr UINT kLicenseTickMs = 60000;
+constexpr UINT WM_APP_ADAPTER = WM_APP + 22;   // wParam: bluetooth_check::Adapter, from the launch check
+constexpr UINT_PTR kAdapterTimer = 8;          // starts the launch check once the window is up
+constexpr UINT kAdapterDelayMs = 1500;
+constexpr ULONGLONG kNetworkPollMs = 3000;     // how often the network type is read again
+constexpr ULONGLONG kFirewallPollMs = 30000;   // and the firewall rules, also after any network change
 
 // Routes protocol callbacks to the two pipelines.
 class MediaRouter final : public IMediaSink {
@@ -176,6 +196,40 @@ struct App {
     bool controlDragging=false;
     WheelSteps wheel;
 
+    // Microsoft Store license. Only a packaged run (installed from MSIX) or a run with
+    // --selftest-license asks; every other run stays NotStore and shows nothing.
+    struct Licensing {
+        bool asked = false;      // a Store answer (real or simulated) is expected
+        bool answered = false;   // the first answer arrived, or the wait for it ended
+        bool canBuy = true;      // false when elevated: the Store does not sell to an elevated process
+        store_license::State state;
+        store_license::Tracker tracker;  // the last real answer and any purchase in this run
+        store_license::StoreLicense store;
+        std::optional<store_license::Answer> simulated;  // --selftest-license
+    } licensing;
+    bool serviceStarted = false;   // AirPlay (or the self-test feed) and Bluetooth control are running
+    bool controlStarted = false;   // NativeControl::Start ran (it stays started once the license locks)
+    HWND controlBuy = nullptr;     // on the unlock panel
+    std::wstring statusLicense;    // right end of the status bar: "Trial: 5 days left"
+    bool selfTestLicenseGiven = false;
+    std::wstring selfTestLicense;  // --selftest-license <trial:N|expired|licensed>
+
+    bool packaged = false;         // package identity (an MSIX install)
+    // Bluetooth adapter, checked once shortly after launch. Unknown says nothing.
+    bluetooth_check::Adapter adapter = bluetooth_check::Adapter::Unknown;
+    bool selfTestBluetoothGiven = false;
+    std::wstring selfTestBluetooth;  // --selftest-bluetooth <none|no-peripheral|ready>
+    // Windows network types of the networks AirPlay can use, read every few seconds.
+    network_check::Result network;      // as shown (a self-test can simulate it)
+    network_check::Result networkRead;  // as Windows last reported it
+    ULONGLONG networkReadAt = 0;
+    ULONGLONG firewallReadAt = 0;    // the firewall rules are read less often: every rule is listed
+    std::wstring executable;         // this program's path, which firewall rules name
+    std::wstring packageSid;         // packaged: the SID the manifest's firewall rules name
+    bool selfTestNetworkGiven = false;
+    std::wstring selfTestNetwork;    // --selftest-network <public|private>
+    HWND controlNetwork = nullptr;   // "Open network settings" on the idle screen
+
     // --selftest options
     int decoderOverride = -1;
     std::wstring selfTestVideo;
@@ -199,7 +253,14 @@ DecoderMode Decoder(const App& app) {
 // take the single-instance slot or change saved settings.
 bool SelfTesting(const App& app) {
     return !app.selfTestVideo.empty() || app.selfTestAudio || app.selfTestTone || app.selfTestAudioSwitch ||
-           !app.selfTestCrash.empty();
+           !app.selfTestCrash.empty() || app.selfTestLicenseGiven || app.selfTestBluetoothGiven ||
+           app.selfTestNetworkGiven;
+}
+
+// The Store says the license is not active (the trial has ended): no AirPlay, no
+// Bluetooth, the unlock panel instead.
+bool Locked(const App& app) {
+    return !store_license::AllowsService(app.licensing.state.kind);
 }
 
 // Posted by a second launch to the receiver already running. wParam bit 0: the
@@ -228,7 +289,7 @@ void RebuildFonts(App& app) {
     app.uiTitle = ui::CreateTextFont(app.window, 14, true);
     app.iconFont = ui::CreateIconFont(app.window, 11);
     for (HWND control : {app.controlPeer, app.controlHome, app.controlShot, app.controlRecord, app.controlFull,
-                         app.controlMenu, app.controlStatus, app.controlGuideOpen}) {
+                         app.controlMenu, app.controlStatus, app.controlGuideOpen, app.controlNetwork}) {
         if (control) {
             SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(app.uiFont), TRUE);
         }
@@ -428,7 +489,8 @@ void RestartService(App& app, bool restartVideo) {
     app.connections = 0;
     app.client = ClientInfo{};
     app.mirrorRunning = false;
-    if (!SelfTesting(app)) {
+    // A locked receiver (trial over) never started the service and does not start it here.
+    if (!SelfTesting(app) && app.serviceStarted) {
         StartServer(app);
     }
     UpdateTitle(app);
@@ -660,6 +722,17 @@ void SyncMenu(App& app) {
                 app.recording ? L"Stop &recording\tF9" : L"Start &recording\tF9");
     // ModifyMenu clears the grey state it replaces.
     EnableMenuItem(menu, IDM_RECORD, app.hasPicture || app.recording ? MF_ENABLED : MF_GRAYED);
+    // Help > Buy AirWindows… exists only while there is something to buy: during the
+    // Store trial and after it. It sits under Setup guide, the Help menu's first item.
+    const store_license::Kind kind = app.licensing.state.kind;
+    const bool buy = (kind == store_license::Kind::Trial || kind == store_license::Kind::Inactive) && app.licensing.canBuy;
+    const bool present = GetMenuState(menu, IDM_BUY_APP, MF_BYCOMMAND) != static_cast<UINT>(-1);
+    if (buy && !present) {
+        HMENU help = GetSubMenu(menu, GetMenuItemCount(menu) - 1);
+        InsertMenuW(help, 1, MF_BYPOSITION | MF_STRING, IDM_BUY_APP, L"&Buy AirWindows…");
+    } else if (!buy && present) {
+        DeleteMenu(menu, IDM_BUY_APP, MF_BYCOMMAND);
+    }
 }
 
 INT_PTR CALLBACK RenameDialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -704,11 +777,39 @@ HRESULT CALLBACK OpenLinkCallback(HWND, UINT message, WPARAM, LPARAM lParam, LON
     return S_OK;
 }
 
+// "Trial: 5 days left" while the Store trial runs; empty otherwise.
+std::wstring TrialLabel(const App& app) {
+    if (app.licensing.state.kind != store_license::Kind::Trial) {
+        return {};
+    }
+    const int days = app.licensing.state.daysLeft;
+    if (days < 0) {
+        return L"Free trial";
+    }
+    if (days == 0) {
+        return L"Trial ends today";
+    }
+    return L"Trial: " + std::to_wstring(days) + (days == 1 ? L" day left" : L" days left");
+}
+
+// The product page without its scheme, for display: graniteai.co/tools/airwindows.
+std::wstring HomeLabel() {
+    std::wstring label = AIRWINDOWS_HOME_URL;
+    const size_t scheme = label.find(L"://");
+    if (scheme != std::wstring::npos) {
+        label = label.substr(scheme + 3);
+    }
+    while (!label.empty() && label.back() == L'/') {
+        label.pop_back();
+    }
+    return label;
+}
+
 void ShowAbout(App& app) {
-    static const wchar_t kSummary[] =
+    std::wstring summary =
         L"Mirrors an iPhone, iPad or Mac on this PC over AirPlay, and controls an iPhone with this PC's mouse and "
         L"keyboard over Bluetooth.\n\n"
-        L"<a href=\"https://graniteai.co/tools/airwindows\">graniteai.co/tools/airwindows</a>";
+        L"<a href=\"" AIRWINDOWS_HOME_URL L"\">" + HomeLabel() + L"</a>";
     static const wchar_t kNotices[] =
         L"AirPlay protocol engine: UxPlay (GPL-3.0)\n"
         L"Decoding: FFmpeg (LGPL-2.1-or-later)\n"
@@ -726,13 +827,13 @@ void ShowAbout(App& app) {
     config.pszWindowTitle = L"About AirWindows";
     config.pszMainIcon = MAKEINTRESOURCEW(IDI_APP);
     config.pszMainInstruction = L"AirWindows " APP_VERSION_STRING;
-    config.pszContent = kSummary;
+    config.pszContent = summary.c_str();
     config.pszFooter = kNotices;
     config.pfCallback = OpenLinkCallback;
     const HRESULT hr = TaskDialogIndirect(&config, nullptr, nullptr, nullptr);
     if (FAILED(hr)) {
         LOGW("[UI] About dialog could not be shown (0x%08lX); using a message box", hr);
-        const std::wstring text = std::wstring(L"AirWindows " APP_VERSION_STRING L"\ngraniteai.co/tools/airwindows\n\n") + kNotices;
+        const std::wstring text = std::wstring(L"AirWindows " APP_VERSION_STRING L"\n") + HomeLabel() + L"\n\n" + kNotices;
         MessageBoxW(app.window, text.c_str(), L"About AirWindows", MB_OK | MB_ICONINFORMATION);
     }
 }
@@ -751,6 +852,214 @@ void DrawLine(HDC dc, HFONT font, COLORREF color, const std::wstring& text, RECT
     DrawTextW(dc, text.c_str(), -1, &draw, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
     area.top = draw.bottom + gapAfter;
     SelectObject(dc, old);
+}
+
+// The application icon at `size` pixels, loaded once per size.
+HICON IdleIcon(App& app, int size) {
+    if (app.idleIconSize != size) {
+        if (app.idleIcon) {
+            DestroyIcon(app.idleIcon);
+        }
+        app.idleIcon = static_cast<HICON>(LoadImageW(app.instance, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON, size, size,
+                                                     LR_DEFAULTCOLOR));
+        app.idleIconSize = size;
+    }
+    return app.idleIcon;
+}
+
+// The unlock panel that replaces the idle screen once the Store trial is over.
+// Laid out in one place so the painted text and the button window line up.
+struct UnlockFonts {
+    HFONT headline, lead, body, fine;  // not "small": the Windows headers define that as a macro
+    explicit UnlockFonts(HWND window)
+        : headline(ui::CreateTextFont(window, 20, true)), lead(ui::CreateTextFont(window, 13, false)),
+          body(ui::CreateTextFont(window, 11, false)), fine(ui::CreateTextFont(window, 9, false)) {}
+    ~UnlockFonts() {
+        for (HFONT font : {headline, lead, body, fine}) {
+            DeleteObject(font);
+        }
+    }
+    UnlockFonts(const UnlockFonts&) = delete;
+    UnlockFonts& operator=(const UnlockFonts&) = delete;
+};
+
+struct UnlockLine {
+    std::wstring text;
+    HFONT font;
+    COLORREF color;
+    RECT rect;
+};
+
+struct UnlockLayout {
+    std::vector<UnlockLine> lines;
+    RECT icon{};    // empty when the window is too short for it
+    RECT buy{};
+};
+
+UnlockLayout LayoutUnlock(App& app, HDC dc, const UnlockFonts& fonts, const RECT& idle) {
+    UnlockLayout layout;
+    const HWND window = app.window;
+    const int margin = Scale(window, 36);
+    const int width = std::max<int>(Scale(window, 120), std::min<int>(idle.right - idle.left - margin * 2, Scale(window, 560)));
+    const int left = (idle.left + idle.right - width) / 2;
+    struct Part {
+        std::wstring text;
+        HFONT font;
+        COLORREF color;
+        int gapAfter;
+    };
+    // No price here: the Store's dialog shows the buyer's own price.
+    const std::vector<Part> above = {
+        {L"Your free trial has ended", fonts.headline, ui::kText, Scale(window, 12)},
+        {L"Buy AirWindows to keep mirroring and controlling your iPhone.", fonts.lead, ui::kText, Scale(window, 4)},
+        {app.licensing.canBuy ? L"The Microsoft Store shows the price and handles the payment."
+                              : L"To buy it, start AirWindows without administrator rights. The Microsoft Store does "
+                                L"not sell to an app running as administrator.",
+         fonts.body, ui::kTextDim, Scale(window, 24)},
+    };
+    const std::vector<Part> below = {
+        {L"Mirroring and Bluetooth control are off until AirWindows is bought.", fonts.fine, ui::kTextFaint, 0},
+    };
+    const auto measure = [&](const Part& part) {
+        HGDIOBJ old = SelectObject(dc, part.font);
+        RECT rect{0, 0, width, 0};
+        DrawTextW(dc, part.text.c_str(), -1, &rect, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        SelectObject(dc, old);
+        return static_cast<int>(rect.bottom);
+    };
+    const int buttonHeight = Scale(window, 36);
+    const int buyWidth = std::max(Scale(window, 200), ui::ButtonWidth(app.controlBuy, ui::ButtonLook{}, app.uiBold) + Scale(window, 32));
+
+    const int iconSize = Scale(window, 64);
+    const bool showIcon = idle.bottom - idle.top > Scale(window, 470);
+    int total = showIcon ? iconSize + Scale(window, 18) : 0;
+    for (const Part& part : above) total += measure(part) + part.gapAfter;
+    total += buttonHeight + Scale(window, 22);
+    for (const Part& part : below) total += measure(part) + part.gapAfter;
+
+    int y = idle.top + std::max<int>(Scale(window, 24), (idle.bottom - idle.top - total) / 2 - Scale(window, 12));
+    if (showIcon) {
+        layout.icon = RECT{(idle.left + idle.right - iconSize) / 2, y, (idle.left + idle.right + iconSize) / 2, y + iconSize};
+        y += iconSize + Scale(window, 18);
+    }
+    const auto place = [&](const Part& part) {
+        const int height = measure(part);
+        layout.lines.push_back({part.text, part.font, part.color, RECT{left, y, left + width, y + height}});
+        y += height + part.gapAfter;
+    };
+    for (const Part& part : above) place(part);
+    const int buyLeft = (idle.left + idle.right - buyWidth) / 2;
+    layout.buy = RECT{buyLeft, y, buyLeft + buyWidth, y + buttonHeight};
+    y += buttonHeight + Scale(window, 22);
+    for (const Part& part : below) place(part);
+    return layout;
+}
+
+// The idle area: the window less the button row, the status bar and the guide.
+RECT IdleArea(const App& app, const RECT& client) {
+    if (app.fullscreen) {
+        return client;
+    }
+    return RECT{client.left, client.top + Scale(app.window, kTopBar), client.right - GuideWidth(app),
+                client.bottom - Scale(app.window, kStatusBar)};
+}
+
+// The idle screen offers the setup guide with a button at its foot while the guide is closed.
+bool OfferGuide(const App& app, const RECT& idle) {
+    return !app.fullscreen && !app.hasPicture && !app.guideOpen && !Locked(app) &&
+           idle.bottom - idle.top > Scale(app.window, 260);
+}
+
+// A card above the guide button while a connected network is Public: what that means
+// and a button for Windows' network settings. Laid out in one place for the painted
+// text and the button window.
+struct NetworkCard {
+    bool shown = false;
+    RECT card{}, text{}, button{};
+    std::wstring words;
+};
+
+// The sentence about Public networks for the idle screen and the setup guide. It says
+// "cannot find this PC" only when Windows Firewall shows that to be true; otherwise "If your
+// iPhone is on ...". Empty when there is nothing to say.
+std::wstring NetworkNotice(const App& app) {
+    const network_check::Advice advice = network_check::Advise(app.network);
+    if (advice.notice == network_check::Notice::None) {
+        return {};
+    }
+    const bool several = advice.names.size() > 1;
+    std::wstring names;
+    for (size_t i = 0; i < advice.names.size(); ++i) {
+        const bool lastName = i + 1 == advice.names.size();
+        const wchar_t* joint = i == 0 ? L"" : !lastName ? L", " : advice.notice == network_check::Notice::Hard ? L" and " : L" or ";
+        names += joint + std::wstring(L"“") + advice.names[i] + L"”";
+    }
+    std::wstring text;
+    if (advice.notice == network_check::Notice::Hard) {
+        text = L"Windows treats " + names + (several ? L" as public networks" : L" as a public network") +
+               L", so your iPhone cannot find this PC there.";
+    } else {
+        text = L"If your iPhone is on " + names + L", it may not find this PC: Windows treats " +
+               (several ? L"those networks" : L"that network") + L" as public.";
+    }
+    text += several ? L" In Windows Settings, set the one your iPhone uses to Private if it is a network you trust, "
+                      L"such as your home Wi-Fi."
+                    : L" In Windows Settings, set it to Private if it is a network you trust, such as your home Wi-Fi.";
+    // The ZIP has no firewall rule of its own; allowing it for public networks also works.
+    if (!app.packaged) {
+        text += L" Allowing AirWindows through Windows Firewall on public networks also works.";
+    }
+    return text;
+}
+
+NetworkCard LayoutNetworkCard(const App& app, HDC dc, HFONT font, const RECT& idle) {
+    NetworkCard layout;
+    const HWND window = app.window;
+    std::wstring words = NetworkNotice(app);
+    if (app.fullscreen || app.hasPicture || Locked(app) || words.empty() ||
+        idle.bottom - idle.top < Scale(window, 330) || idle.right - idle.left < Scale(window, 300)) {
+        return layout;
+    }
+    layout.shown = true;
+    layout.words = std::move(words);
+    const int padding = Scale(window, 16);
+    const int width = std::min<int>(idle.right - idle.left - Scale(window, 48), Scale(window, 520));
+    const int left = (idle.left + idle.right - width) / 2;
+    HGDIOBJ old = SelectObject(dc, font);
+    RECT measured{0, 0, width - padding * 2, 0};
+    DrawTextW(dc, layout.words.c_str(), -1, &measured, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+    SelectObject(dc, old);
+    const int buttonHeight = Scale(window, 32);
+    const int height = padding + measured.bottom + Scale(window, 12) + buttonHeight + padding;
+    const int bottom = OfferGuide(app, idle) ? idle.bottom - Scale(window, 60) - Scale(window, 16)
+                                             : idle.bottom - Scale(window, 24);
+    layout.card = RECT{left, bottom - height, left + width, bottom};
+    layout.text = RECT{left + padding, layout.card.top + padding, left + width - padding, layout.card.top + padding + measured.bottom};
+    const int buttonWidth = std::max(Scale(window, 190),
+                                     ui::ButtonWidth(app.controlNetwork, ui::ButtonLook{ui::ButtonKind::Accent, ui::kGlyphSettings},
+                                                     app.uiFont) + Scale(window, 24));
+    const int buttonLeft = (layout.card.left + layout.card.right - buttonWidth) / 2;
+    layout.button = RECT{buttonLeft, layout.text.bottom + Scale(window, 12), buttonLeft + buttonWidth,
+                         layout.text.bottom + Scale(window, 12) + buttonHeight};
+    return layout;
+}
+
+void PaintUnlock(App& app, HDC dc, const RECT& idle) {
+    const UnlockFonts fonts(app.window);
+    const UnlockLayout layout = LayoutUnlock(app, dc, fonts, idle);
+    if (layout.icon.right > layout.icon.left) {
+        const int size = layout.icon.right - layout.icon.left;
+        if (HICON icon = IdleIcon(app, size)) {
+            DrawIconEx(dc, layout.icon.left, layout.icon.top, icon, size, size, 0, nullptr, DI_NORMAL);
+        }
+    }
+    for (const UnlockLine& line : layout.lines) {
+        HGDIOBJ old = SelectObject(dc, line.font);
+        SetTextColor(dc, line.color);
+        RECT rect = line.rect;
+        DrawTextW(dc, line.text.c_str(), -1, &rect, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        SelectObject(dc, old);
+    }
 }
 
 // Paints everything the child windows do not cover: the strips behind the
@@ -784,28 +1093,40 @@ void PaintIdle(App& app, HDC target, const RECT& client) {
         idle = RECT{client.left, top.bottom, client.right - GuideWidth(app), bottom.top};
     }
     SetBkMode(dc, TRANSPARENT);
+    if (Locked(app)) {
+        PaintUnlock(app, dc, idle);
+        BitBlt(target, client.left, client.top, width, height, dc, 0, 0, SRCCOPY);
+        SelectObject(dc, oldBitmap);
+        DeleteObject(bitmap);
+        DeleteDC(dc);
+        return;
+    }
 
     HFONT nameFont = ui::CreateTextFont(app.window, 26, true);
     HFONT statusFont = ui::CreateTextFont(app.window, 13, false);
     HFONT bodyFont = ui::CreateTextFont(app.window, 11, false);
     HFONT smallFont = ui::CreateTextFont(app.window, 9, false);
 
+    const NetworkCard card = LayoutNetworkCard(app, dc, bodyFont, idle);
+    const int cardHeight = card.shown ? card.card.bottom - card.card.top + Scale(app.window, 16) : 0;
+    if (card.shown) {
+        ui::FillRounded(dc, card.card, Scale(app.window, 8), ui::kPanel, ui::kDivider);
+        HGDIOBJ old = SelectObject(dc, bodyFont);
+        SetTextColor(dc, ui::kWarn);
+        RECT text = card.text;
+        DrawTextW(dc, card.words.c_str(), -1, &text, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        SelectObject(dc, old);
+    }
+
     const int margin = Scale(app.window, 36);
-    RECT area{idle.left + margin, idle.top + std::max<LONG>(Scale(app.window, 28), (idle.bottom - idle.top) / 5),
-              idle.right - margin, idle.bottom};
+    RECT area{idle.left + margin,
+              idle.top + std::max<LONG>(Scale(app.window, 28), (idle.bottom - idle.top - cardHeight) / 5),
+              idle.right - margin, idle.bottom - cardHeight};
     if (area.right - area.left > Scale(app.window, 120)) {
         // The application icon above the name, when the window is tall enough to spare the room.
         const int iconSize = Scale(app.window, 72);
-        if (idle.bottom - idle.top > Scale(app.window, 420)) {
-            if (app.idleIconSize != iconSize) {
-                if (app.idleIcon) {
-                    DestroyIcon(app.idleIcon);
-                }
-                app.idleIcon = static_cast<HICON>(LoadImageW(app.instance, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON, iconSize,
-                                                             iconSize, LR_DEFAULTCOLOR));
-                app.idleIconSize = iconSize;
-            }
-            if (app.idleIcon) {
+        if (idle.bottom - idle.top - cardHeight > Scale(app.window, 420)) {
+            if (IdleIcon(app, iconSize)) {
                 area.top -= Scale(app.window, 20);
                 DrawIconEx(dc, (area.left + area.right - iconSize) / 2, area.top, app.idleIcon, iconSize, iconSize, 0,
                            nullptr, DI_NORMAL);
@@ -990,11 +1311,248 @@ void RunSelfTest(App& app) {
     }
 }
 
+bool SelfTestFeeds(const App& app) {
+    return app.selfTestAudio || app.selfTestTone || app.selfTestAudioSwitch || !app.selfTestVideo.empty();
+}
+
+// What a locked receiver holds back, in launch order: Bluetooth control, the
+// AirPlay service, and in a self-test the clip that stands in for a phone.
+// A second call comes after the license became active again (a purchase after the trial
+// ended while AirWindows was open). StopService disconnected Bluetooth control; this
+// restores it the way a launch does: the remembered pairs, and the phone used last
+// published for, so the mirroring iPhone does not have to be chosen again.
+void StartControl(App& app) {
+    const bool again = app.controlStarted;
+    app.controlStarted = true;
+    if (again) {
+        LOGI("[CONTROL] license active again: restoring Bluetooth control as at launch (%s)",
+             app.settings.controlPhone.empty() ? "no remembered phone" : "remembered phone and pairs");
+    }
+    app.control.Start(app.settings.controlPairs, app.settings.controlPhone, app.settings.controlSender,
+                      !app.controlPhoneOverride.empty());
+}
+
+void StartSelfTestFeed(App& app) {
+    if (SelfTestFeeds(app) && !app.selfTestThread.joinable()) {
+        app.selfTestThread = std::thread([&app] { RunSelfTest(app); });
+    }
+}
+
+// Starts what is not running yet, without a restart: at the Store's first answer,
+// or when a purchase makes the license active.
+void StartService(App& app) {
+    if (app.serviceStarted) {
+        return;
+    }
+    app.serviceStarted = true;
+    StartControl(app);
+    if (!SelfTesting(app)) {
+        StartServer(app);
+    }
+    StartSelfTestFeed(app);
+}
+
+// The Store says the license stopped being active while the receiver runs (the
+// trial ran out): end the session, stop advertising and close Bluetooth.
+void StopService(App& app) {
+    if (!app.serviceStarted) {
+        return;
+    }
+    app.serviceStarted = false;
+    LOGI("[LICENSE] the license is no longer active: stopping AirPlay and Bluetooth control");
+    app.control.Invalidate();
+    app.control.Disconnect();
+    // In a self-test the clip stands in for the phone, so it stops too; StartService
+    // starts it again after a simulated purchase.
+    if (app.selfTestThread.joinable()) {
+        app.selfTestStop = true;
+        app.selfTestThread.join();
+        app.selfTestStop = false;
+    }
+    app.server.Stop();
+    app.audio.StopPlayback();
+    app.video.Reset();
+    app.connections = 0;
+    app.client = ClientInfo{};
+    app.mirrorRunning = false;
+    // The session that kept the display awake is gone; a locked receiver must not keep it on.
+    SetThreadExecutionState(ES_CONTINUOUS);
+    UpdateTitle(app);
+}
+
+void RelayoutWindow(App& app);
+GuideState MakeGuideState(const App& app);
+
+int64_t UnixNow() {
+    return static_cast<int64_t>(std::time(nullptr));
+}
+
+// Decides, before the window exists, whether this run asks the Store at all:
+// a packaged run does; --selftest-license simulates the answer; nothing else asks.
+void InitLicensing(App& app) {
+    auto& licensing = app.licensing;
+    if (app.selfTestLicenseGiven && app.selfTestLicense == L"store") {
+        // A self-test that asks the real Store, read-only, so a packaged test run shows what
+        // the license layer does there without opening the AirPlay listener. Buy stays real.
+        if (store_license::HasPackageIdentity()) {
+            licensing.asked = true;
+            LOGI("[LICENSE] self-test: asking the Microsoft Store for this package's real license");
+        } else {
+            LOGW("[LICENSE] --selftest-license store needs a packaged run; no licensing in this run");
+        }
+    } else if (app.selfTestLicenseGiven) {
+        licensing.simulated = store_license::ParseSelfTest(app.selfTestLicense, UnixNow());
+        if (licensing.simulated) {
+            licensing.asked = true;
+            LOGI("[LICENSE] self-test: simulating the Store's answer '%ls'", app.selfTestLicense.c_str());
+        } else {
+            LOGW("[LICENSE] --selftest-license needs trial:<1-365>, expired, licensed or store; no licensing in this run");
+        }
+    } else if (!SelfTesting(app) && store_license::HasPackageIdentity()) {
+        licensing.asked = true;
+        LOGI("[LICENSE] packaged run: asking the Microsoft Store for the license");
+    }
+    if (licensing.asked && store_license::IsElevated()) {
+        licensing.canBuy = false;
+        LOGW("[LICENSE] running as administrator: the Microsoft Store does not support purchases from an elevated "
+             "app, so Buy AirWindows is hidden");
+    }
+}
+
+std::wstring PurchaseMessage(store_license::Purchase outcome) {
+    switch (outcome) {
+    case store_license::Purchase::Succeeded:
+        return L"Thank you for buying AirWindows.";
+    case store_license::Purchase::AlreadyPurchased:
+        return L"This Microsoft account already owns AirWindows.";
+    case store_license::Purchase::NotPurchased:
+        return L"The purchase was not completed.";
+    case store_license::Purchase::NetworkError:
+        return L"The Microsoft Store could not be reached. Check the network and try again.";
+    case store_license::Purchase::ServerError:
+        return L"The Microsoft Store reported a problem. Try again later.";
+    case store_license::Purchase::NotListed:
+        return L"The Microsoft Store does not list this copy of AirWindows.";
+    case store_license::Purchase::Failed:
+        break;
+    }
+    return L"The Microsoft Store purchase could not start. See the log.";
+}
+
+// The state store_license::Tracker decided, from a real or simulated answer: the same
+// gating for both. `thank`: a real Store answer just unlocked a trial or a locked app.
+void ApplyLicense(App& app, const store_license::State& state, bool thank) {
+    auto& licensing = app.licensing;
+    const store_license::State before = licensing.state;
+    const bool first = !licensing.answered;
+    licensing.answered = true;
+    KillTimer(app.window, kLicenseWaitTimer);
+    licensing.state = state;
+    if (first || state.kind != before.kind || state.daysLeft != before.daysLeft) {
+        LOGI("[LICENSE] %s%s", store_license::KindName(state.kind),
+             state.kind == store_license::Kind::Trial ? (", days left " + std::to_string(state.daysLeft)).c_str() : "");
+    }
+    if (store_license::AllowsService(state.kind)) {
+        StartService(app);
+    } else {
+        if (first) {
+            LOGI("[LICENSE] locked: AirPlay and Bluetooth stay off until AirWindows is bought");
+        }
+        StopService(app);
+    }
+    if (thank) {
+        Toast(app, L"Thank you for buying AirWindows. It is unlocked.");
+    }
+    if (app.guideOpen) {
+        app.guide.Update(MakeGuideState(app));
+    }
+    RelayoutWindow(app);  // the unlock panel and its button come and go
+}
+
+// The Store license layer queued answers and purchase outcomes (WM_APP_LICENSE).
+void OnLicenseEvents(App& app) {
+    auto& licensing = app.licensing;
+    for (const store_license::Event& event : licensing.store.Take()) {
+        if (event.type == store_license::Event::Type::Purchase) {
+            LOGI("[LICENSE] purchase: %s", store_license::PurchaseName(event.outcome));
+            Toast(app, PurchaseMessage(event.outcome));
+            const bool owned = event.outcome == store_license::Purchase::Succeeded ||
+                               event.outcome == store_license::Purchase::AlreadyPurchased;
+            if (owned) {
+                // The license read that follows can still be the old one; the purchase answer wins.
+                licensing.tracker.RecordPurchase(true);
+                LOGI("[LICENSE] purchase confirmed: full for the rest of this run%s",
+                     licensing.simulated ? "" : "; the license is read again at 2, 10 and 30 s");
+                ApplyLicense(app, licensing.tracker.Current(UnixNow()), false);
+            }
+        } else {
+            const store_license::Kind before = licensing.state.kind;
+            if (!event.answer.ok) {
+                LOGW("[LICENSE] the Store read failed; keeping %s", licensing.answered ? store_license::KindName(before)
+                                                                                    : "full (no answer yet)");
+            }
+            const bool thank = licensing.answered && store_license::Unlocked(before, event.answer);
+            licensing.tracker.Record(event.answer);
+            ApplyLicense(app, licensing.tracker.Current(UnixNow()), thank);
+        }
+    }
+}
+
+// Once a minute: the trial's day count moves on without a new read, and once the trial's
+// end date passes on this PC's clock the Store is asked (every 10 minutes until it answers).
+// The clock alone never locks: until the Store says so, the status bar says "Trial ends today".
+void OnLicenseTick(App& app) {
+    auto& licensing = app.licensing;
+    if (!licensing.answered) {
+        return;
+    }
+    const int64_t now = UnixNow();
+    if (licensing.tracker.TakeExpiryCheck(now)) {
+        LOGI("[LICENSE] the trial's end date has passed on this PC's clock; asking the Microsoft Store");
+        licensing.store.Refresh();
+    }
+    const store_license::State state = licensing.tracker.Current(now);
+    if (state.kind != licensing.state.kind || state.daysLeft != licensing.state.daysLeft) {
+        ApplyLicense(app, state, false);
+    }
+}
+
+// No answer from the Store in time: fail open, as a paying customer must never be
+// locked out by a Store that is slow or unreachable. A later answer still applies.
+void OnLicenseWaitEnded(App& app) {
+    KillTimer(app.window, kLicenseWaitTimer);
+    if (app.licensing.answered) {
+        return;
+    }
+    LOGW("[LICENSE] no answer from the Microsoft Store in %u s; starting as fully licensed", kLicenseWaitMs / 1000);
+    ApplyLicense(app, app.licensing.tracker.Current(UnixNow()), false);  // no answer yet: full
+}
+
+// Help > Buy AirWindows and the unlock panel's button: the Store's own purchase dialog.
+void BuyApp(App& app) {
+    const store_license::Kind kind = app.licensing.state.kind;
+    if (kind != store_license::Kind::Trial && kind != store_license::Kind::Inactive) {
+        LOGW("[LICENSE] Buy AirWindows ignored: nothing to buy (%s)", store_license::KindName(kind));
+        return;
+    }
+    if (!app.licensing.canBuy) {
+        LOGW("[LICENSE] Buy AirWindows ignored: elevated process");
+        return;
+    }
+    if (!app.licensing.store.Buy()) {
+        Toast(app, L"The Microsoft Store purchase is already open.");
+        return;
+    }
+    LOGI("[LICENSE] Buy AirWindows: opening the Microsoft Store purchase dialog");
+    Toast(app, L"Opening the Microsoft Store…");
+}
+
 void Shutdown(App& app) {
     if (app.shutDown) {
         return;
     }
     app.shutDown = true;
+    app.licensing.store.Stop();  // its thread posts to the window, so it goes while the window exists
     app.control.Shutdown();
     app.selfTestStop = true;
     if (app.selfTestThread.joinable()) {
@@ -1156,6 +1714,12 @@ bool PhoneButtonPairs(const App& app) {
     return !state.published && !state.ready && state.bound.empty() && app.controlPeers.empty();
 }
 
+// The status bar's sentence about an adapter that cannot control a phone, while Bluetooth
+// control is idle (nothing published, paired or chosen). Empty otherwise.
+std::wstring AdapterNotice(const App& app) {
+    return PhoneButtonPairs(app) ? bluetooth_check::StatusText(app.adapter) : std::wstring();
+}
+
 ui::ButtonLook LookFor(const App& app, HWND control) {
     ui::ButtonLook look;
     look.kind = ui::ButtonKind::Subtle;
@@ -1183,6 +1747,11 @@ ui::ButtonLook LookFor(const App& app, HWND control) {
         look.showLabel = false;
     } else if (control == app.controlGuideOpen) {
         look.kind = ui::ButtonKind::Plain;
+    } else if (control == app.controlBuy) {
+        look.kind = ui::ButtonKind::Accent;
+    } else if (control == app.controlNetwork) {
+        look.kind = ui::ButtonKind::Accent;
+        look.glyph = ui::kGlyphSettings;
     }
     return look;
 }
@@ -1218,6 +1787,14 @@ void DrawStatus(const App& app, const DRAWITEMSTRUCT& item) {
         GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &size);
         return static_cast<int>(size.cx);
     };
+    // The trial countdown keeps the far right: short, quiet and never dropped.
+    if (!app.statusLicense.empty()) {
+        const int licenseWidth = measure(app.statusLicense);
+        RECT label{right - licenseWidth, 0, right, height};
+        SetTextColor(dc, ui::kTextFaint);
+        DrawTextW(dc, app.statusLicense.c_str(), -1, &label, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        right = label.left - Scale(app.window, 18);
+    }
     // The details give way before the status does: they lose parts from the right until the
     // status sentence fits beside them, and go altogether in a window too narrow for that.
     const int statusLeft = margin + Scale(app.window, 16);
@@ -1251,6 +1828,7 @@ void DrawStatus(const App& app, const DRAWITEMSTRUCT& item) {
                          : state.focused ? ui::kAccent
                          : (state.ready && app.hasPicture) ? ui::kGood  // green only while that phone is on screen
                          : (!state.bound.empty() || state.published || !app.controlPeers.empty()) ? ui::kWarn
+                         : !AdapterNotice(app).empty() ? ui::kWarn
                          : ui::kTextOff;
     int left = margin;
     ui::FillCircle(dc, left + Scale(app.window, 4), height / 2, Scale(app.window, 4), dot);
@@ -1282,6 +1860,20 @@ GuideState MakeGuideState(const App& app) {
     guide.ready = state.ready;
     guide.controlled = app.settings.setupControlled;
     guide.bluetoothStatus = state.ready ? std::wstring() : Utf8ToWide(state.message);
+    if (app.licensing.state.kind == store_license::Kind::Trial) {
+        const int days = app.licensing.state.daysLeft;
+        const std::wstring left = days < 0    ? L"This is a free trial."
+                                  : days == 0 ? L"This is a free trial, and today is its last day."
+                                  : L"This is a free trial with " + std::to_wstring(days) +
+                                        (days == 1 ? L" day left." : L" days left.");
+        guide.terms = left + (app.licensing.canBuy ? L" To buy AirWindows, open Menu › Help › Buy AirWindows." : L"");
+    }
+    guide.adapterProblem = bluetooth_check::GuideText(app.adapter);
+    const network_check::Advice advice = network_check::Advise(app.network);
+    guide.networkNote = NetworkNotice(app);
+    guide.networkBlocking = advice.notice == network_check::Notice::Hard;
+    guide.packaged = app.packaged;
+    guide.firewallReady = advice.firewallReady;
     return guide;
 }
 
@@ -1341,8 +1933,36 @@ void LayoutControls(App& app, int width, int height) {
         }
         ShowWindow(panel, guide ? SW_SHOWNA : SW_HIDE);
     }
+    // A locked receiver shows the unlock panel's two buttons where the picture would be.
+    if (app.controlBuy) {
+        const bool unlock = Locked(app) && !app.hasPicture && app.licensing.canBuy;
+        if (unlock) {
+            RECT client{0, 0, width, height};
+            HDC dc = GetDC(window);
+            const UnlockFonts fonts(window);
+            const UnlockLayout layout = LayoutUnlock(app, dc, fonts, IdleArea(app, client));
+            ReleaseDC(window, dc);
+            MoveWindow(app.controlBuy, layout.buy.left, layout.buy.top, layout.buy.right - layout.buy.left,
+                       layout.buy.bottom - layout.buy.top, TRUE);
+        }
+        ShowWindow(app.controlBuy, unlock ? SW_SHOWNA : SW_HIDE);
+    }
+    RECT client{0, 0, width, height};
+    const RECT idle = IdleArea(app, client);
+    if (app.controlNetwork) {
+        HDC dc = GetDC(window);
+        HFONT font = ui::CreateTextFont(window, 11, false);  // the idle screen's body text
+        const NetworkCard card = LayoutNetworkCard(app, dc, font, idle);
+        DeleteObject(font);
+        ReleaseDC(window, dc);
+        if (card.shown) {
+            MoveWindow(app.controlNetwork, card.button.left, card.button.top, card.button.right - card.button.left,
+                       card.button.bottom - card.button.top, TRUE);
+        }
+        ShowWindow(app.controlNetwork, card.shown ? SW_SHOWNA : SW_HIDE);
+    }
     // On the idle screen, with the guide closed, offer it.
-    const bool offerGuide = chrome && !app.hasPicture && !app.guideOpen && videoHeight > Scale(window, 260);
+    const bool offerGuide = chrome && OfferGuide(app, idle);
     if (offerGuide) {
         const int wide = ui::ButtonWidth(app.controlGuideOpen, LookFor(app, app.controlGuideOpen), app.uiFont) + Scale(window, 16);
         MoveWindow(app.controlGuideOpen, (videoWidth - wide) / 2, top + videoHeight - Scale(window, 60), wide,
@@ -1356,6 +1976,87 @@ void RelayoutWindow(App& app) {
     GetClientRect(app.window, &client);
     LayoutControls(app, client.right, client.bottom);
     InvalidateRect(app.window, nullptr, FALSE);
+}
+
+void UpdateControlUi(App& app);
+
+// Reads the Windows network type of the networks AirPlay can use, and follows changes:
+// a network the user sets to Private in Settings clears the warning within a few seconds.
+void RefreshNetwork(App& app, bool readFirewall) {
+    const ULONGLONG tick = GetTickCount64();
+    app.networkReadAt = tick;
+    readFirewall = readFirewall || app.firewallReadAt == 0 || tick - app.firewallReadAt >= kFirewallPollMs;
+    if (readFirewall) {
+        app.firewallReadAt = tick;
+    }
+    network_check::Result now = network_check::Read(app.executable, app.packageSid, readFirewall, app.networkRead);
+    // A new network or a new type: read the firewall for it now rather than reuse the last answer.
+    const auto sameNetworks = [](const network_check::Result& a, const network_check::Result& b) {
+        if (a.networks.size() != b.networks.size()) return false;
+        for (size_t i = 0; i < a.networks.size(); ++i) {
+            if (a.networks[i].name != b.networks[i].name || a.networks[i].category != b.networks[i].category) return false;
+        }
+        return true;
+    };
+    if (!readFirewall && !sameNetworks(now, app.networkRead)) {
+        app.firewallReadAt = tick;
+        now = network_check::Read(app.executable, app.packageSid, true, app.networkRead);
+    }
+    app.networkRead = now;
+    if (app.selfTestNetworkGiven && network_check::ValidSelfTest(app.selfTestNetwork)) {
+        now = network_check::Simulate(now, app.selfTestNetwork);
+    }
+    if (now == app.network) {
+        return;
+    }
+    const network_check::Advice advice = network_check::Advise(now);
+    LOGI("[NET] network type: %ls%ls", now.Describe().c_str(),
+         advice.notice == network_check::Notice::Hard ? L" (iPhones there cannot find this PC)"
+         : advice.notice == network_check::Notice::Conditional ? L" (a public network may hide this PC)" : L"");
+    app.network = std::move(now);
+    if (app.guideOpen) {
+        app.guide.Update(MakeGuideState(app));
+    }
+    RelayoutWindow(app);
+}
+
+// Launch check of the Bluetooth adapter, on a thread of its own: the answer can take a
+// moment and the window must not wait for it. --selftest-bluetooth answers at once.
+void CheckAdapter(App& app) {
+    KillTimer(app.window, kAdapterTimer);
+    // --selftest-bluetooth probe runs the real, read-only check in a self-test.
+    const bool probe = app.selfTestBluetoothGiven && app.selfTestBluetooth == L"probe";
+    if (app.selfTestBluetoothGiven && !probe) {
+        if (const auto simulated = bluetooth_check::ParseSelfTest(app.selfTestBluetooth)) {
+            LOGI("[SELFTEST] simulating the Bluetooth adapter check: %s", bluetooth_check::Name(*simulated));
+            PostMessageW(app.window, WM_APP_ADAPTER, static_cast<WPARAM>(*simulated), 0);
+        }
+        return;
+    }
+    if (SelfTesting(app) && !probe) {
+        return;  // self-tests do not ask the adapter unless told what it says
+    }
+    const HWND window = app.window;
+    // Detached: it touches nothing but the window handle, and a Bluetooth stack that
+    // never answers must not hold up closing AirWindows.
+    std::thread([window] {
+        const bluetooth_check::Adapter result = bluetooth_check::Probe();
+        if (!PostMessageW(window, WM_APP_ADAPTER, static_cast<WPARAM>(result), 0)) {
+            LOGW("[BT] adapter check result could not reach the window (error %lu)", GetLastError());
+        }
+    }).detach();
+}
+
+void OnAdapterChecked(App& app, WPARAM value) {
+    if (value > static_cast<WPARAM>(bluetooth_check::Adapter::NoPeripheral)) {
+        return;  // a message in this range can come from any program
+    }
+    app.adapter = static_cast<bluetooth_check::Adapter>(value);
+    LOGI("[BT] adapter at launch: %s", bluetooth_check::Name(app.adapter));
+    UpdateControlUi(app);
+    if (app.guideOpen) {
+        app.guide.Update(MakeGuideState(app));
+    }
 }
 
 // Opens or closes the setup guide beside the picture. The window grows to make
@@ -1476,7 +2177,35 @@ void ShowPhoneMenu(App& app) {
 // Window procedures
 // ---------------------------------------------------------------------------
 
+// Opens a folder in Explorer or a Settings page. A self-test driven with --selftest-menu
+// writes the target to the log instead, so an agent can check it without a window opening.
+void OpenShell(App& app, const wchar_t* what, const std::wstring& target) {
+    if (app.selfTestMenu && SelfTesting(app)) {
+        LOGI("[SELFTEST] would open the %ls: %ls", what, target.c_str());
+        return;
+    }
+    LOGI("[UI] opening the %ls: %ls", what, target.c_str());
+    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(app.window, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    if (result <= 32) {
+        LOGW("[UI] could not open the %ls (ShellExecute %lld)", what, static_cast<long long>(result));
+        Toast(app, L"That could not be opened. See the log.");
+    }
+}
+
 void OnCommand(App& app, UINT id) {
+    // Bluetooth control is not running while the Store license is inactive (or, for a
+    // few seconds at launch, not yet known), so pairing, choosing and Home wait.
+    // The guide's Pair button arrives here too. Every other run has it from launch.
+    const bool bluetooth = id == static_cast<UINT>(kPairControl) || id == static_cast<UINT>(kPeerControl) ||
+                           id == static_cast<UINT>(kBindControl) || id == static_cast<UINT>(kDisconnectControl) ||
+                           id == static_cast<UINT>(kHomeControl) ||
+                           (id >= static_cast<UINT>(kPeerFirst) && id <= static_cast<UINT>(kPeerLast));
+    if (bluetooth && !app.serviceStarted) {
+        LOGI("[LICENSE] Bluetooth command %u refused: Bluetooth control is not running", id);
+        Toast(app, Locked(app) ? L"Bluetooth control is off until AirWindows is bought."
+                               : L"Bluetooth control is starting. Try again in a moment.");
+        return;
+    }
     if(id==kHomeControl){
         app.controlDragging=false;if(GetCapture()==app.videoWindow)ReleaseCapture();
         app.control.Invalidate(); // the explicit global action replaces older queued input
@@ -1522,6 +2251,12 @@ void OnCommand(App& app, UINT id) {
         if (app.selfTestMenu) { SyncMenu(app); LogMenu(app.menu, L""); }
         return;
     }
+    if (id==kExpireCommand) {
+        // Acts only on a simulated license: any program running as this user can post it.
+        if (!app.licensing.store.SimulateExpiry()) LOGW("[LICENSE] command %u ignored: no simulated license", id);
+        return;
+    }
+    if (id==kNetworkControl) { OpenShell(app, L"network settings", network_check::Advise(app.network).settingsUri); return; }
     Settings& settings = app.settings;
     // These settings take effect on a fresh service, which ends a session in progress.
     const auto restart = [&](bool video, const wchar_t* what = L"The setting was applied") {
@@ -1554,7 +2289,7 @@ void OnCommand(App& app, UINT id) {
         restart(false, L"The AirPlay service was restarted");
         break;
     case IDM_OPEN_LOG_FOLDER:
-        ShellExecuteW(app.window, L"open", AppDataDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        OpenShell(app, L"log folder", AppDataDir());
         break;
     case IDM_OPEN_SCREENSHOTS:
     case IDM_OPEN_RECORDINGS: {
@@ -1563,7 +2298,7 @@ void OnCommand(App& app, UINT id) {
         if (folder.empty()) {
             Toast(app, L"That folder could not be created. See the log.");
         } else {
-            ShellExecuteW(app.window, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            OpenShell(app, id == IDM_OPEN_SCREENSHOTS ? L"screenshots folder" : L"recordings folder", folder);
         }
         break;
     }
@@ -1619,6 +2354,9 @@ void OnCommand(App& app, UINT id) {
     case IDM_ABOUT:
         ShowAbout(app);
         break;
+    case IDM_BUY_APP:
+        BuyApp(app);
+        break;
     }
 }
 
@@ -1649,12 +2387,18 @@ void UpdateControlUi(App& app) {
         app.toastUntil=0;
     }
     const bool toast=GetTickCount64()<app.toastUntil;
-    const std::wstring text=toast ? app.toast : state.focused ? L"Controlling iPhone - click elsewhere to return" : Utf8ToWide(state.message);
+    // Locked, the Bluetooth sentence would only say "disconnected"; say why instead.
+    const std::wstring locked=Locked(app) ? L"The free trial has ended. Mirroring and Bluetooth control are off." : L"";
+    // Until Bluetooth control has done anything, an adapter that cannot control a phone is the news.
+    const std::wstring adapter=AdapterNotice(app);
+    const std::wstring text=toast ? app.toast : !locked.empty() ? locked : state.focused ? L"Controlling iPhone - click elsewhere to return"
+        : !adapter.empty() ? adapter : Utf8ToWide(state.message);
     const std::wstring detail=StatusDetail(app);
     const std::wstring clock=RecordClock(app);
+    const std::wstring trial=TrialLabel(app);
     const bool usable=state.ready && app.hasPicture;  // decides the dot's colour, so a change repaints
-    if(text!=app.lastControlStatus || detail!=app.statusDetail || clock!=app.statusClock || usable!=app.statusReady || state.focused!=app.statusFocused){
-        app.lastControlStatus=text;app.statusDetail=detail;app.statusClock=clock;app.statusReady=usable;app.statusFocused=state.focused;
+    if(text!=app.lastControlStatus || detail!=app.statusDetail || clock!=app.statusClock || trial!=app.statusLicense || usable!=app.statusReady || state.focused!=app.statusFocused){
+        app.lastControlStatus=text;app.statusDetail=detail;app.statusClock=clock;app.statusLicense=trial;app.statusReady=usable;app.statusFocused=state.focused;
         SetWindowTextW(app.controlStatus,text.c_str());
         InvalidateRect(app.controlStatus,nullptr,FALSE);
     }
@@ -1691,6 +2435,11 @@ void UpdateControlUi(App& app) {
     if(wasRecordLabel!=app.recordLabelStop){
         SetWindowTextW(app.controlRecord,app.recording ? L"Stop" : L"Record");
         InvalidateRect(app.controlRecord,nullptr,FALSE);
+    }
+    if(app.licensing.asked){
+        // Bluetooth waits for the Store's answer and stays off while the license is not active.
+        const bool phoneButton=app.serviceStarted;
+        if((IsWindowEnabled(app.controlPeer)!=FALSE)!=phoneButton)EnableWindow(app.controlPeer,phoneButton);
     }
     EnableWindow(app.controlHome,state.ready && app.hasPicture && app.mirrorRunning);
     EnableWindow(app.controlShot,app.hasPicture);
@@ -1883,6 +2632,8 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         const auto& item = *reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
         if (item.hwndItem == app->controlStatus) {
             DrawStatus(*app, item);
+        } else if (item.hwndItem == app->controlBuy) {
+            ui::DrawButton(item, LookFor(*app, item.hwndItem), app->uiBold, app->iconFont);
         } else {
             ui::DrawButton(item, LookFor(*app, item.hwndItem), app->uiFont, app->iconFont);
         }
@@ -1961,12 +2712,21 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
                 LOGI("[NET] local addresses now: %ls", addresses.empty() ? L"none" : addresses.c_str());
                 app->addresses = std::move(addresses);
                 InvalidateRect(window, nullptr, FALSE);
+                RefreshNetwork(*app, true);  // a new network brings its own type and firewall answer
+            } else if (GetTickCount64() - app->networkReadAt >= kNetworkPollMs) {
+                RefreshNetwork(*app, false);
             }
             if (app->fullscreen && app->hasPicture && GetTickCount() - app->lastMouseMove > kCursorHideMs) {
                 SetCursorHidden(*app, true);
             }
         } else if (wParam == kExitTimer) {
             PostMessageW(window, WM_CLOSE, 0, 0);
+        } else if (wParam == kLicenseWaitTimer) {
+            OnLicenseWaitEnded(*app);
+        } else if (wParam == kLicenseTickTimer) {
+            OnLicenseTick(*app);
+        } else if (wParam == kAdapterTimer) {
+            CheckAdapter(*app);
         // The two self-test timers act only when their option was given: a timer
         // message can be posted by any program running as this user.
         } else if (wParam == kDeviceLossTimer && app->selfTestDeviceLossSeconds > 0) {
@@ -2067,6 +2827,16 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         return 0;
     }
 
+    case WM_APP_LICENSE:
+        // The events wait in the license layer, not in the message: a message in this
+        // range can be posted by any program, and must not carry a pointer.
+        OnLicenseEvents(*app);
+        return 0;
+
+    case WM_APP_ADAPTER:
+        OnAdapterChecked(*app, wParam);
+        return 0;
+
     case WM_APP_VIDEO_DEVICE_LOST:
         RecoverVideo(*app, true);
         return 0;
@@ -2138,6 +2908,32 @@ void ParseCommandLine(App& app) {
             // One-run override for testing; not saved.
             const std::wstring mode = argv[++i];
             app.decoderOverride = mode == L"software" ? 2 : mode == L"hardware" ? 1 : 0;
+        } else if (arg == L"--selftest-license") {
+            // Simulates the Store's license answer for this run only: no Store call, nothing
+            // saved. Counts as a self-test even without a valid value, so it never advertises.
+            app.selfTestLicenseGiven = true;
+            if (i + 1 < argc) {
+                app.selfTestLicense = argv[++i];
+            }
+        } else if (arg == L"--selftest-bluetooth") {
+            // Simulates the launch check of the Bluetooth adapter. A self-test even without a value.
+            app.selfTestBluetoothGiven = true;
+            if (i + 1 < argc) {
+                app.selfTestBluetooth = argv[++i];
+            }
+            if (app.selfTestBluetooth != L"probe" && !bluetooth_check::ParseSelfTest(app.selfTestBluetooth)) {
+                LOGW("[SELFTEST] --selftest-bluetooth needs none, no-peripheral, ready or probe; nothing is simulated");
+            }
+        } else if (arg == L"--selftest-network") {
+            // Gives every connected network this Windows network type. A self-test even without a value.
+            app.selfTestNetworkGiven = true;
+            if (i + 1 < argc) {
+                app.selfTestNetwork = argv[++i];
+            }
+            if (!network_check::ValidSelfTest(app.selfTestNetwork)) {
+                LOGW("[SELFTEST] --selftest-network needs public, private, mixed, public-allowed or unknown; the real "
+                     "network types are shown");
+            }
         }
     }
     LocalFree(argv);
@@ -2184,6 +2980,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     applog::Init(AppDataDir() + L"\\debug.txt");
     LOGI("--- AirWindows " APP_VERSION_STRING " starting ---");
+    app.packaged = package_info::HasIdentity();
+    if (app.packaged) {
+        LOGI("[PACKAGE] package identity: %ls", package_info::FamilyName().c_str());
+    } else {
+        LOGI("[PACKAGE] no package identity (not installed from an MSIX package)");
+    }
+    LogDataFolder();
     ParseCommandLine(app);
     // A run with --exit-after is unattended and must end on its own, so it saves
     // the report without showing the dialog.
@@ -2233,6 +3036,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
     LOGI("[CFG] identity: serverName='%s' deviceId=%s", WideToUtf8(app.settings.serverName).c_str(),
          app.settings.macAddress.c_str());
+    InitLicensing(app);
 
     ui::Startup();
 
@@ -2288,14 +3092,24 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     app.controlGuideOpen=CreateWindowExW(0,L"BUTTON",L"Open the setup guide",WS_CHILD|BS_OWNERDRAW,0,0,1,1,app.window,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGuideOpenControl)),instance,nullptr);
     ui::TrackHover(app.controlGuideOpen,ui::kSurface);
+    app.controlNetwork=CreateWindowExW(0,L"BUTTON",L"Open network settings",WS_CHILD|BS_OWNERDRAW,0,0,1,1,app.window,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNetworkControl)),instance,nullptr);
+    ui::TrackHover(app.controlNetwork,ui::kPanel);
     app.controlStatus=CreateWindowExW(0,L"STATIC",L"Bluetooth control disconnected",WS_CHILD|WS_VISIBLE|SS_OWNERDRAW,0,0,1,1,
         app.window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kStatusControl)),instance,nullptr);
     app.lastControlStatus=L"Bluetooth control disconnected";
     app.phoneLabel=L"Pair Bluetooth";
+    if(app.licensing.asked){
+        // The unlock panel's button; hidden unless the Store says the license is not active.
+        app.controlBuy=CreateWindowExW(0,L"BUTTON",L"Buy in Microsoft Store",WS_CHILD|BS_OWNERDRAW,0,0,1,1,app.window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDM_BUY_APP)),instance,nullptr);
+        ui::TrackHover(app.controlBuy,ui::kSurface);
+    }
     Guide::Commands guideCommands;
     guideCommands.pair=kPairControl;
     guideCommands.firstPhone=kPeerFirst;
     guideCommands.close=kGuideCloseControl;
+    guideCommands.network=kNetworkControl;
     if(!app.guide.Create(app.window,instance,guideCommands)){
         LOGW("[UI] the setup guide could not be created (error %lu)",GetLastError());
     }
@@ -2327,7 +3141,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
     GetClientRect(app.window,&client);
     LayoutControls(app,client.right,client.bottom);
-    app.control.Start(app.settings.controlPairs,app.settings.controlPhone,app.settings.controlSender,!app.controlPhoneOverride.empty());
+    // A run that asks the Store starts Bluetooth, AirPlay and the self-test clip when
+    // the answer arrives (or the wait for it ends), and not while the license is
+    // inactive; see ApplyLicense. Every other run starts them here, as always.
+    app.serviceStarted=!app.licensing.asked;
+    if(app.serviceStarted)StartControl(app);
 
     if (!StartVideo(app)) {
         MessageBoxW(app.window, L"Direct3D 11 could not be initialized, so video cannot be shown.", kAppTitle,
@@ -2340,7 +3158,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     app.hevcHardware = VideoPipeline::HardwareHevcAvailable();
     app.addresses = NetworkSummary();
     LOGI("[NET] local addresses: %ls", app.addresses.empty() ? L"none" : app.addresses.c_str());
-    if (!SelfTesting(app)) StartServer(app);
+    wchar_t executable[MAX_PATH * 2] = L"";
+    if (!GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable))) {
+        LOGW("[NET] could not read this program's path (error %lu); the firewall check cannot match its rules", GetLastError());
+    }
+    app.executable = executable;
+    app.packageSid = package_info::Sid();
+    RefreshNetwork(app, true);
+    if (!SelfTesting(app) && app.serviceStarted) StartServer(app);
     UpdateTitle(app);
 
     if (app.settings.alwaysOnTop) {
@@ -2352,6 +3177,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     UpdateWindow(app.window);
     SetTimer(app.window, kTickTimer, 1000, nullptr);
     SetTimer(app.window,kControlTimer,100,nullptr);
+    // Shortly after the window is up, so the first paint does not wait for Bluetooth.
+    SetTimer(app.window, kAdapterTimer, kAdapterDelayMs, nullptr);
     if (app.exitAfterSeconds > 0) {
         SetTimer(app.window, kExitTimer, static_cast<UINT>(app.exitAfterSeconds) * 1000, nullptr);
     }
@@ -2361,8 +3188,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     if (!app.selfTestCrash.empty()) {
         SetTimer(app.window, kCrashTimer, 1000, nullptr);
     }
-    if (app.selfTestAudio || app.selfTestTone || app.selfTestAudioSwitch || !app.selfTestVideo.empty()) {
-        app.selfTestThread = std::thread([&app] { RunSelfTest(app); });
+    if (app.serviceStarted) {
+        StartSelfTestFeed(app);
+    }
+    if (app.licensing.asked) {
+        // The Store's dialogs need their owner window, so this waits until it exists.
+        app.licensing.store.Start(app.window, WM_APP_LICENSE, app.licensing.simulated);
+        if (!app.licensing.simulated) {
+            SetTimer(app.window, kLicenseWaitTimer, kLicenseWaitMs, nullptr);
+        }
+        SetTimer(app.window, kLicenseTickTimer, kLicenseTickMs, nullptr);
     }
 
     MSG message;

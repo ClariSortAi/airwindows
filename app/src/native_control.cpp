@@ -94,7 +94,12 @@ struct NativeControl::Impl {
             struct ActionDone { std::atomic<bool>& flag; ~ActionDone(){flag=false;} } actionDone{processing};
             try {
                 if (quit) { Close(); break; }
-                if (doDisconnect) { Close(); std::lock_guard<std::mutex> lock(mutex); state.message="Bluetooth control disconnected"; continue; }
+                if (doDisconnect) {
+                    Close();
+                    {std::lock_guard<std::mutex> lock(mutex); state.message="Bluetooth control disconnected";}
+                    // A Pair, Start or choice that arrived with the Disconnect still runs, on a fresh backend.
+                    if (!doPair && !doReopen && doBind.empty()) continue;
+                }
                 auto current=std::atomic_load(&backend);
                 if (current && (doStop || (held && (!queue.Armed() || GetTickCount64()>=holdExpires || GetTickCount64()>=holdLimit)))) {
                     current->Stop(); held=false;
@@ -296,7 +301,12 @@ void NativeControl::Bind(std::string token){
     impl_->Cancel();
 }
 void NativeControl::Disconnect(){
-    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->DropInput();impl_->focused=false;impl_->disconnect=true;impl_->link.OnDisconnect();}
+    // Requests made before the Disconnect go with it: a Pair still pending, or a reopen set
+    // by a mirror request just before the license locked, must not publish again afterwards.
+    // Only what arrives after this call (Start, Pair, a choice) runs.
+    {std::lock_guard<std::mutex> lock(impl_->mutex);impl_->DropInput();impl_->focused=false;
+      impl_->pair=false;impl_->reopen=false;impl_->bind.clear();
+      impl_->disconnect=true;impl_->link.OnDisconnect();}
     impl_->Cancel();
 }
 void NativeControl::Focus(bool value){

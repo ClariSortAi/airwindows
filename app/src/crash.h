@@ -4,7 +4,7 @@
 
 namespace crash {
 
-// Installs the handlers. Reports go to %LOCALAPPDATA%\AirWindows\crashes; the
+// Installs the handlers. Reports go to crashes\ in AppDataDir(); the
 // five newest are kept. `interactive` is false for unattended runs
 // (--exit-after), which save the report and end without a dialog.
 void Install(bool interactive);

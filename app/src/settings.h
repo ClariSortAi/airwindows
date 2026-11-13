@@ -1,4 +1,4 @@
-// User settings, persisted to %LOCALAPPDATA%\AirWindows\settings.ini.
+// User settings, persisted to settings.ini in AppDataDir().
 #pragma once
 
 #include <string>
@@ -40,8 +40,15 @@ struct Settings {
     void Save() const;
 };
 
-// %LOCALAPPDATA%\AirWindows, created on demand.
+// Where settings.ini, debug.txt and crashes\ live, created on demand. Unpackaged:
+// %LOCALAPPDATA%\AirWindows. Packaged (MSIX): the package's local data folder
+// (ApplicationData.Current.LocalFolder), which unpackaged tools can open too; the
+// first packaged run copies settings.ini from %LOCALAPPDATA%\AirWindows if it exists.
 std::wstring AppDataDir();
+// %LOCALAPPDATA%\AirWindows, the folder an unpackaged run uses. Not created here.
+std::wstring ClassicDataDir();
+// Writes the data folder, and what the first packaged run carried over, to the log.
+void LogDataFolder();
 
 std::string WideToUtf8(const std::wstring& text);
 std::wstring Utf8ToWide(const std::string& text);

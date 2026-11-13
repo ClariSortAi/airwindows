@@ -37,6 +37,7 @@ constexpr wchar_t kGlyphBluetooth = 0xE702;
 constexpr wchar_t kGlyphChevronDown = 0xE70D;
 constexpr wchar_t kGlyphClose = 0xE711;
 constexpr wchar_t kGlyphStop = 0xE71A;
+constexpr wchar_t kGlyphSettings = 0xE713;
 constexpr wchar_t kGlyphCamera = 0xE722;
 constexpr wchar_t kGlyphCheck = 0xE73E;
 constexpr wchar_t kGlyphBackToWindow = 0xE73F;
