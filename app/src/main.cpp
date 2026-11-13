@@ -817,7 +817,7 @@ void ShowAbout(App& app) {
         L"Decoding: FFmpeg (LGPL-2.1-or-later)\n"
         L"Also uses OpenSSL and libplist.\n\n"
         L"This program is free software under the GNU General Public License, version 3 or later, "
-        L"and comes with no warranty. Its source code comes with the download.\n\n"
+        L"and comes with no warranty. Its source code is published at github.com/ClariSortAi/airwindows.\n\n"
         L"AirPlay, iPhone, iPad and Mac are trademarks of Apple Inc. This program is not affiliated "
         L"with or endorsed by Apple.";
     TASKDIALOGCONFIG config{};
