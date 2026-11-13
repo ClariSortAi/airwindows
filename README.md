@@ -10,13 +10,11 @@ Earlier builds have been used on a real iPhone for mirroring, clicking, typing a
 
 ## Get started
 
-**[Download for Windows x64](https://github.com/ClariSortAi/airwindows/releases/download/v0.3.1-rc.5/AirWindows-0.3.1-rc.5-win-x64.zip)** · [Release notes, source and checksums](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5)
+PhonePort is coming to the Microsoft Store as a paid app with a 7-day free trial. The Store link will go here when it is live. This repository holds the source code.
 
-Extract the ZIP and double-click **Start-AirWindows.cmd**. This download, 0.3.1-rc.5, came out before the rename, so its files still use the old name. Builds after it ship **Start-PhonePort.cmd** and `PhonePort.exe`. The package includes the receiver, `iosctl.exe`, frame reader, licenses and setup guides. No compiler or GitHub account is required.
+The window has one row of controls: a phone button, Home, Screenshot, Record, Full screen and Menu. A setup guide opens beside the picture on a first launch. Screenshot (F8) saves a PNG and Record (F9) saves an MP4 at a constant frame rate. It now keeps working when the PC's network changes, moves sound to a new default playback device, rebuilds its picture after a graphics driver reset and saves a crash report if it stops. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
 
-RC5 has a redesigned window. One row holds a phone button, Home, Screenshot, Record, Full screen and Menu, and a setup guide opens beside the picture on a first launch. Screenshot (F8) saves a PNG and Record (F9) saves an MP4 at a constant frame rate. It now keeps working when the PC's network changes, moves sound to a new default playback device, rebuilds its picture after a graphics driver reset and saves a crash report if it stops. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
-
-Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md), also included in the ZIP. It walks through installation, pairing, Home setup and the final agent-operated test.
+Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md). It walks through installation, pairing, Home setup and the final agent-operated test.
 
 You need a 64-bit Windows PC, an iPhone on the same reachable network, and a Bluetooth adapter that supports BLE peripheral mode. The native control path has been tested on Windows 11 with a MediaTek adapter. Mirroring also supports iPad and Mac senders; Bluetooth input has been tested with an iPhone.
 
