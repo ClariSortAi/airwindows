@@ -24,7 +24,7 @@ The vcpkg commit in `scripts/bootstrap.ps1` pins library versions. `vcpkg-ports/
 
 ## Run and configure
 
-Allow AirWindows through Windows Firewall on the private network used by the phone. Open Control Center > Screen Mirroring on the sender and choose the name shown in the receiver. See [Native control](NATIVE-CONTROL.md) to pair the Bluetooth input connection.
+Allow AirWindows through Windows Firewall on the private network used by the phone. If Windows treats a connected network as Public, the idle screen and the setup guide say so and open the Settings page where it can be set to Private. Open Control Center > Screen Mirroring on the sender and choose the name shown in the receiver. See [Native control](NATIVE-CONTROL.md) to pair the Bluetooth input connection.
 
 AirWindows follows the PC's network connections while it runs. When Wi-Fi reconnects, a cable is plugged in or the address changes, discovery joins that network within a few seconds, and the receiver can be started before any network is up. Discovery uses each active physical interface and returns that interface's address to queries on its network. Wi-Fi and Ethernet may use different firewall profiles.
 
@@ -49,7 +49,7 @@ Rename, Resolution, Frame rate, Decoder and the H.265 setting restart the AirPla
 
 Recording uses the H.264 and AAC encoders that come with Windows. It encodes on the GPU when the PC has a hardware encoder. A recording has a constant frame rate: the one set under Video > Frame rate, 60 unless changed. A phone sends a picture only when its screen changes, so the recorder repeats the last picture until the next one arrives. Every frame in the file is then the same length, which video editors expect. A file is complete only after Record is pressed again or AirWindows is closed normally. Windows N editions need the Media Feature Pack for recording; everything else works without it.
 
-Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt` in the same folder. Receiver > Open log folder opens it. At 4 MB the log is renamed `debug.old.txt` and a new one starts. If AirWindows stops unexpectedly, it saves a crash report in the `crashes` folder there, keeps the five newest and shows a message with the location. Reports stay on the PC unless you send one. The window reopens where you left it. The executable is unsigned, so Windows may show a SmartScreen notice for downloaded copies. Check the source and checksum before running a download.
+Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt` in the same folder. A copy installed from the Microsoft Store keeps them in its own folder, `%LOCALAPPDATA%\Packages\<package name>\LocalState`, and its first start copies `settings.ini` from `%LOCALAPPDATA%\AirWindows`, so phones paired with the ZIP version carry over. Receiver > Open log folder opens the folder in use, and `iosctl --doctor` prints it as `data_folder`. At 4 MB the log is renamed `debug.old.txt` and a new one starts. If AirWindows stops unexpectedly, it saves a crash report in the `crashes` folder there, keeps the five newest and shows a message with the location. Reports stay on the PC unless you send one. The window reopens where you left it. The executable is unsigned, so Windows may show a SmartScreen notice for downloaded copies. Check the source and checksum before running a download.
 
 | Option | Purpose |
 |---|---|
@@ -65,10 +65,13 @@ Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt
 | `--selftest-crash access\|terminate` | Fail on purpose, to exercise the crash report |
 | `--selftest-screenshot` | With `--selftest-video`: save one screenshot once the picture is up (not copied to the clipboard) |
 | `--selftest-record <seconds>` | With `--selftest-video`: record for this long once the picture is up |
-| `--selftest-menu` | Write the menu's labels, check marks and grey-outs to the log when command 41200 is posted to the window |
+| `--selftest-menu` | Write the menu's labels, check marks and grey-outs to the log when command 41200 is posted to the window. In a self-test, Open log folder, the screenshot and recording folders and Open network settings then write their target to the log instead of opening it |
+| `--selftest-license <trial:N\|expired\|licensed>` | Simulate the Microsoft Store license answer (no Store call, nothing saved). With `trial:N`, command 41201 ends the trial while the window is open. `store` asks the real Store, read-only, in a packaged run |
+| `--selftest-bluetooth none\|no-peripheral\|ready\|probe` | Simulate the launch check of the Bluetooth adapter; `probe` runs the real check. Without it, self-tests skip the check |
+| `--selftest-network public\|private\|mixed\|public-allowed\|unknown` | Simulate the Windows network types and the firewall's answer: all Public and blocked, all Private, one Private and the rest Public, Public with an allow rule, or Public with the firewall unreadable |
 | `--exit-after <seconds>` | Exit after a bounded run; a failure then saves its report without a dialog |
 
-H.265 is offered only when the GPU can decode it; otherwise the sender uses H.264. If the graphics device is reset or removed, by a driver update for example, the session ends and the receiver rebuilds its video path. Start Screen Mirroring again to continue. Video is drawn after decoding. Audio uses a roughly 60-80 ms buffer and can trail the picture. It plays on Windows' default playback device and moves when that changes, for example when headphones are plugged in. Real-device sound, H.265 and unexpected network-drop recovery remain untested. Video-link casting, an audio-only now-playing display and additional languages are not implemented.
+H.265 is offered only when the GPU can decode it; otherwise the sender uses H.264. If the graphics device is reset or removed, by a driver update for example, the session ends and the receiver rebuilds its video path. Start Screen Mirroring again to continue. Video is drawn after decoding. Audio uses a roughly 60-80 ms buffer and can trail the picture. It plays on Windows' default playback device and moves when that changes, for example when headphones are plugged in. Sound from a mirroring iPhone was confirmed on 2026-11-13. H.265 decodes on the GPU and in software with a test clip, but no phone has sent H.265 to it yet. Recovery from an unexpected network drop remains untested. Video-link casting, an audio-only now-playing display and additional languages are not implemented.
 
 ## Checks
 

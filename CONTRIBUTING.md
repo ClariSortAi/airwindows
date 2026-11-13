@@ -4,7 +4,7 @@ Build and run the checks in [the application guide](app/README.md). Keep changes
 
 For a bug, include the executable version, Windows version, Bluetooth adapter, iPhone/iOS version, steps to reproduce and the result you expected. A short excerpt from `%LOCALAPPDATA%\AirWindows\debug.txt` usually helps. Remove phone names, network addresses and other personal details before attaching it. Do not attach phone screenshots unless their contents are safe to share.
 
-If AirWindows closed by itself, it saved a crash report in `%LOCALAPPDATA%\AirWindows\crashes`. Attach the newest `.dmp` file from that folder if you are comfortable sharing it. A report holds the program's thread stacks, which can include the receiver name, network addresses and text typed shortly before the failure. Unlike a log excerpt, it cannot be edited first.
+If AirWindows closed by itself, it saved a crash report in `%LOCALAPPDATA%\AirWindows\crashes` (a Microsoft Store install: the `crashes` folder that Receiver > Open log folder opens). Attach the newest `.dmp` file from that folder if you are comfortable sharing it. A report holds the program's thread stacks, which can include the receiver name, network addresses and text typed shortly before the failure. Unlike a log excerpt, it cannot be edited first.
 
 For input changes, test a click, text entry, a list drag, focus loss and reconnect. Report which checks used a real phone and which ran in software. A successful HID notification is not evidence that the intended control changed. Do not replay an uncertain action automatically.
 

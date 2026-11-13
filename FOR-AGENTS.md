@@ -71,9 +71,9 @@ The [release page](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1
 
 ## 3. Start AirWindows
 
-For the user, double-click **Start-AirWindows.cmd**. It opens the receiver with frame access enabled.
+For the user, double-click **Start-AirWindows.cmd**. It opens the receiver with frame access enabled. From a Microsoft Store install, start AirWindows from the Start menu or run `airwindows --frames`; `iosctl` is on the command path.
 
-For an agent, launch the executable directly when no intended receiver is already running:
+For an agent, launch the executable directly when no intended receiver is already running (Store install: run `airwindows --frames`):
 
 ```powershell
 # Set $receiverExe to the full path recorded in Step 2.
@@ -94,7 +94,7 @@ Keep the window visible. 0.3.1-rc.5 and later have one button row: the phone but
 | The status line | Status bar at the bottom of the window | Line under the buttons |
 | The PC menu | **Menu** button, Alt, or right-click outside the picture | Menu bar, or right-click outside the picture |
 
-Allow this executable through Windows Firewall on the trusted private network in use. Keep the receiver and agent in the same normal Windows user session.
+Allow this executable through Windows Firewall on the trusted private network in use (a Store install brings its own rule for private networks; if AirWindows reports a Public network, set it to Private). Keep the receiver and agent in the same normal Windows user session.
 
 If an existing receiver lacks `--frames`: on 0.3.1-rc.5 and later, run `Start-AirWindows.cmd` again; the second launch turns frame access on in the running receiver and exits, and Screen Mirroring continues. On 0.3.1-rc.4 and earlier, finish any active operation, then restart the receiver. That restart interrupts Screen Mirroring. Rediscover its PID afterward.
 
@@ -114,7 +114,7 @@ Have them open Settings and verify that the change appears in the mirror. If the
 2. Click **Pair Bluetooth** in AirWindows. Discovery stays open for 120 seconds. If the status line says the Bluetooth adapter cannot act as a keyboard and mouse (0.3.1-rc.4 and earlier: `BLE peripheral role is unavailable`), resolve the adapter or driver limitation first. If it says no Bluetooth adapter was found or Bluetooth could not start, turn Bluetooth on in Windows and click **Pair Bluetooth** again.
 3. Ask the user to open the iPhone's **main Settings > Bluetooth** page and select the PC under Other Devices while discovery is still open. The PC's Bluetooth name can differ from the AirPlay receiver name. iOS can keep listing the PC after discovery closes; if pairing finishes then, iOS saves the pairing without AirWindows' input service.
 4. Complete any pairing prompt shown. The tested setup did not show a Windows code prompt; that alone is not a failure.
-5. Select the intended phone in AirWindows and click **Connect**, with that same phone still mirroring.
+5. Select the intended phone in AirWindows by choosing it from the phone button, with that same phone still mirroring.
 
 The app should say to click the mirrored phone to control it. If discovery expires, click Pair Bluetooth again. If the selector stays empty, inspect the status and recent log entries:
 
@@ -122,6 +122,8 @@ The app should say to click the mirrored phone to control it. If discovery expir
 Get-Content -LiteralPath "$env:LOCALAPPDATA\AirWindows\debug.txt" -Tail 100 |
     Select-String -Pattern '\[CONTROL\]'
 ```
+
+Store install: the log is in the `data_folder` that `iosctl --doctor` prints.
 
 Readiness requires matching Bluetooth and AirPlay identities. An old `Ready=1` log entry or the phone's Connected label is insufficient. Do not copy device fingerprints or force saved identity settings.
 

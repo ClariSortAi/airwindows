@@ -30,10 +30,12 @@ if ($receivers.Count -ne 1) {
 }
 $receiverPid = [int]$receivers[0].ProcessId
 $receivers | Select-Object ProcessId, ExecutablePath, CommandLine
-Get-Content -LiteralPath "$env:LOCALAPPDATA\AirWindows\debug.txt" -Tail 60
+# The log is in the receiver's data folder, which iosctl reports for ZIP and Store installs alike.
+$dataFolder = (& $iosctlExe --doctor --pid $receiverPid | ConvertFrom-Json).data_folder
+Get-Content -LiteralPath (Join-Path $dataFolder 'debug.txt') -Tail 60
 ```
 
-For another location, set `$receiverPath` and `$iosctlExe` to the actual files. Discover the PID again after a restart. Start the receiver with `--frames` to enable decoded capture. Its window title shows the AirPlay receiver name; the PC's Bluetooth name may differ.
+For another location, set `$receiverPath` and `$iosctlExe` to the actual files. A Microsoft Store install runs from a protected `WindowsApps` folder: set `$iosctlExe = 'iosctl.exe'` (its command alias), take the PID from `iosctl.exe --list`, and start the receiver from the Start menu or with `airwindows --frames`. Its data folder is `%LOCALAPPDATA%\Packages\<package name>\LocalState`, not `%LOCALAPPDATA%\AirWindows`. Discover the PID again after a restart. Start the receiver with `--frames` to enable decoded capture. Its window title shows the AirPlay receiver name; the PC's Bluetooth name may differ.
 
 Reuse the running receiver. Do not start a second copy, delete pairings or restart just to acquire focus. A restart interrupts Screen Mirroring. If disconnected, reconnect on the phone through Control Center > Screen Mirroring > the receiver name. Keep the phone unlocked with AssistiveTouch enabled. Use [Native control](NATIVE-CONTROL.md) for first-time pairing and select the intended phone explicitly.
 

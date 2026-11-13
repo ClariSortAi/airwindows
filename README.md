@@ -83,7 +83,7 @@ The release script packages the executable, license notices, matching applicatio
 | `scripts` | Repository checks |
 | `airdrop-native` | Separate, unfinished AirDrop research; not needed for mirroring or control |
 
-AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). AirWindows does not receive video links from an app's cast button. Real-device audio, H.265 and recovery from an unexpected network drop still need testing.
+AirDrop reception is not operational. Its earlier research and hardware limits remain in [the archive notes](docs/AIRDROP-ARCHIVE.md). AirWindows does not receive video links from an app's cast button. Sound from a mirroring iPhone was confirmed on a real phone on 2026-11-13. H.265 from a real device and recovery from an unexpected network drop still need testing.
 
 ## Support the project
 
