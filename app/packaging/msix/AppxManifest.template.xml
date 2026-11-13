@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AirWindows MSIX manifest template. app/scripts/package-msix.ps1 replaces every
+  double-brace token (XML-escaped) and writes AppxManifest.xml into the package layout.
+  app/packaging/msix/probe/run-probe.ps1 fills the same template with a probe
+  identity and probe executables, so the probe tests these exact declarations.
+  What each element is for, with its Microsoft Learn page: app/packaging/msix/README.md.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop2="http://schemas.microsoft.com/appx/manifest/desktop/windows10/2"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap5 uap10 desktop2 desktop4 rescap">
+
+  <Identity
+    Name="{{IDENTITY_NAME}}"
+    Publisher="{{PUBLISHER}}"
+    Version="{{VERSION}}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>{{DISPLAY_NAME}}</DisplayName>
+    <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <!-- The receiver: Start menu entry and a windowed alias. -->
+    <Application
+      Id="AirWindows"
+      Executable="{{RECEIVER_EXE}}"
+      uap10:RuntimeBehavior="packagedClassicApp"
+      uap10:TrustLevel="mediumIL"
+      uap10:Parameters="{{RECEIVER_PARAMETERS}}">
+      <uap:VisualElements
+        DisplayName="{{DISPLAY_NAME}}"
+        Description="Mirror an iPhone on this PC and control it with the PC's mouse and keyboard."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\MedTile.png"
+        Square44x44Logo="Assets\AppList.png">
+        <uap:DefaultTile
+          Square71x71Logo="Assets\SmallTile.png"
+          Wide310x150Logo="Assets\WideTile.png"
+          Square310x310Logo="Assets\LargeTile.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <uap5:Extension Category="windows.appExecutionAlias">
+          <uap5:AppExecutionAlias desktop4:Subsystem="windows">
+            <uap5:ExecutionAlias Alias="{{RECEIVER_ALIAS}}" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+
+    <!-- iosctl: no Start menu entry; reachable from any terminal by its alias. -->
+    <Application
+      Id="iosctl"
+      Executable="{{IOSCTL_EXE}}"
+      uap10:RuntimeBehavior="packagedClassicApp"
+      uap10:TrustLevel="mediumIL"
+      desktop4:Subsystem="console"
+      desktop4:SupportsMultipleInstances="true">
+      <uap:VisualElements
+        DisplayName="{{IOSCTL_DISPLAY_NAME}}"
+        Description="Command-line helper for agents that observe and control the mirrored iPhone."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\MedTile.png"
+        Square44x44Logo="Assets\AppList.png"
+        AppListEntry="none" />
+      <Extensions>
+        <uap5:Extension Category="windows.appExecutionAlias">
+          <uap5:AppExecutionAlias desktop4:Subsystem="console">
+            <uap5:ExecutionAlias Alias="{{IOSCTL_ALIAS}}" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Extensions>
+    <!-- Inbound only, private and domain networks only, scoped to the receiver
+         executable. No ports: AirPlay binds OS-chosen ports (see README). -->
+    <desktop2:Extension Category="windows.firewallRules">
+      <desktop2:FirewallRules Executable="{{RECEIVER_EXE}}">
+        <desktop2:Rule Direction="in" IPProtocol="TCP" Profile="domainAndPrivate" />
+        <desktop2:Rule Direction="in" IPProtocol="UDP" Profile="domainAndPrivate" />
+      </desktop2:FirewallRules>
+    </desktop2:Extension>
+  </Extensions>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="bluetooth" />
+  </Capabilities>
+</Package>
