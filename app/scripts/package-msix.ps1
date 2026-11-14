@@ -127,7 +127,7 @@ New-AppxManifest @{
     IDENTITY_NAME = $IdentityName; PUBLISHER = $Publisher; PUBLISHER_DISPLAY_NAME = $PublisherDisplayName
     DISPLAY_NAME = $DisplayName; VERSION = $Version
     RECEIVER_EXE = 'PhonePort.exe'; RECEIVER_PARAMETERS = '--frames'; RECEIVER_ALIAS = 'phoneport.exe'
-    IOSCTL_EXE = 'iosctl.exe'; IOSCTL_ALIAS = 'iosctl.exe'; IOSCTL_DISPLAY_NAME = 'iosctl'
+    IOSCTL_EXE = 'iosctl.exe'; IOSCTL_ALIAS = 'iosctl.exe'; IOSCTL_DISPLAY_NAME = 'PhonePort command line (iosctl)'
 } (Join-Path $layout 'AppxManifest.xml')
 Copy-MsixAssets $layout
 New-ResourcesPri $layout $OutDir

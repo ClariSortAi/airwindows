@@ -192,8 +192,10 @@ try {
     else { Line 'PASS' 'fw.no-prompt' 'no "Query User" firewall rule appeared for the probe executables' }
     $startApp = Get-StartApps | Where-Object { $_.AppID -eq "$pfn!PhonePort" }
     if ($startApp) { Line 'PASS' 'start-menu.entry' "'$($startApp.Name)' $($startApp.AppID)" } else { Line 'FAIL' 'start-menu.entry' 'no Start menu entry' }
-    if (Get-StartApps | Where-Object { $_.AppID -eq "$pfn!iosctl" }) { Line 'FAIL' 'start-menu.hidden' 'the console app is listed in Start' }
-    else { Line 'PASS' 'start-menu.hidden' 'the console app (AppListEntry none) is not listed in Start' }
+    # The Store rejects AppListEntry="none" without a waiver, so the console app has its own entry.
+    $consoleApp = Get-StartApps | Where-Object { $_.AppID -eq "$pfn!iosctl" }
+    if ($consoleApp) { Line 'PASS' 'start-menu.console-entry' "'$($consoleApp.Name)' $($consoleApp.AppID)" }
+    else { Line 'FAIL' 'start-menu.console-entry' 'the console app has no Start menu entry' }
 } finally {
     Unregister-PackageByName $identity
     if (Get-PackageByName $identity) { Line 'FAIL' 'unregister' "$identity is still registered" } else { Line 'PASS' 'unregister' "$identity removed" }

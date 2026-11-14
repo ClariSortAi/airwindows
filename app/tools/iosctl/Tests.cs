@@ -119,6 +119,15 @@ static class Tests {
         Check(Doctor.StartHint(true).Contains("phoneport --frames") && !Doctor.StartHint(true).Contains("Start-PhonePort.cmd")
             && Doctor.StartHint(false).Contains("Start-PhonePort.cmd") && Doctor.StartHint(false).IndexOf("airwindows",StringComparison.OrdinalIgnoreCase)<0,
             "doctor names the Store install's start, not the ZIP's");
+        Check(StartMenuLaunch.ShouldPause(0,false,false,1)
+            && !StartMenuLaunch.ShouldPause(0,false,false,2) && !StartMenuLaunch.ShouldPause(0,false,false,0)
+            && !StartMenuLaunch.ShouldPause(1,false,false,1) && !StartMenuLaunch.ShouldPause(0,true,false,1)
+            && !StartMenuLaunch.ShouldPause(0,false,true,1),
+            "only a no-argument start in its own console window waits for Enter");
+        Check(StartMenuLaunch.Message.Contains("iosctl --help") && StartMenuLaunch.Message.Contains("https://graniteai.co/PhonePort/Support"),
+            "the Start menu message names iosctl --help and the support page");
+        Check(StartMenuLaunch.ConsoleProcesses()!=1 || Console.IsOutputRedirected || Console.IsInputRedirected,
+            "the self-test itself, run from a terminal or with redirected output, is not treated as a Start menu launch");
         Check(Receiver.IsReceiverName("PhonePort") && Receiver.IsReceiverName("AirWindowsNative") && Receiver.IsReceiverName("AirWindows")
             && !Receiver.IsReceiverName("iosctl"),"receiver discovery accepts PhonePort.exe and the exe names from before the rename");
         Check(DataFolder.ForFamily("Example.App_abc123").EndsWith(@"\Packages\Example.App_abc123\LocalState",StringComparison.OrdinalIgnoreCase)

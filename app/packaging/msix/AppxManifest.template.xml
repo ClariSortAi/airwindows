@@ -66,7 +66,9 @@
       </Extensions>
     </Application>
 
-    <!-- iosctl: no Start menu entry; reachable from any terminal by its alias. -->
+    <!-- iosctl: reachable from any terminal by its alias. It also has a Start menu entry,
+         because the Store does not accept AppListEntry="none" (a headless app) without a
+         HeadlessAppBypass waiver. Started from Start, iosctl explains itself and waits. -->
     <Application
       Id="iosctl"
       Executable="{{IOSCTL_EXE}}"
@@ -79,8 +81,12 @@
         Description="Command-line helper for agents that observe and control the mirrored iPhone."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\MedTile.png"
-        Square44x44Logo="Assets\AppList.png"
-        AppListEntry="none" />
+        Square44x44Logo="Assets\AppList.png">
+        <uap:DefaultTile
+          Square71x71Logo="Assets\SmallTile.png"
+          Wide310x150Logo="Assets\WideTile.png"
+          Square310x310Logo="Assets\LargeTile.png" />
+      </uap:VisualElements>
       <Extensions>
         <uap5:Extension Category="windows.appExecutionAlias">
           <uap5:AppExecutionAlias desktop4:Subsystem="console">

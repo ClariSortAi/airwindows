@@ -8,6 +8,38 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 
+// The Store package gives iosctl a Start menu entry. Started from there, it gets a console
+// window of its own that would close as soon as the help text is printed. Then, and only
+// then, it explains itself and waits for Enter. A run from a terminal shares that terminal's
+// console with the shell, so more than one process is attached and nothing changes.
+static class StartMenuLaunch {
+    [System.Runtime.InteropServices.DllImport("kernel32.dll",SetLastError=true)]
+    static extern uint GetConsoleProcessList(uint[] processes,uint count);
+    internal const string Message=
+        "iosctl is PhonePort's command-line helper. Agents and scripts use it to see and control\n"+
+        "the iPhone mirrored in PhonePort. It does nothing on its own when opened from Start.\n\n"+
+        "Open a terminal (for example Windows Terminal or PowerShell) and run:\n"+
+        "  iosctl --help\n\n"+
+        "Guide and support: https://graniteai.co/PhonePort/Support\n";
+    // Pure rule, covered by the self-test: no arguments, nothing redirected, and this process
+    // is the only one attached to its console.
+    internal static bool ShouldPause(int argCount,bool inputRedirected,bool outputRedirected,uint consoleProcesses) {
+        return argCount==0 && !inputRedirected && !outputRedirected && consoleProcesses==1;
+    }
+    internal static uint ConsoleProcesses() {
+        var list=new uint[8];
+        uint count=GetConsoleProcessList(list,(uint)list.Length);
+        // 0 means no console or the call failed; either way the caller does not pause.
+        return count;
+    }
+    internal static bool Applies(int argCount) {
+        bool inRedirected,outRedirected;
+        try{inRedirected=Console.IsInputRedirected;outRedirected=Console.IsOutputRedirected;}
+        catch(IOException e){Console.Error.WriteLine("console state unavailable: "+e.Message);return false;}
+        return ShouldPause(argCount,inRedirected,outRedirected,argCount==0?ConsoleProcesses():0);
+    }
+}
+
 sealed class Command {
     internal string Name;
     internal string[] Args;
@@ -281,6 +313,11 @@ static class Program {
                 return Doctor.Run(selected);
             }
             if(args.Length==1 && args[0]=="--version"){Console.WriteLine("iosctl "+FileVersionInfo.GetVersionInfo(typeof(Program).Assembly.Location).ProductVersion);return 0;}
+            if(args.Length==0 && StartMenuLaunch.Applies(0)) {
+                Console.Write(StartMenuLaunch.Message+"\nPress Enter to close.");
+                Console.ReadLine();
+                return 0;
+            }
             if(args.Length==0 || (args.Length==1 && args[0]=="--help")) {
                 Console.WriteLine("iosctl --pid PID [--targets FILE] [--keep-focus] \"commands\"\nRead README.md for input permissions and examples.\nCommands: status, preflight, shot PATH [scale], crop PATH X Y W H [zoom],\ngrid [threshold], tap X Y, go NAME, home, type 'text', key NAME,\nswipe/flick X1 Y1 X2 Y2 [ms], page left|right, hold MS,\ndown X Y; move X Y; up X Y, wait MS, changed, settle [ms], targets.\nwake (first in a batch) moves the pointer without pressing so a still screen sends frames.\nsnapshot PATH [scale] saves a retained image for inspection only; run alone.\nQuotes preserve spaces and semicolons. No automatic retries.\n--doctor [--pid PID] diagnoses setup without input (exit 2: action needed).\n--list lists receiver processes; --self-test sends no input.");return 0;
             }
