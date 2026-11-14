@@ -184,13 +184,13 @@ try {
 
     # ---- windowed alias and Start-menu activation of the receiver slot
     Expect-Report { Start-Process -FilePath 'airwindows-probe.exe' -ArgumentList '--from-alias' } 'alias.windowed' '--from-alias'
-    Expect-Report { Start-Process "shell:AppsFolder\$pfn!AirWindows" } 'start-menu-activation' '--from-manifest'
+    Expect-Report { Start-Process "shell:AppsFolder\$pfn!PhonePort" } 'start-menu-activation' '--from-manifest'
 
     # ---- did any probe executable trigger a firewall prompt? (the prompt leaves "Query User" rules)
     $prompted = @(Get-ProbeFirewallRules | Where-Object Name -like '*Query User*')
     if ($prompted) { Line 'FAIL' 'fw.no-prompt' "Windows created $($prompted.Count) prompt rule(s): $(($prompted | ForEach-Object DisplayName) -join ', ')" }
     else { Line 'PASS' 'fw.no-prompt' 'no "Query User" firewall rule appeared for the probe executables' }
-    $startApp = Get-StartApps | Where-Object { $_.AppID -eq "$pfn!AirWindows" }
+    $startApp = Get-StartApps | Where-Object { $_.AppID -eq "$pfn!PhonePort" }
     if ($startApp) { Line 'PASS' 'start-menu.entry' "'$($startApp.Name)' $($startApp.AppID)" } else { Line 'FAIL' 'start-menu.entry' 'no Start menu entry' }
     if (Get-StartApps | Where-Object { $_.AppID -eq "$pfn!iosctl" }) { Line 'FAIL' 'start-menu.hidden' 'the console app is listed in Start' }
     else { Line 'PASS' 'start-menu.hidden' 'the console app (AppListEntry none) is not listed in Start' }

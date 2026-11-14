@@ -38,10 +38,10 @@
 
   <Applications>
     <!-- The receiver: Start menu entry and a windowed alias. -->
-    <!-- Id is part of the app's AppUserModelID, which a user never sees. It keeps the
-         old product name: probe/run-probe.ps1 starts the app by "<family>!AirWindows". -->
+    <!-- Id is part of the app's AppUserModelID ("<family>!PhonePort"). It cannot change once
+         the Store has published the package; probe/run-probe.ps1 starts the app by it. -->
     <Application
-      Id="AirWindows"
+      Id="PhonePort"
       Executable="{{RECEIVER_EXE}}"
       uap10:RuntimeBehavior="packagedClassicApp"
       uap10:TrustLevel="mediumIL"
