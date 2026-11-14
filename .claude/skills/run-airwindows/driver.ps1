@@ -92,6 +92,8 @@ $Commands = [ordered]@{
     # With --selftest-menu (always passed here) these write the folder or Settings page to
     # the log instead of opening Explorer or Settings.
     'open-log' = 40003; 'open-screenshots' = 40062; 'open-recordings' = 40063; network = 41013
+    # Help > PhonePort support; with --selftest-menu it logs the support URL instead of opening it.
+    support = 40054
 }
 # Refused: Bluetooth (above) and anything that restarts the AirPlay service
 # (rename, restart, decoder, fps, quality, H.265): that path can start the real

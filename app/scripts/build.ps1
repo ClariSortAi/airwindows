@@ -19,7 +19,7 @@ Release (default), RelWithDebInfo or Debug.
 Optional single CMake target to build. AirWindowsNative writes PhonePort.exe.
 
 .PARAMETER HomeUrl
-Product page linked from About (https only). Default: https://graniteai.co/tools/airwindows.
+Product page linked from About (https only). Default: https://graniteai.co/PhonePort.
 Left out, the build directory keeps the value it was last configured with.
 #>
 param(

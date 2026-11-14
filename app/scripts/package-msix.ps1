@@ -102,15 +102,23 @@ Copy-Item -LiteralPath (Join-Path $root 'THIRD-PARTY.md') -Destination (Join-Pat
 foreach ($name in $licenses.Keys) {
     Copy-Item -LiteralPath $licenses[$name] -Destination (Join-Path $layout "licenses\$name")
 }
-# GPL-3 section 6: say where the corresponding source for this exact build is.
+# GPL-3 section 6: say where the corresponding source for this exact build is. A GitHub
+# release page holds PhonePort-<version>-source.zip (package.ps1 -Release), which bundles the
+# upstream library sources; a tag or tree address holds the repository at that version.
+$sourceLines = if ($SourceUrl -match '/releases/') {
+    @('The complete corresponding source for this build, including the linked',
+      'upstream library sources, is published as',
+      "PhonePort-$productVersion-source.zip at:", $SourceUrl)
+} else {
+    @('The complete corresponding source for this build is published at:', $SourceUrl,
+      'app/scripts/bootstrap.ps1 there fetches UxPlay and vcpkg at pinned commits;',
+      'vcpkg fetches the FFmpeg, OpenSSL and libplist sources the build links.')
+}
 @(
     "PhonePort $productVersion (package version $Version)",
     '',
-    'PhonePort is licensed under the GNU General Public License version 3 (LICENSE.txt).',
-    'The complete corresponding source for this build, including the linked',
-    'upstream library sources, is published as',
-    "PhonePort-$productVersion-source.zip at:",
-    $SourceUrl,
+    'PhonePort is licensed under the GNU General Public License version 3 (LICENSE.txt).'
+) + $sourceLines + @(
     '',
     'Third-party notices: THIRD-PARTY.txt and the licenses folder.'
 ) | Set-Content -LiteralPath (Join-Path $layout 'SOURCE.txt') -Encoding utf8

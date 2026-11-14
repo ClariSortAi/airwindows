@@ -6,8 +6,8 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # The one place the version is set. src/version.h.in carries it into the
 # executable's properties, the About box and the log.
-project(AirWindows VERSION 0.3.1 LANGUAGES C CXX)
-set(AIRWINDOWS_VERSION_SUFFIX "-rc.5")
+project(AirWindows VERSION 1.0.0 LANGUAGES C CXX)
+set(AIRWINDOWS_VERSION_SUFFIX "")
 
 if(NOT WIN32 OR NOT MSVC)
   message(FATAL_ERROR "This project builds only for Windows with MSVC.")
@@ -86,10 +86,18 @@ target_link_libraries(ffmpeg INTERFACE ${FFMPEG_LIBRARIES})
 
 # The product page linked from About. Only characters that are safe inside a C
 # string literal and a URL.
-set(AIRWINDOWS_HOME_URL "https://graniteai.co/tools/airwindows" CACHE STRING "Product page shown in About")
-if(NOT AIRWINDOWS_HOME_URL MATCHES "^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$")
-  message(FATAL_ERROR "AIRWINDOWS_HOME_URL must be an https:// URL without spaces, quotes or backslashes; "
-                      "got '${AIRWINDOWS_HOME_URL}'.")
+set(AIRWINDOWS_HOME_URL "https://graniteai.co/PhonePort" CACHE STRING "Product page shown in About")
+# A build folder configured before 1.0.0 cached the old default, which no longer exists.
+if(AIRWINDOWS_HOME_URL STREQUAL "https://graniteai.co/tools/airwindows")
+  set_property(CACHE AIRWINDOWS_HOME_URL PROPERTY VALUE "https://graniteai.co/PhonePort")
 endif()
+# Help > PhonePort support opens this page.
+set(AIRWINDOWS_SUPPORT_URL "https://graniteai.co/PhonePort/Support" CACHE STRING "Support page opened from the Help menu")
+foreach(url_var AIRWINDOWS_HOME_URL AIRWINDOWS_SUPPORT_URL)
+  if(NOT "${${url_var}}" MATCHES "^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$")
+    message(FATAL_ERROR "${url_var} must be an https:// URL without spaces, quotes or backslashes; "
+                        "got '${${url_var}}'.")
+  endif()
+endforeach()
 
 add_subdirectory(src)

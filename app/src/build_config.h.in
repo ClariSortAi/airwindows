@@ -3,3 +3,6 @@
 
 // Product page linked from About (build.ps1 -HomeUrl).
 #define AIRWINDOWS_HOME_URL L"@AIRWINDOWS_HOME_URL@"
+
+// Support page opened from Help > PhonePort support.
+#define AIRWINDOWS_SUPPORT_URL L"@AIRWINDOWS_SUPPORT_URL@"

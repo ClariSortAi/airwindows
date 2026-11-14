@@ -25,6 +25,8 @@
 #define IDM_SETUP_GUIDE 40052
 // Microsoft Store installs in trial (and --selftest-license): Help menu and the unlock panel's button.
 #define IDM_BUY_APP 40053
+// Help > PhonePort support: opens the support page (AIRWINDOWS_SUPPORT_URL) in the browser.
+#define IDM_SUPPORT 40054
 #define IDM_SCREENSHOT 40060
 #define IDM_RECORD 40061
 #define IDM_OPEN_SCREENSHOTS 40062

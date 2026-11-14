@@ -687,6 +687,7 @@ HMENU BuildMenu() {
 
     HMENU help = CreatePopupMenu();
     AppendMenuW(help, MF_STRING, IDM_SETUP_GUIDE, L"Setup &guide");
+    AppendMenuW(help, MF_STRING, IDM_SUPPORT, L"PhonePort &support");
     AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(help, MF_STRING, IDM_ABOUT, L"&About PhonePort");
     AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"&Help");
@@ -794,7 +795,7 @@ std::wstring TrialLabel(const App& app) {
     return L"Trial: " + std::to_wstring(days) + (days == 1 ? L" day left" : L" days left");
 }
 
-// The product page without its scheme, for display: graniteai.co/tools/airwindows.
+// The product page without its scheme, for display: graniteai.co/PhonePort.
 std::wstring HomeLabel() {
     std::wstring label = AIRWINDOWS_HOME_URL;
     const size_t scheme = label.find(L"://");
@@ -2355,6 +2356,9 @@ void OnCommand(App& app, UINT id) {
         break;
     case IDM_ABOUT:
         ShowAbout(app);
+        break;
+    case IDM_SUPPORT:
+        OpenShell(app, L"support page", AIRWINDOWS_SUPPORT_URL);
         break;
     case IDM_BUY_APP:
         BuyApp(app);
