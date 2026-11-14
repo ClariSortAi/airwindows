@@ -8,7 +8,7 @@ Use input commands only where your agent environment permits desktop automation 
 
 ## First use
 
-The Microsoft Store install puts `iosctl` on the command path: type `iosctl` in place of `.\iosctl.exe` in the examples below, from any folder. Run outputs such as `.local\phone.png` into a folder you can write to; the install folder is read-only. With a ZIP or source build, run `.\iosctl.exe` from the folder that holds it.
+The Microsoft Store install also adds a Start menu entry, "PhonePort command line (iosctl)". Opened from there with no arguments, iosctl prints what it is and the support address and waits for Enter; it does nothing else. The Store install puts `iosctl` on the command path: type `iosctl` in place of `.\iosctl.exe` in the examples below, from any folder. Run outputs such as `.local\phone.png` into a folder you can write to; the install folder is read-only. With a ZIP or source build, run `.\iosctl.exe` from the folder that holds it.
 
 ```powershell
 .\iosctl.exe --doctor
