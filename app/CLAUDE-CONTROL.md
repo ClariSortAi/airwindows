@@ -14,30 +14,23 @@ The decoded-frame pipe is read-only. `iosctl` reads it for observation and sends
 
 ## Locate the running receiver
 
-Run these read-only checks in PowerShell from the package folder or repository root:
+PhonePort is installed from the Microsoft Store, which puts the `phoneport` and `iosctl` commands on the command path. Run these read-only checks in PowerShell:
 
 ```powershell
-# Package layout first, then a source build. AirWindowsNative.exe is the same receiver
-# from 0.3.1-rc.5 and earlier, before the rename to PhonePort.exe.
-$receiverPath = @('.\PhonePort.exe', '.\AirWindowsNative.exe',
-    '.\app\build\Release\bin\PhonePort.exe', '.\app\build\Release\bin\AirWindowsNative.exe') |
-    Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1 | Resolve-Path | ForEach-Object Path
-if (-not $receiverPath) { throw 'Receiver executable not found; set $receiverPath to its location.' }
-$iosctlExe = Join-Path (Split-Path -Parent $receiverPath) 'iosctl.exe'
-$receivers = @(Get-CimInstance Win32_Process | Where-Object {
-    $_.Name -in @('PhonePort.exe', 'AirWindowsNative.exe') -and $_.ExecutablePath -eq $receiverPath
-})
+$iosctlExe = 'iosctl.exe'
+# One JSON line per running receiver: pid and executable path.
+$receivers = @(& $iosctlExe --list | ConvertFrom-Json)
 if ($receivers.Count -ne 1) {
-    throw 'Expected exactly one native receiver. Inspect processes before proceeding.'
+    throw 'Expected exactly one receiver. Inspect processes before proceeding.'
 }
-$receiverPid = [int]$receivers[0].ProcessId
-$receivers | Select-Object ProcessId, ExecutablePath, CommandLine
-# The log is in the receiver's data folder, which iosctl reports for ZIP and Store installs alike.
+$receiverPid = [int]$receivers[0].pid
+$receivers | Select-Object pid, path
+# The log is in the receiver's data folder, which iosctl reports.
 $dataFolder = (& $iosctlExe --doctor --pid $receiverPid | ConvertFrom-Json).data_folder
 Get-Content -LiteralPath (Join-Path $dataFolder 'debug.txt') -Tail 60
 ```
 
-For another location, set `$receiverPath` and `$iosctlExe` to the actual files. A Microsoft Store install runs from a protected `WindowsApps` folder: set `$iosctlExe = 'iosctl.exe'` (its command alias), take the PID from `iosctl.exe --list`, and start the receiver from the Start menu or with `phoneport --frames`. Its data folder is `%LOCALAPPDATA%\Packages\<package name>\LocalState`, not `%LOCALAPPDATA%\AirWindows` (the ZIP's folder, which keeps the former name). Discover the PID again after a restart. Start the receiver with `--frames` to enable decoded capture. Its window title shows the AirPlay receiver name; the PC's Bluetooth name may differ.
+If no receiver runs, start it from the Start menu or with `phoneport --frames`. The Store install's data folder is `%LOCALAPPDATA%\Packages\<package name>\LocalState`. For a ZIP or source build, set `$iosctlExe` to the `iosctl.exe` beside `PhonePort.exe` (or `AirWindowsNative.exe` in 0.3.1-rc.5 and earlier); its data folder is `%LOCALAPPDATA%\AirWindows`, which keeps the product's former name. Discover the PID again after a restart. Start the receiver with `--frames` to enable decoded capture. Its window title shows the AirPlay receiver name; the PC's Bluetooth name may differ.
 
 Reuse the running receiver. Do not start a second copy, delete pairings or restart just to acquire focus. A restart interrupts Screen Mirroring. If disconnected, reconnect on the phone through Control Center > Screen Mirroring > the receiver name. Keep the phone unlocked with AssistiveTouch enabled. Use [Native control](NATIVE-CONTROL.md) for first-time pairing and select the intended phone explicitly.
 

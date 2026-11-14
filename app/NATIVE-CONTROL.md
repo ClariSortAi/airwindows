@@ -1,10 +1,10 @@
 # Native Bluetooth control
 
-PhonePort uses the PC's BLE keyboard and mouse service to control an iPhone while AirPlay supplies the picture. No phone app, USB connection or ESP32 is required. Build the `AirWindowsNative` target, which writes `PhonePort.exe`; older packaged receivers do not include this integration.
+PhonePort uses the PC's BLE keyboard and mouse service to control an iPhone while AirPlay supplies the picture. No phone app, USB connection or ESP32 is required. The Microsoft Store install includes it; in a source tree, the `AirWindowsNative` target builds it into `PhonePort.exe`. Receivers older than 0.3.1 do not include this integration.
 
 ## Pair and connect
 
-1. Start `PhonePort.exe --frames` (`AirWindowsNative.exe` in 0.3.1-rc.5 and earlier) and connect the phone through Screen Mirroring.
+1. Start PhonePort from the Start menu or with `phoneport --frames` (a ZIP build: `AirWindowsNative.exe --frames` in 0.3.1-rc.5 and earlier) and connect the phone through Screen Mirroring.
 2. Enable AssistiveTouch on the iPhone.
 3. Click the phone button at the left of the button row. It reads **Pair Bluetooth** until a phone is paired. In the phone's main Settings > Bluetooth screen, select the PC's Bluetooth name. Its name may differ from a renamed AirPlay receiver.
 4. Click the phone button again and choose the phone you are mirroring. Its dot turns green when the Bluetooth and AirPlay identities match. Wait for that before sending input. You choose once for each phone.

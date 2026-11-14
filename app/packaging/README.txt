@@ -46,10 +46,12 @@ and preflight. Read app/tools/iosctl/README.md for commands and use input
 only where the agent's environment permits it. Python is optional; the
 older Python reader remains in app/scripts. No source checkout is required.
 
-This is an unsigned release candidate for Windows x64. Native control
-requires BLE peripheral mode and has been tested on Windows 11. The helper
-uses .NET Framework 4.8. The revised helper, two-phone behavior, paste,
-wheel input and other adapter/iOS combinations still need live acceptance.
+This folder is an unsigned build for Windows x64, made from source for
+development and testing. PhonePort itself is installed from the
+Microsoft Store: https://apps.microsoft.com/detail/9N62X9J9KVT8
+Native control requires BLE peripheral mode and has been tested on
+Windows 11. The helper uses .NET Framework 4.8. Paste, wheel input and
+other adapter/iOS combinations still need live checks.
 
 Logs and settings: %LOCALAPPDATA%\AirWindows (the folder keeps the former
 name, so paired phones and settings carry over).

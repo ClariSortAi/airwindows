@@ -24,7 +24,7 @@ In a source checkout, run these before pushing (CI runs the same on Windows):
 - For window, capture or menu changes: run the receiver on a clip with `--selftest-video <clip.h264> --selftest-screenshot --selftest-record 4 --capture-dir <new folder> --exit-after 10` and check the `[CAPTURE]` and `[RECORD]` log lines and the two files. Make a clip with `ffmpeg -f lavfi -i testsrc2=size=1170x2532:rate=30 -t 2 -c:v libx264 -pix_fmt yuv420p -bsf:v h264_mp4toannexb -f h264 clip.h264`.
 - When the icon drawing changes: edit `app/src/app-icon.svg` and `app/src/app-icon-small.svg`, run `python app/scripts/make-icon.py` (needs Inkscape 1.x), then touch `app/src/app.rc` so the next build embeds the new `app.ico`.
 - When the icon drawing changes, also run `python app/scripts/make-store-assets.py` (needs Inkscape 1.x and Pillow) and commit `app/packaging/msix/Assets/`.
-- Store package: `./app/scripts/package-msix.ps1 -OutDir <new dir> -IdentityName <Partner Center Name> -Publisher "<CN=...>" -PublisherDisplayName "<name>"`. It never overwrites output. The first version part must not be 0; `-AllowZeroMajor` is for local tests only. Runbook: `app/packaging/msix/README.md`.
+- Store package for a release (see [Releases](#releases)). For local tests use the default dev identity with `-AllowZeroMajor` and `-Register`. Runbook: `app/packaging/msix/README.md`.
 - For manifest or packaging changes: run `./app/packaging/msix/probe/run-probe.ps1` (needs Developer Mode and Build Tools; add `-Bluetooth` only when no receiver is running). Then do a `-Register` dry run and `./app/scripts/package-msix.ps1 -Unregister`.
 - For changes to the data folder, the setup guide, the network or Bluetooth checks: check them packaged too. Build `-Config RelWithDebInfo`, run `./app/scripts/package-msix.ps1 -ExePath app\build\RelWithDebInfo\bin\PhonePort.exe -IosctlPath app\build\RelWithDebInfo\bin\iosctl.exe -AllowZeroMajor -OutDir app\dist\<new dir> -Register`, drive it with `driver.ps1 launch ... -Packaged` (see `.claude/skills/run-airwindows/SKILL.md`), then `./app/scripts/package-msix.ps1 -Unregister`.
 - Self-test flags for these states (each makes the run a self-test; none is saved):
@@ -38,12 +38,33 @@ Rules:
 
 - This file, `CLAUDE.md`, `FOR-AGENTS.md` and the `app/*.md` guides ship byte-for-byte in the Windows package. Keep links relative and valid in that layout; after packaging, `python scripts/check-package.py <outdir>` verifies them.
 - `check-repository.py` rejects user-profile paths, local repository paths and device identifiers in docs and source. Use `$env:USERPROFILE` or placeholders.
-- The version lives in `app/CMakeLists.txt` (`project(... VERSION)` and `AIRWINDOWS_VERSION_SUFFIX`). A release bump also needs the hardcoded URLs and paths in `FOR-AGENTS.md`, `README.md`, `app/README.md`, `app/tools/iosctl/README.md` and `app/CHANGELOG.md`; find them with `git grep <old-version>`.
-- Package into a new directory: `./app/scripts/package.ps1 -Release -OutDir <new dir>`. It never overwrites existing output. It also writes `PhonePort-<version>-symbols.zip`; keep that file with the release to read crash reports. It is not part of the download or `SHA256SUMS.txt`.
+- The version lives in `app/CMakeLists.txt` (`project(... VERSION)` and `AIRWINDOWS_VERSION_SUFFIX`). See [Releases](#releases) for a version bump.
+- `./app/scripts/package.ps1 -Release -OutDir <new dir>` builds the ZIP layout (CI checks it; it is not published from 1.0.0 on), `PhonePort-<version>-source.zip` and `PhonePort-<version>-symbols.zip`. It never overwrites existing output. Keep the symbols with the release to read crash reports.
 - Close a running receiver before a manual receiver test. A second launch hands over to the running receiver and exits. Runs with `--selftest-video`, `--selftest-audio`, `--selftest-tone`, `--selftest-crash`, `--selftest-license`, `--selftest-bluetooth` or `--selftest-network` are exempt and do not advertise.
 - Data folder (`settings.ini`, `debug.txt`, `crashes\`): unpackaged `%LOCALAPPDATA%\AirWindows`; a Store (MSIX) install uses `%LOCALAPPDATA%\Packages\<PackageFamilyName>\LocalState`, and its first run copies `settings.ini` from `%LOCALAPPDATA%\AirWindows`. `iosctl --doctor` prints `data_folder` for the running receiver; `python app/scripts/observe-phone.py --pid <pid> --data-folder` does the same.
 - When a test receiver must not show the crash dialog, pass `--exit-after <seconds>`.
 - Preserve concurrent work. Report software checks and physical phone results separately. Receiver source is under `app`; the Bluetooth backend lives beside it in `native-ble-prototype`.
+
+## Releases
+
+Releases ship only through the Microsoft Store (7-day free trial, then a one-time purchase). No ZIP is published from 1.0.0 on.
+
+- Partner Center identity (Product identity page):
+  - `Package/Identity/Name`: `GraniteAi.PhonePort`
+  - `Package/Identity/Publisher`: `CN=ADD31893-C52D-47EF-A312-6374403B019C`
+  - `Package/Properties/PublisherDisplayName`: `GraniteAi`
+  - Store ID `9N62X9J9KVT8`; listing `https://apps.microsoft.com/detail/9N62X9J9KVT8`; Store app link `ms-windows-store://pdp/?productid=9N62X9J9KVT8`
+  - Product page `https://graniteai.co/PhonePort` (About box, `AIRWINDOWS_HOME_URL`); support page `https://graniteai.co/PhonePort/Support` (Help > PhonePort support, `AIRWINDOWS_SUPPORT_URL`)
+- Bump the version: set `project(... VERSION x.y.z)` and `AIRWINDOWS_VERSION_SUFFIX` in `app/CMakeLists.txt`. Run `git grep <old-version>`. Keep text that is about an older release (its notes, its GitHub release links and asset names). Point anything that tells a user how to get the app at the Store listing. Add the version's section to `app/CHANGELOG.md`.
+- Build `-Config Release` (`./app/scripts/build.ps1 -Config Release -Target AirWindowsNative` also builds iosctl), run the checks above, then `./app/scripts/package.ps1 -Release -OutDir app\dist\release-<version>` and `python scripts/check-package.py app\dist\release-<version>` for the source and symbols archives.
+- Store package, exactly (version `x.y.z.0` comes from the exe):
+
+  ```powershell
+  ./app/scripts/package-msix.ps1 -IdentityName GraniteAi.PhonePort -Publisher "CN=ADD31893-C52D-47EF-A312-6374403B019C" -PublisherDisplayName "GraniteAi" -SourceUrl https://github.com/ClariSortAi/airwindows/tree/v<version> -OutDir app\dist\store-<version>
+  ```
+
+- Never `-Register` a package with the real identity on a dev PC; the identity belongs to the Store install. Check it by unpacking: `makeappx unpack /p <msix> /d <scratch dir>` and read `AppxManifest.xml`.
+- Upload `app\dist\store-<version>\PhonePort-<version>.0-x64.msix` in Partner Center. Before submitting, publish the source at the `-SourceUrl` address (tag `v<version>`): `SOURCE.txt` in the package names it (GPL-3 section 6).
 
 ## Kept names (do not rename)
 
@@ -60,5 +81,5 @@ The product is PhonePort everywhere a user reads it. These identifiers keep the 
 - Build names: CMake `project(AirWindows ...)`, targets `AirWindowsNative` (its `OUTPUT_NAME` is `PhonePort`) and `AirWindows` (a twin of the same program that nothing ships), `AIRWINDOWS_*` variables and macros, `AIRWINDOWS-UPSTREAM-COMMIT.txt`, `airwindows_recvfrom`, the Win32 assembly names in `app.manifest` and `iosctl.manifest`.
 - Files and modules other tools import or call: `app/scripts/airwindows_frames.py`, `observe-phone.py`, `iosctl`, the skill folder `.claude/skills/run-airwindows`, its work folder `.local/run-airwindows`, the variable `AIRWINDOWS_DRIVER_EXE`.
 - MSIX: `Application Id="AirWindows"` (part of the app's user model ID; the probe starts the app by it) and the probe's own names (`GraniteAi.AirWindows.Probe`, `AirWindowsProbe*`).
-- Every URL with `github.com/ClariSortAi/airwindows`, the home URL default `graniteai.co/tools/airwindows`, and every published release asset name, for example `AirWindows-0.3.1-rc.5-win-x64.zip` and the `Start-AirWindows.cmd` and `AirWindowsNative.exe` inside it. New releases are named `PhonePort-<version>-...`.
+- Every URL with `github.com/ClariSortAi/airwindows` and every published release asset name, for example `AirWindows-0.3.1-rc.5-win-x64.zip` and the `Start-AirWindows.cmd` and `AirWindowsNative.exe` inside it. New releases are named `PhonePort-<version>-...`.
 - Released entries in `app/CHANGELOG.md`, `provenance/`, git history and everything under `airdrop-native/`.

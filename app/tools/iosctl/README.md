@@ -1,14 +1,14 @@
 # iosctl: PhonePort from a command line
 
-`iosctl.exe` brings Claude Code's tap, drag, typing, Home and image-inspection workflow into the Windows package. It uses the existing receiver window for input and its decoded-frame pipe for images. It does not start another Bluetooth controller.
+`iosctl` brings Claude Code's tap, drag, typing, Home and image-inspection workflow to PhonePort. It uses the existing receiver window for input and its decoded-frame pipe for images. It does not start another Bluetooth controller.
 
-The helper runs on Windows x64 with .NET Framework 4.8. Python is optional. Start PhonePort (formerly AirWindows) with **Start-PhonePort.cmd** (ZIP download; **Start-AirWindows.cmd** in 0.3.1-rc.5 and earlier), or from the Start menu or with `phoneport --frames` (Microsoft Store install), pair the intended phone and map Button 2 to Home. Follow [the operating guide](../../CLAUDE-CONTROL.md) for those steps.
+The helper runs on Windows x64 with .NET Framework 4.8. Python is optional. Start PhonePort (formerly AirWindows) from the Start menu or with `phoneport --frames`, pair the intended phone and map Button 2 to Home. Follow [the operating guide](../../CLAUDE-CONTROL.md) for those steps. A ZIP build from before 1.0.0 starts with `Start-AirWindows.cmd` instead.
 
 Use input commands only where your agent environment permits desktop automation through a local CLI. This helper does not override tool restrictions. Observation commands read the phone-only pipe and leave focus alone. Input commands bring PhonePort forward, check focus and restore the previous foreground window when finished; `--keep-focus` leaves PhonePort active.
 
 ## First use
 
-Run from the extracted `PhonePort` folder (`AirWindows` in 0.3.1-rc.5 and earlier). A Microsoft Store install puts `iosctl` on the command path instead: type `iosctl` in place of `.\iosctl.exe` from any folder.
+The Microsoft Store install puts `iosctl` on the command path: type `iosctl` in place of `.\iosctl.exe` in the examples below, from any folder. Run outputs such as `.local\phone.png` into a folder you can write to; the install folder is read-only. With a ZIP or source build, run `.\iosctl.exe` from the folder that holds it.
 
 ```powershell
 .\iosctl.exe --doctor
@@ -99,7 +99,7 @@ The normal receiver build also builds `iosctl`. To build it separately, run `app
 .\app\build\Release\bin\iosctl.exe --self-test
 ```
 
-Self-tests exercise parsing, bounds, frame identity/freshness, target maps, image conversion, real local-pipe reads/timeouts and release-on-error logic. They send no desktop or Bluetooth input. The integrated helper and two-phone handling still need a live-device acceptance run for this release candidate.
+Self-tests exercise parsing, bounds, frame identity/freshness, target maps, image conversion, real local-pipe reads/timeouts and release-on-error logic. They send no desktop or Bluetooth input. Two-phone handling through the helper still needs a live-device run.
 
 See [the photo demo](DEMO-TAKE-A-PHOTO.md). The helper is distributed under the application's GPL-3.0-or-later license. Its navigation, sampling and batching approach was adapted from Claude Code's local prototype; personal target maps and session content are excluded.
 

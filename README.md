@@ -6,21 +6,23 @@ Mirror your iPhone on Windows, then click and type in the mirrored screen using 
 
 PhonePort (formerly AirWindows) receives video over AirPlay and sends input over Bluetooth. The phone stays wireless. You do not need an iPhone app, an ESP32 or a cable between the phone and PC. Click another Windows app and your keyboard returns to the PC.
 
-Earlier builds have been used on a real iPhone for mirroring, clicking, typing and dragging. Claude Code also exercised navigation, Home and Camera workflows. This release candidate integrates that helper. RC3 was run live on an iPhone16,2, and RC4 and RC5 on an iPhone15,2; wider adapter and iOS support is still pending.
+PhonePort has been used on real iPhones (an iPhone15,2 and an iPhone16,2) for mirroring, clicking, typing and dragging, and Claude Code has driven navigation, Home and Camera workflows through the bundled helper. Testing so far used one Bluetooth adapter, so other adapters and iOS versions are still unchecked.
 
 ## Get started
 
-PhonePort is coming to the Microsoft Store as a paid app with a 7-day free trial. The Store link will go here when it is live. This repository holds the source code.
+**[Get PhonePort from the Microsoft Store](https://apps.microsoft.com/detail/9N62X9J9KVT8)**
 
-The window has one row of controls: a phone button, Home, Screenshot, Record, Full screen and Menu. A setup guide opens beside the picture on a first launch. Screenshot (F8) saves a PNG and Record (F9) saves an MP4 at a constant frame rate. It now keeps working when the PC's network changes, moves sound to a new default playback device, rebuilds its picture after a graphics driver reset and saves a crash report if it stops. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
+The Store offers a 7-day free trial, then a one-time purchase. Once it is installed, open PhonePort from the Start menu. The product page is [graniteai.co/PhonePort](https://graniteai.co/PhonePort), and help is at [graniteai.co/PhonePort/Support](https://graniteai.co/PhonePort/Support).
+
+The window has one row of controls: a phone button, Home, Screenshot, Record, Full screen and Menu. A setup guide opens beside the picture on a first launch. Screenshot (F8) saves a PNG and Record (F9) saves an MP4 at a constant frame rate. It keeps working when the PC's network changes, moves sound to a new default playback device, rebuilds its picture after a graphics driver reset and saves a crash report if it stops. The [changelog](app/CHANGELOG.md) lists what was tested, what wasn't, and the known issues, along with earlier releases.
 
 Setting this up with Claude Code or Codex? Give it [FOR-AGENTS.md](FOR-AGENTS.md). It walks through installation, pairing, Home setup and the final agent-operated test.
 
-You need a 64-bit Windows PC, an iPhone on the same reachable network, and a Bluetooth adapter that supports BLE peripheral mode. The native control path has been tested on Windows 11 with a MediaTek adapter. Mirroring also supports iPad and Mac senders; Bluetooth input has been tested with an iPhone.
+You need a 64-bit Windows 11 PC, an iPhone on the same reachable network, and a Bluetooth adapter that supports BLE peripheral mode. The native control path has been tested on Windows 11 with a MediaTek adapter. Mirroring also supports iPad and Mac senders; Bluetooth input has been tested with an iPhone.
 
 The setup guide beside the picture walks through these steps and ticks each one off as it happens:
 
-1. Allow PhonePort through Windows Firewall on your private network.
+1. Connect the PC to the same network as the iPhone, and make sure Windows treats it as a Private network. The Store install lets PhonePort through Windows Firewall on private networks.
 2. On the iPhone, open Control Center > Screen Mirroring and choose the receiver name shown in PhonePort.
 3. Turn on Settings > Accessibility > Touch > AssistiveTouch.
 4. In PhonePort, click the phone button, which reads **Pair Bluetooth** until a phone is paired. Pair the PC from the iPhone's main Settings > Bluetooth screen, then click the phone button again and choose the phone.
@@ -44,13 +46,13 @@ The app remembers each Bluetooth phone you choose and the AirPlay sender it belo
 
 For Home, open AssistiveTouch > Devices > your PC > Customize Additional Buttons on the phone. Click **Home** in PhonePort, then assign the detected Button 2 to **Home**. Dragging up from the bottom edge also goes Home.
 
-Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste and wheel input still need separate live checks. Unicode input and general keyboard shortcuts are not supported. Input goes only to the selected phone when more than one is paired. Builds after 0.3.1-rc.5 were tried with two iPhones paired at once; [Native control](app/NATIVE-CONTROL.md#verification-and-troubleshooting) lists what was seen and the two cases still untested.
+Text input supports US ASCII. Explicit Ctrl+V accepts up to 1,024 ASCII characters, including tabs and newlines. Paste and wheel input still need separate live checks. Unicode input and general keyboard shortcuts are not supported. Input goes only to the selected phone when more than one is paired. PhonePort was tried with two iPhones paired at once; [Native control](app/NATIVE-CONTROL.md#verification-and-troubleshooting) lists what was seen and the two cases still untested.
 
 ## Using a desktop agent
 
 An agent operates the same window you do. It reads the phone image and sends desktop mouse and keyboard input inside the picture. The phone's controls are pixels, so browser selectors and Windows accessibility element lookup cannot identify them.
 
-[The operating guide](app/CLAUDE-CONTROL.md) covers focus, coordinates, frame capture and failure diagnosis. The launcher enables `--frames`, which supplies native-resolution images to programs running as the same Windows user. It is read-only; input goes through the focused window. The bundled `iosctl.exe` supplies command-line capture, taps, typing, drags, Home and preflight. Use it where your agent environment permits desktop input through a local CLI, or use a supported desktop tool. Python is optional.
+[The operating guide](app/CLAUDE-CONTROL.md) covers focus, coordinates, frame capture and failure diagnosis. The Start menu entry and the `phoneport --frames` command enable `--frames`, which supplies native-resolution images to programs running as the same Windows user. It is read-only; input goes through the focused window. The bundled `iosctl` command supplies command-line capture, taps, typing, drags, Home and preflight. Use it where your agent environment permits desktop input through a local CLI, or use a supported desktop tool. Python is optional.
 
 Start with [the iosctl guide](app/tools/iosctl/README.md). The helper uses the selected receiver's actual dimensions, checks input/focus results, releases held buttons on failure and never retries a click automatically. [The Claude Code review](docs/CLAUDE-CODE-REVIEW.md) records what was integrated and what still needs a device test. Personal target maps and recipients are excluded.
 

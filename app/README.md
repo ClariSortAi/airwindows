@@ -1,8 +1,8 @@
 # PhonePort application
 
-PhonePort (formerly AirWindows) displays an iPhone, iPad or Mac screen in a Windows window. The native control build also sends mouse and keyboard input to a paired iPhone over Bluetooth. See the [repository overview](https://github.com/ClariSortAi/airwindows) for setup and current test limits.
+PhonePort (formerly AirWindows) displays an iPhone, iPad or Mac screen in a Windows window. The native control build also sends mouse and keyboard input to a paired iPhone over Bluetooth. PhonePort is installed from the [Microsoft Store](https://apps.microsoft.com/detail/9N62X9J9KVT8); this guide is for contributors who build and test it. See the [repository overview](https://github.com/ClariSortAi/airwindows) for setup and current test limits.
 
-The application is a portable executable. It uses UxPlay for AirPlay, FFmpeg for decoding, Direct3D 11 for video and WASAPI for audio. The Windows mDNS responder advertises on active physical Ethernet and Wi-Fi interfaces.
+The application is a single executable. It uses UxPlay for AirPlay, FFmpeg for decoding, Direct3D 11 for video and WASAPI for audio. The Windows mDNS responder advertises on active physical Ethernet and Wi-Fi interfaces.
 
 ## Build
 
@@ -18,13 +18,13 @@ From this `app` directory:
 
 Bootstrap fetches pinned UxPlay and vcpkg commits into this directory. The first build compiles OpenSSL, libplist and FFmpeg from source. Later builds reuse the results. The build scripts load the MSVC x64 environment and use Ninja; dependencies are not installed system-wide.
 
-Keep the sibling `native-ble-prototype` directory beside `app`. The `AirWindowsNative` target writes `PhonePort.exe`, the program that ships. The `AirWindows` target compiles the same source into `AirWindows.exe` under the old name; nothing ships it. Both targets keep their names so existing build commands still work. For a ready-to-run build, use [the 0.3.1 release candidate](https://github.com/ClariSortAi/airwindows/releases/tag/v0.3.1-rc.5).
+Keep the sibling `native-ble-prototype` directory beside `app`. The `AirWindowsNative` target writes `PhonePort.exe`, the program that ships. The `AirWindows` target compiles the same source into `AirWindows.exe` under the old name; nothing ships it. Both targets keep their names so existing build commands still work.
 
 The vcpkg commit in `scripts/bootstrap.ps1` pins library versions. `vcpkg-ports/ffmpeg` enables H.264, H.265, AAC and ALAC decoding with D3D11VA acceleration. A custom CMake invocation must use the `x64-windows-static` triplet and the pinned vcpkg toolchain.
 
 ## Run and configure
 
-Allow PhonePort through Windows Firewall on the private network used by the phone. If Windows treats a connected network as Public, the idle screen and the setup guide say so and open the Settings page where it can be set to Private. Open Control Center > Screen Mirroring on the sender and choose the name shown in the receiver. See [Native control](NATIVE-CONTROL.md) to pair the Bluetooth input connection.
+The Store install brings Windows Firewall rules for private and domain networks; a build run from its folder asks Windows the first time it listens. If Windows treats a connected network as Public, the idle screen and the setup guide say so and open the Settings page where it can be set to Private. Open Control Center > Screen Mirroring on the sender and choose the name shown in the receiver. See [Native control](NATIVE-CONTROL.md) to pair the Bluetooth input connection.
 
 PhonePort follows the PC's network connections while it runs. When Wi-Fi reconnects, a cable is plugged in or the address changes, discovery joins that network within a few seconds, and the receiver can be started before any network is up. Discovery uses each active physical interface and returns that interface's address to queries on its network. Wi-Fi and Ethernet may use different firewall profiles.
 
@@ -49,7 +49,7 @@ Rename, Resolution, Frame rate, Decoder and the H.265 setting restart the AirPla
 
 Recording uses the H.264 and AAC encoders that come with Windows. It encodes on the GPU when the PC has a hardware encoder. A recording has a constant frame rate: the one set under Video > Frame rate, 60 unless changed. A phone sends a picture only when its screen changes, so the recorder repeats the last picture until the next one arrives. Every frame in the file is then the same length, which video editors expect. A file is complete only after Record is pressed again or PhonePort is closed normally. Screenshots and recordings made before the rename stay in `Pictures\AirWindows` and `Videos\AirWindows`. Windows N editions need the Media Feature Pack for recording; everything else works without it.
 
-Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt` in the same folder. The folder keeps the program's former name, so settings and paired phones carry over. A copy installed from the Microsoft Store keeps them in its own folder, `%LOCALAPPDATA%\Packages\<package name>\LocalState`, and its first start copies `settings.ini` from `%LOCALAPPDATA%\AirWindows`, so phones paired with the ZIP version carry over. Receiver > Open log folder opens the folder in use, and `iosctl --doctor` prints it as `data_folder`. At 4 MB the log is renamed `debug.old.txt` and a new one starts. If PhonePort stops unexpectedly, it saves a crash report in the `crashes` folder there, keeps the five newest and shows a message with the location. Reports stay on the PC unless you send one. The window reopens where you left it. The executable is unsigned, so Windows may show a SmartScreen notice for downloaded copies. Check the source and checksum before running a download.
+The Microsoft Store install keeps its settings (`settings.ini`) and log (`debug.txt`) in its own folder, `%LOCALAPPDATA%\Packages\<package name>\LocalState`. Its first start copies `settings.ini` from `%LOCALAPPDATA%\AirWindows`, so phones paired with a ZIP build (0.3.1-rc.5 and earlier) carry over. A build run from its folder uses `%LOCALAPPDATA%\AirWindows` itself; that folder keeps the program's former name. Receiver > Open log folder opens the folder in use, and `iosctl --doctor` prints it as `data_folder`. At 4 MB the log is renamed `debug.old.txt` and a new one starts. If PhonePort stops unexpectedly, it saves a crash report in the `crashes` folder there, keeps the five newest and shows a message with the location. Reports stay on the PC unless you send one. The window reopens where you left it. Help > PhonePort support opens the support page.
 
 | Option | Purpose |
 |---|---|
@@ -65,7 +65,7 @@ Settings live in `%LOCALAPPDATA%\AirWindows\settings.ini`; the log is `debug.txt
 | `--selftest-crash access\|terminate` | Fail on purpose, to exercise the crash report |
 | `--selftest-screenshot` | With `--selftest-video`: save one screenshot once the picture is up (not copied to the clipboard) |
 | `--selftest-record <seconds>` | With `--selftest-video`: record for this long once the picture is up |
-| `--selftest-menu` | Write the menu's labels, check marks and grey-outs to the log when command 41200 is posted to the window. In a self-test, Open log folder, the screenshot and recording folders and Open network settings then write their target to the log instead of opening it |
+| `--selftest-menu` | Write the menu's labels, check marks and grey-outs to the log when command 41200 is posted to the window. In a self-test, Open log folder, the screenshot and recording folders, Open network settings and Help > PhonePort support then write their target to the log instead of opening it |
 | `--selftest-license <trial:N\|expired\|licensed>` | Simulate the Microsoft Store license answer (no Store call, nothing saved). With `trial:N`, command 41201 ends the trial while the window is open. `store` asks the real Store, read-only, in a packaged run |
 | `--selftest-bluetooth none\|no-peripheral\|ready\|probe` | Simulate the launch check of the Bluetooth adapter; `probe` runs the real check. Without it, self-tests skip the check |
 | `--selftest-network public\|private\|mixed\|public-allowed\|unknown` | Simulate the Windows network types and the firewall's answer: all Public and blocked, all Private, one Private and the rest Public, Public with an allow rule, or Public with the firewall unreadable |
@@ -103,13 +103,15 @@ For video self-tests, feed an Annex-B clip through `--selftest-video`. The log r
 
 ## Packaging
 
-After building, use a new output directory:
+PhonePort ships through the Microsoft Store. `scripts/package-msix.ps1` builds the Store package; the MSIX runbook in the repository, `app/packaging/msix/README.md`, has the steps and `AGENTS.md` the exact release command. The Store package's `SOURCE.txt` names where the matching source is published.
+
+`scripts/package.ps1` builds the ZIP layout that CI checks and the source archive that goes with a release. After building, use a new output directory:
 
 ```powershell
-.\scripts\package.ps1 -Release -OutDir .\dist\candidate-0.3.1-rc.5
+.\scripts\package.ps1 -Release -OutDir .\dist\<new dir>
 ```
 
-This creates the runnable `PhonePort` folder, `PhonePort-<version>-win-x64.zip`, a matching `PhonePort-<version>-source.zip`, and `SHA256SUMS.txt`. Releases up to 0.3.1-rc.5 were published as `AirWindows-<version>-...`. It also writes `PhonePort-<version>-symbols.zip`, the debug symbols for that build. Keep it with the release: a crash report can only be read with the symbols of the exact build that wrote it. The symbols are not part of the download. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, compiled `iosctl` helper, agent guides, optional Python reader, GPL and dependency notices. Building the receiver also builds the helper with the .NET Framework C# compiler. Both executable versions must match before packaging.
+This creates the runnable `PhonePort` folder, `PhonePort-<version>-win-x64.zip`, a matching `PhonePort-<version>-source.zip`, and `SHA256SUMS.txt`. Releases up to 0.3.1-rc.5 were published on GitHub as `AirWindows-<version>-...`; 1.0.0 and later are not published as a ZIP. It also writes `PhonePort-<version>-symbols.zip`, the debug symbols for that build. Keep it with the release: a crash report can only be read with the symbols of the exact build that wrote it. The symbols are not part of the download. Existing package outputs are never overwritten. The Windows ZIP includes the launcher, compiled `iosctl` helper, agent guides, optional Python reader, GPL and dependency notices. Building the receiver also builds the helper with the .NET Framework C# compiler. Both executable versions must match before packaging.
 
 The source archive contains `app`, its sibling Bluetooth backend, UxPlay, and the upstream FFmpeg, OpenSSL and libplist source archives with the relevant ports. Those archives must be present in vcpkg's downloads directory. Publish the matching source and checksums with any binary. The separate AirDrop research is not bundled.
 

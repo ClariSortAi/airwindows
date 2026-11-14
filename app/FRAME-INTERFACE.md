@@ -1,6 +1,6 @@
 # Decoded frame interface
 
-The receiver provides opt-in, local frame access for a supervised iPhone controller. The packaged `Start-PhonePort.cmd` launcher enables it (`Start-AirWindows.cmd` in 0.3.1-rc.5 and earlier), or start the executable with `--frames`. Launching the executable without that option exposes no frame interface. `PhonePort.exe` (`AirWindowsNative.exe` before the rename) includes focused-window Bluetooth mouse and keyboard control; see [native control](NATIVE-CONTROL.md) and [the agent operating guide](CLAUDE-CONTROL.md). The frame pipe itself remains read-only.
+The receiver provides opt-in, local frame access for a supervised iPhone controller. The Start menu entry of the Microsoft Store install and `phoneport --frames` enable it (`Start-AirWindows.cmd` in the 0.3.1-rc.5 ZIP and earlier), or start the executable with `--frames`. Launching the executable without that option exposes no frame interface. `PhonePort.exe` (`AirWindowsNative.exe` before the rename) includes focused-window Bluetooth mouse and keyboard control; see [native control](NATIVE-CONTROL.md) and [the agent operating guide](CLAUDE-CONTROL.md). The frame pipe itself remains read-only.
 
 Connect to `\\.\pipe\AirWindows.Frames.<receiver PID>`. The pipe keeps the product's former name, so clients written for earlier receivers keep working. Windows access control restricts the pipe to the receiver process's user, and remote pipe clients are rejected. There is one connection at a time. Connecting requests one image; no command or authentication token is sent.
 

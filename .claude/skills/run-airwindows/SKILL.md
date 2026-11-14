@@ -28,7 +28,7 @@ $d = './.claude/skills/run-airwindows/driver.ps1'
 & $d status                           # JSON: pid, title, width/height, sequence, frame_age_ms, source=selftest
 & $d frame .local/run-airwindows/f.png   # decoded picture at native size (1170x2532) + .json sidecar
 & $d ss .local/run-airwindows/w.png      # whole window incl. toolbar, status bar, guide panel
-& $d cmd screenshot                   # also: record, fullscreen, fit, ontop, details, guide, guide-open, guide-close, dump-menu, buy, expire, open-log, open-screenshots, open-recordings, network, or a numeric id
+& $d cmd screenshot                   # also: record, fullscreen, fit, ontop, details, guide, guide-open, guide-close, dump-menu, buy, expire, open-log, open-screenshots, open-recordings, network, support, or a numeric id
 & $d log '\[CAPTURE\]|\[RECORD\]'     # log lines written since this launch
 & $d stop                             # WM_CLOSE, restores settings.ini, prints video summary + capture/record lines
 ```
@@ -44,7 +44,7 @@ $d = './.claude/skills/run-airwindows/driver.ps1'
 - Trial running out while open: `-ReceiverArgs '--selftest-license','trial:5'`, then `cmd expire` (unlock panel, clip stops, `[LICENSE] the license is no longer active`), then `cmd buy` (clip back, `[CONTROL] license active again: restoring Bluetooth control as at launch`).
 - Idle screen without the clip: `-NoClip -ReceiverArgs '--selftest-network','public'` (needs a `--selftest-*` flag; the driver refuses otherwise). Add `'--selftest-bluetooth','none'` or `'no-peripheral'` for the adapter notices, or `'probe'` for the real read-only adapter check.
 - H.265: `ffmpeg -f lavfi -i testsrc2=size=1170x2532:rate=30 -t 2 -c:v libx265 -pix_fmt yuv420p -f hevc .local/run-airwindows/clip.h265`, then `launch 120 -Clip .local/run-airwindows/clip.h265`. Add `-ReceiverArgs '--decoder','software'` for the FFmpeg path. Verified 2026-11-13: `picture 1170x2532 H.265 (D3D11)` and `(FFmpeg)`.
-- `cmd open-log`, `open-screenshots`, `open-recordings`, `network` write `[SELFTEST] would open the ...: <path or ms-settings URI>` instead of opening Explorer or Settings (`--selftest-menu`, which the driver always passes).
+- `cmd open-log`, `open-screenshots`, `open-recordings`, `network`, `support` write `[SELFTEST] would open the ...: <path, ms-settings URI or support URL>` instead of opening Explorer or Settings (`--selftest-menu`, which the driver always passes).
 - `-KnownFolders` leaves out `--capture-dir`: captures land in the real `Pictures\PhonePort` and `Videos\PhonePort`, named `PhonePort <date> <time>`. Never touch `Pictures\AirWindows` or `Videos\AirWindows` (captures from before the rename). Delete exactly the files the `[CAPTURE]`/`[RECORD]` lines name; those folders hold the user's own files.
 - Other displays: move first, then size, in two calls (`move 700 1450`, then `move 700 1450 760 1120`). One call that crosses a DPI change gets its size scaled by Windows and can end up partly off screen.
 
