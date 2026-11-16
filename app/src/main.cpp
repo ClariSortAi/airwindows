@@ -34,6 +34,7 @@
 #include "media_sink.h"
 #include "network_check.h"
 #include "package_info.h"
+#include "rating.h"
 #include "recorder.h"
 #include "resource.h"
 #include "settings.h"
@@ -77,6 +78,8 @@ constexpr int kStatusBar = 30;
 constexpr int kMinClientWidth = 560;
 constexpr DWORD kCursorHideMs = 3000;
 constexpr DWORD kToastMs = 5000;
+constexpr DWORD kRateNudgeMs = 15000;  // the one-time line pointing to Help > Rate PhonePort…
+constexpr wchar_t kRateNudgeText[] = L"Ratings help others find PhonePort: Menu › Help › Rate PhonePort…";
 constexpr UINT WM_APP_RECORDER = WM_APP + 20;  // lParam: RecorderNotice* (receiver deletes)
 constexpr UINT WM_APP_LICENSE = WM_APP + 21;  // the Store license layer queued events; see StoreLicense::Take
 constexpr UINT_PTR kLicenseWaitTimer = 7;      // no Store answer in time: start as fully licensed
@@ -204,6 +207,7 @@ struct App {
         bool asked = false;      // a Store answer (real or simulated) is expected
         bool answered = false;   // the first answer arrived, or the wait for it ended
         bool canBuy = true;      // false when elevated: the Store does not sell to an elevated process
+        bool elevated = false;   // Rate PhonePort opens the Store's review page: no in-app rating when elevated
         store_license::State state;
         store_license::Tracker tracker;  // the last real answer and any purchase in this run
         store_license::StoreLicense store;
@@ -215,6 +219,11 @@ struct App {
     std::wstring statusLicense;    // right end of the status bar: "Trial: 5 days left"
     bool selfTestLicenseGiven = false;
     std::wstring selfTestLicense;  // --selftest-license <trial:N|expired|licensed>
+    // Help > Rate PhonePort… and its one-time status bar line (rating.h).
+    rating::Nudge rateNudge;       // from settings.ini, or --selftest-rating
+    ULONGLONG rateNudgeUntil = 0;  // the line is up until then; non-zero once it was shown in this run
+    bool selfTestRatingGiven = false;
+    std::wstring selfTestRating;   // --selftest-rating <0-3|shown>
 
     bool packaged = false;         // package identity (an MSIX install)
     // Bluetooth adapter, checked once shortly after launch. Unknown says nothing.
@@ -256,13 +265,19 @@ DecoderMode Decoder(const App& app) {
 bool SelfTesting(const App& app) {
     return !app.selfTestVideo.empty() || app.selfTestAudio || app.selfTestTone || app.selfTestAudioSwitch ||
            !app.selfTestCrash.empty() || app.selfTestLicenseGiven || app.selfTestBluetoothGiven ||
-           app.selfTestNetworkGiven;
+           app.selfTestNetworkGiven || app.selfTestRatingGiven;
 }
 
 // The Store says the license is not active (the trial has ended): no AirPlay, no
 // Bluetooth, the unlock panel instead.
 bool Locked(const App& app) {
     return !store_license::AllowsService(app.licensing.state.kind);
+}
+
+// Help > Rate PhonePort… exists: a copy from the Store (a real or simulated Store answer),
+// bought or in its trial.
+bool RateOffered(const App& app) {
+    return rating::Offered(app.licensing.asked && app.licensing.tracker.FromStore(), app.licensing.state.kind);
 }
 
 // Posted by a second launch to the receiver already running. wParam bit 0: the
@@ -735,6 +750,21 @@ void SyncMenu(App& app) {
         InsertMenuW(help, 1, MF_BYPOSITION | MF_STRING, IDM_BUY_APP, L"&Buy PhonePort…");
     } else if (!buy && present) {
         DeleteMenu(menu, IDM_BUY_APP, MF_BYCOMMAND);
+    }
+    // Help > Rate PhonePort… sits under PhonePort support, in a copy from the Store only.
+    const bool rate = RateOffered(app);
+    const bool ratePresent = GetMenuState(menu, IDM_RATE_APP, MF_BYCOMMAND) != static_cast<UINT>(-1);
+    if (rate && !ratePresent) {
+        HMENU help = GetSubMenu(menu, GetMenuItemCount(menu) - 1);
+        int at = GetMenuItemCount(help);
+        for (int i = 0; i < GetMenuItemCount(help); ++i) {
+            if (GetMenuItemID(help, i) == IDM_SUPPORT) {
+                at = i + 1;
+            }
+        }
+        InsertMenuW(help, at, MF_BYPOSITION | MF_STRING, IDM_RATE_APP, L"&Rate PhonePort…");
+    } else if (!rate && ratePresent) {
+        DeleteMenu(menu, IDM_RATE_APP, MF_BYCOMMAND);
     }
 }
 
@@ -1417,6 +1447,7 @@ void InitLicensing(App& app) {
     }
     if (licensing.asked && store_license::IsElevated()) {
         licensing.canBuy = false;
+        licensing.elevated = true;
         LOGW("[LICENSE] running as administrator: the Microsoft Store does not support purchases from an elevated "
              "app, so Buy PhonePort is hidden");
     }
@@ -1472,11 +1503,43 @@ void ApplyLicense(App& app, const store_license::State& state, bool thank) {
     RelayoutWindow(app);  // the unlock panel and its button come and go
 }
 
+// The Store's review page for this product: the way to rate when the in-app dialog cannot
+// open (elevated, no Store context, or the dialog failed).
+void OpenReviewPage(App& app) {
+    LOGI("[RATING] opening the Microsoft Store review page: %ls", rating::kReviewUri);
+    const auto result =
+        reinterpret_cast<INT_PTR>(ShellExecuteW(app.window, L"open", rating::kReviewUri, nullptr, nullptr, SW_SHOWNORMAL));
+    if (result <= 32) {
+        LOGW("[RATING] could not open the Microsoft Store review page (ShellExecute %lld)", static_cast<long long>(result));
+        Toast(app, L"The Microsoft Store could not be opened. See the log.");
+    }
+}
+
+// The rating dialog closed. Every answer is the Store's; nothing is asked or given in return.
+void OnRatingEvent(App& app, store_license::Rating outcome) {
+    switch (outcome) {
+    case store_license::Rating::Succeeded:
+        LOGI("[RATING] rating: %s", store_license::RatingName(outcome));
+        Toast(app, L"Thank you for rating PhonePort.");
+        break;
+    case store_license::Rating::Canceled:
+        LOGI("[RATING] rating: %s", store_license::RatingName(outcome));
+        break;
+    case store_license::Rating::NetworkError:
+    case store_license::Rating::Failed:
+        LOGW("[RATING] rating: %s; opening the Store's review page instead", store_license::RatingName(outcome));
+        OpenReviewPage(app);
+        break;
+    }
+}
+
 // The Store license layer queued answers and purchase outcomes (WM_APP_LICENSE).
 void OnLicenseEvents(App& app) {
     auto& licensing = app.licensing;
     for (const store_license::Event& event : licensing.store.Take()) {
-        if (event.type == store_license::Event::Type::Purchase) {
+        if (event.type == store_license::Event::Type::Rating) {
+            OnRatingEvent(app, event.rating);
+        } else if (event.type == store_license::Event::Type::Purchase) {
             LOGI("[LICENSE] purchase: %s", store_license::PurchaseName(event.outcome));
             Toast(app, PurchaseMessage(event.outcome));
             const bool owned = event.outcome == store_license::Purchase::Succeeded ||
@@ -1548,6 +1611,52 @@ void BuyApp(App& app) {
     }
     LOGI("[LICENSE] Buy PhonePort: opening the Microsoft Store purchase dialog");
     Toast(app, L"Opening the Microsoft Store…");
+}
+
+// Help > Rate PhonePort…: the Store's own rate-and-review dialog, owned by this window, or
+// the Store's review page when the dialog is not available. A self-test opens neither.
+void RateApp(App& app) {
+    auto& licensing = app.licensing;
+    if (!RateOffered(app)) {
+        LOGW("[RATING] Rate PhonePort ignored: not a Store copy, or locked (%s)",
+             store_license::KindName(licensing.state.kind));
+        return;
+    }
+    if (SelfTesting(app)) {
+        LOGI("[RATING] self-test: no Store call and no Store page; the rating dialog would open now (fallback %ls)",
+             rating::kReviewUri);
+        Toast(app, L"Self-test: the Microsoft Store rating dialog would open now.");
+        return;
+    }
+    if (licensing.elevated) {
+        LOGI("[RATING] running as administrator: the Store has no in-app rating for an elevated app; using its review page");
+        OpenReviewPage(app);
+        return;
+    }
+    switch (licensing.store.Rate()) {
+    case store_license::RateStart::Started:
+        LOGI("[RATING] Rate PhonePort: opening the Microsoft Store rating dialog");
+        Toast(app, L"Opening the Microsoft Store…");
+        break;
+    case store_license::RateStart::AlreadyOpen:
+        Toast(app, L"The Microsoft Store rating is already open.");
+        break;
+    case store_license::RateStart::Unavailable:
+        LOGW("[RATING] the Store's rating dialog is unavailable; opening its review page instead");
+        OpenReviewPage(app);
+        break;
+    }
+}
+
+// The nudge's saved state. A self-test never writes it: it may start from --selftest-rating.
+void SaveRateNudge(App& app) {
+    if (SelfTesting(app)) {
+        LOGI("[RATING] self-test: sessions=%d shown=%d not saved", app.rateNudge.sessions, app.rateNudge.shown ? 1 : 0);
+        return;
+    }
+    app.settings.rateControlSessions = app.rateNudge.sessions;
+    app.settings.rateNudgeShown = app.rateNudge.shown;
+    app.settings.Save();
 }
 
 void Shutdown(App& app) {
@@ -1827,7 +1936,8 @@ void DrawStatus(const App& app, const DRAWITEMSTRUCT& item) {
 
     const bool toast = GetTickCount64() < app.toastUntil;
     const NativeControlState& state = app.controlState;
-    const COLORREF dot = toast ? ui::kAccent
+    const bool rateLine = app.lastControlStatus == kRateNudgeText;  // not Bluetooth news: no Bluetooth colour
+    const COLORREF dot = toast || rateLine ? ui::kAccent
                          : state.focused ? ui::kAccent
                          : (state.ready && app.hasPicture) ? ui::kGood  // green only while that phone is on screen
                          : (!state.bound.empty() || state.published || !app.controlPeers.empty()) ? ui::kWarn
@@ -2363,6 +2473,9 @@ void OnCommand(App& app, UINT id) {
     case IDM_BUY_APP:
         BuyApp(app);
         break;
+    case IDM_RATE_APP:
+        RateApp(app);
+        break;
     }
 }
 
@@ -2379,6 +2492,11 @@ void UpdateControlUi(App& app) {
     if(state.focused){
         app.lastFocusedTick=GetTickCount64();
         if(!app.settings.setupControlled){app.settings.setupControlled=true;app.settings.Save();}
+    }
+    // A mirror session in which the phone had the keyboard and mouse counts toward the rating line.
+    if(app.rateNudge.Observe(app.mirrorRunning,state.focused)){
+        LOGI("[RATING] mirror session %d of %d with Bluetooth control",app.rateNudge.sessions,rating::kSessionsBeforeNudge);
+        SaveRateNudge(app);
     }
     bool peersChanged=state.peers.size()!=app.controlPeers.size();
     if(!peersChanged)for(size_t i=0;i<state.peers.size();++i)if(state.peers[i].token!=app.controlPeers[i].token || state.peers[i].name!=app.controlPeers[i].name ||
@@ -2397,8 +2515,17 @@ void UpdateControlUi(App& app) {
     const std::wstring locked=Locked(app) ? L"The free trial has ended. Mirroring and Bluetooth control are off." : L"";
     // Until Bluetooth control has done anything, an adapter that cannot control a phone is the news.
     const std::wstring adapter=AdapterNotice(app);
+    // The rating line: once ever, for 15 s, only on a status bar with nothing more important on it.
+    const ULONGLONG now=GetTickCount64();
+    const bool quiet=!toast && locked.empty() && !state.focused && adapter.empty() && !app.fullscreen;
+    if(app.rateNudgeUntil==0 && app.rateNudge.Due(RateOffered(app),app.licensing.state,quiet)){
+        app.rateNudge.shown=true;app.rateNudgeUntil=now+kRateNudgeMs;
+        LOGI("[RATING] showing the one-time line pointing to Help > Rate PhonePort");
+        SaveRateNudge(app);
+    }
+    const bool nudge=now<app.rateNudgeUntil;
     const std::wstring text=toast ? app.toast : !locked.empty() ? locked : state.focused ? L"Controlling iPhone - click elsewhere to return"
-        : !adapter.empty() ? adapter : Utf8ToWide(state.message);
+        : nudge ? std::wstring(kRateNudgeText) : !adapter.empty() ? adapter : Utf8ToWide(state.message);
     const std::wstring detail=StatusDetail(app);
     const std::wstring clock=RecordClock(app);
     const std::wstring trial=TrialLabel(app);
@@ -2921,6 +3048,13 @@ void ParseCommandLine(App& app) {
             if (i + 1 < argc) {
                 app.selfTestLicense = argv[++i];
             }
+        } else if (arg == L"--selftest-rating") {
+            // The saved state of the rating line for this run only: 0 to 3 sessions, or shown.
+            // Nothing saved, and Help > Rate PhonePort… opens nothing. A self-test even without a value.
+            app.selfTestRatingGiven = true;
+            if (i + 1 < argc) {
+                app.selfTestRating = argv[++i];
+            }
         } else if (arg == L"--selftest-bluetooth") {
             // Simulates the launch check of the Bluetooth adapter. A self-test even without a value.
             app.selfTestBluetoothGiven = true;
@@ -3043,6 +3177,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     LOGI("[CFG] identity: serverName='%s' deviceId=%s", WideToUtf8(app.settings.serverName).c_str(),
          app.settings.macAddress.c_str());
     InitLicensing(app);
+    app.rateNudge.sessions = std::min(app.settings.rateControlSessions, rating::kSessionsBeforeNudge);
+    app.rateNudge.shown = app.settings.rateNudgeShown;
+    if (app.selfTestRatingGiven) {
+        const std::optional<rating::Nudge> simulated = rating::ParseSelfTest(app.selfTestRating);
+        if (simulated) {
+            app.rateNudge = *simulated;
+            LOGI("[RATING] self-test: starting from sessions=%d shown=%d; nothing is saved", app.rateNudge.sessions,
+                 app.rateNudge.shown ? 1 : 0);
+        } else {
+            LOGW("[RATING] --selftest-rating needs 0 to %d or shown; using the saved state, not saving it",
+                 rating::kSessionsBeforeNudge);
+        }
+        if (!app.licensing.asked) {
+            LOGW("[RATING] --selftest-rating shows the menu item and the line only with --selftest-license trial:<N> or licensed");
+        }
+    }
 
     ui::Startup();
 

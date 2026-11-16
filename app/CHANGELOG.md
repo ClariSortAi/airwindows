@@ -3,6 +3,7 @@
 ## 1.0.1 (2026-11-16)
 
 - Clicks and typing work again after a mirror that ended while the iPhone was locked. Locking the phone pauses mirroring. If the mirror then ended before the phone was unlocked, PhonePort kept the pause. The next mirror showed the phone but took no click and no key, and the status bar said "Mirroring is paused. Unlock the iPhone to continue." although the phone was unlocked. Only locking and unlocking the phone during the new mirror, or restarting PhonePort, cleared it. A pause now ends with the mirror that sent it.
+- Help > Rate PhonePort… opens the Microsoft Store's rating dialog. The item is there in a copy installed from the Store, during the trial and after buying. If the dialog cannot open, or PhonePort runs as administrator, it opens the Store's review page for PhonePort. After three mirror sessions in which the phone was controlled from the PC, the status bar points to the menu item once, for 15 seconds. New self-test option `--selftest-rating 0|1|2|3|shown` shows each state without a Store call.
 
 ## 1.0.0 (2026-11-14)
 

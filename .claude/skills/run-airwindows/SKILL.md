@@ -28,7 +28,7 @@ $d = './.claude/skills/run-airwindows/driver.ps1'
 & $d status                           # JSON: pid, title, width/height, sequence, frame_age_ms, source=selftest
 & $d frame .local/run-airwindows/f.png   # decoded picture at native size (1170x2532) + .json sidecar
 & $d ss .local/run-airwindows/w.png      # whole window incl. toolbar, status bar, guide panel
-& $d cmd screenshot                   # also: record, fullscreen, fit, ontop, details, guide, guide-open, guide-close, dump-menu, buy, expire, open-log, open-screenshots, open-recordings, network, support, or a numeric id
+& $d cmd screenshot                   # also: record, fullscreen, fit, ontop, details, guide, guide-open, guide-close, dump-menu, buy, expire, open-log, open-screenshots, open-recordings, network, support, rate, or a numeric id
 & $d log '\[CAPTURE\]|\[RECORD\]'     # log lines written since this launch
 & $d stop                             # WM_CLOSE, restores settings.ini, prints video summary + capture/record lines
 ```
@@ -38,7 +38,8 @@ $d = './.claude/skills/run-airwindows/driver.ps1'
 - Verified flow: `cmd screenshot` -> `[CAPTURE] screenshot 1170x2532 saved`; `cmd record`, wait 3 s, `cmd record` -> `[RECORD] saved ... (3.0 s, 177 frames)`; `cmd dump-menu` -> one `[SELFTEST] menu:` line per item with `checked`/grey state; `cmd guide-open` -> window widens and the setup guide shows in `ss`.
 - Always run `stop` before `launch` again; `launch` refuses while the previous PID lives.
 - Another build: `& $d launch 300 -Exe app/build/RelWithDebInfo/bin/PhonePort.exe` (or set `$env:AIRWINDOWS_DRIVER_EXE`). Extra receiver arguments: `-ReceiverArgs '--selftest-license','trial:5'`. Use this while the user's receiver runs from `app/build/Release` (that exe is locked; build `-Config RelWithDebInfo`).
-- Store licensing UI: `-ReceiverArgs '--selftest-license','<trial:N|expired|licensed>'` simulates the Store's answer (no Store call, nothing saved). `expired` shows the unlock panel and no clip; `launch` then waits for the window only (`-NoFrame` does the same for any run). `cmd buy` simulates a successful purchase: the panel goes and the clip starts without a restart. `cmd dump-menu` lists Help > Buy PhonePort… in `trial:N` and `expired` only.
+- Store licensing UI: `-ReceiverArgs '--selftest-license','<trial:N|expired|licensed>'` simulates the Store's answer (no Store call, nothing saved). `expired` shows the unlock panel and no clip; `launch` then waits for the window only (`-NoFrame` does the same for any run). `cmd buy` simulates a successful purchase: the panel goes and the clip starts without a restart. `cmd dump-menu` lists Help > Buy PhonePort… in `trial:N` and `expired` only, and Help > Rate PhonePort… in `trial:N` and `licensed` only.
+- Rating: add `'--selftest-rating','3'` to a `trial:N` or `licensed` run. The status bar shows `Ratings help others find PhonePort: Menu › Help › Rate PhonePort…` for 15 s and the log says `[RATING] showing the one-time line`. `cmd rate` logs `[RATING] self-test: no Store call` and opens nothing. `0`-`2` or `shown`: no line.
 - Other monitors: `& $d monitors` lists bounds and DPI; `& $d move <x> <y> <w> <h>` moves and sizes the window without activating it. Keep the whole window on that monitor: parts off screen are not repainted, so `ss` shows stale pixels there.
 - `launch 300 bt` keeps the saved phones (see Gotchas). Use it only when testing Bluetooth UI and the user agrees.
 - Trial running out while open: `-ReceiverArgs '--selftest-license','trial:5'`, then `cmd expire` (unlock panel, clip stops, `[LICENSE] the license is no longer active`), then `cmd buy` (clip back, `[CONTROL] license active again: restoring Bluetooth control as at launch`).

@@ -1,11 +1,13 @@
 // LicenseCheck: what a Microsoft Store license answer means for the receiver
-// (app/src/license_state.cpp) and the --selftest-license parser. No Store call,
-// no window, no settings.
+// (app/src/license_state.cpp), the --selftest-license parser, and when Help > Rate
+// PhonePort… and its one-time line show (app/src/rating.h). No Store call, no window,
+// no settings.
 
 #include <cstdio>
 #include <string>
 
 #include "license_state.h"
+#include "rating.h"
 
 namespace {
 
@@ -176,12 +178,97 @@ void CheckTracker() {
     Check(!counting.TakeExpiryCheck(kNow + 4 * kDay), "after the Store's answer: no more checks");
 }
 
+// Help > Rate PhonePort… and its one-time line (rating.h).
+void CheckRating() {
+    using rating::Nudge;
+    using store_license::State;
+    using store_license::Tracker;
+    const int n = rating::kSessionsBeforeNudge;
+    Check(n >= 2 && n <= 5, "several sessions, not one, before the line");
+    Check(std::wstring(rating::kReviewUri) == L"ms-windows-store://review/?ProductId=9N62X9J9KVT8",
+          "the review page is this product's Store ID");
+
+    // Who sees the menu item.
+    Check(rating::Offered(true, Kind::Full) && rating::Offered(true, Kind::Trial), "a Store copy, bought or trial: offered");
+    Check(!rating::Offered(true, Kind::Inactive), "locked: not offered");
+    Check(!rating::Offered(false, Kind::Full) && !rating::Offered(false, Kind::Trial) && !rating::Offered(false, Kind::NotStore),
+          "not from the Store: not offered");
+    Tracker none;
+    Check(!none.FromStore(), "no read yet: not a Store copy");
+    none.Record(Answer{});
+    Check(!none.FromStore() && none.Current(kNow).kind == Kind::Full, "failed read: full (fail open) but not a Store copy");
+    Tracker trial;
+    trial.Record(StoreAnswer(true, true, kNow + 5 * kDay));
+    Check(trial.FromStore(), "a Store trial is a Store copy");
+    Tracker local;
+    Answer registered = StoreAnswer(false, true, 253402214400);
+    registered.fromStore = false;
+    local.Record(registered);
+    Check(!local.FromStore(), "a locally registered package is not a Store copy");
+    Tracker bought;
+    bought.RecordPurchase(true);
+    Check(bought.FromStore(), "bought in this run: a Store copy");
+
+    // Counting: once per mirror session, and only when control was used in it.
+    Nudge nudge;
+    Check(!nudge.Observe(false, false) && !nudge.Observe(true, false) && nudge.sessions == 0, "mirroring without control: no count");
+    Check(!nudge.Observe(false, true) && nudge.sessions == 0, "focused without a mirror: no count");
+    Check(nudge.Observe(true, true) && nudge.sessions == 1, "control used in a mirror: one session");
+    Check(!nudge.Observe(true, true) && !nudge.Observe(true, false) && !nudge.Observe(true, true) && nudge.sessions == 1,
+          "the same mirror, controlled again: still one");
+    nudge.Observe(false, false);
+    Check(nudge.Observe(true, true) && nudge.sessions == 2, "the next mirror with control: two");
+    State full;
+    full.kind = Kind::Full;
+    Check(!nudge.Due(true, full, true), "before enough sessions: no line");
+    nudge.Observe(false, false);
+    nudge.Observe(true, true);
+    Check(nudge.sessions == n, "third mirror with control: three");
+    nudge.Observe(false, false);
+    Check(!nudge.Observe(true, true) && nudge.sessions == n, "the count stops at the threshold (nothing more to save)");
+
+    // When the line shows.
+    Check(nudge.Due(true, full, true), "enough sessions, bought, quiet: the line");
+    Check(!nudge.Due(false, full, true), "no menu item to point at: no line");
+    Check(!nudge.Due(true, full, false), "status bar busy (confirmation, controlling, warning, full screen): wait");
+    State trialDays;
+    trialDays.kind = Kind::Trial;
+    trialDays.daysLeft = 4;
+    Check(nudge.Due(true, trialDays, true), "trial with days left: the line");
+    State lastDay = trialDays;
+    lastDay.daysLeft = 0;
+    Check(!nudge.Due(true, lastDay, true), "trial's last day: no line");
+    State locked;
+    locked.kind = Kind::Inactive;
+    Check(!nudge.Due(true, locked, true), "locked: never, even if the menu were offered");
+    nudge.shown = true;
+    Check(!nudge.Due(true, full, true), "shown once: never again");
+
+    // Saved state from settings.ini read back.
+    Nudge reloaded;
+    reloaded.sessions = n;
+    reloaded.shown = true;
+    Check(!reloaded.Observe(true, true) && !reloaded.Due(true, full, true), "shown in an earlier run: no count, no line");
+
+    // --selftest-rating
+    const auto due = rating::ParseSelfTest(L"3");
+    Check(due && due->sessions == 3 && !due->shown && due->Due(true, full, true), "selftest 3: the line is due");
+    const auto zero = rating::ParseSelfTest(L"0");
+    Check(zero && zero->sessions == 0 && !zero->Due(true, full, true), "selftest 0: no line");
+    const auto shown = rating::ParseSelfTest(L"shown");
+    Check(shown && shown->shown && !shown->Due(true, full, true), "selftest shown: no line");
+    for (const wchar_t* bad : {L"", L"4", L"-1", L"03", L"three", L"Shown", L"due"}) {
+        Check(!rating::ParseSelfTest(bad).has_value(), "selftest rating rejects a bad value");
+    }
+}
+
 }  // namespace
 
 int main() {
     CheckMapping();
     CheckSelfTestParser();
     CheckTracker();
+    CheckRating();
     if (g_failures) {
         std::printf("LicenseCheck: %d of %d checks failed\n", g_failures, g_checks);
         return 1;

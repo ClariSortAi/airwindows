@@ -53,6 +53,9 @@ struct Tracker {
     // True when the last answer is a Store trial whose expiry the local clock has passed, so
     // the Store must be asked; then again at most every 10 minutes until it answers otherwise.
     bool TakeExpiryCheck(int64_t now);
+    // True when this copy came from the Store: a successful read had a Store SKU, or a
+    // purchase went through in this run. A failed read, or none yet, is not proof.
+    bool FromStore() const { return purchased || (last && last->fromStore); }
 };
 
 // True when `answer` should thank the buyer: a real Store answer, active and not a trial,

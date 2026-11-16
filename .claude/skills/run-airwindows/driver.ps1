@@ -94,6 +94,8 @@ $Commands = [ordered]@{
     'open-log' = 40003; 'open-screenshots' = 40062; 'open-recordings' = 40063; network = 41013
     # Help > PhonePort support; with --selftest-menu it logs the support URL instead of opening it.
     support = 40054
+    # Help > Rate PhonePort; a self-test logs '[RATING] self-test: no Store call' and opens nothing.
+    rate = 40055
 }
 # Refused: Bluetooth (above) and anything that restarts the AirPlay service
 # (rename, restart, decoder, fps, quality, H.265): that path can start the real

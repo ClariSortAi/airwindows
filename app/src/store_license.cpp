@@ -20,6 +20,13 @@
 //   https://learn.microsoft.com/uwp/api/windows.services.store.storeapplicense.expirationdate
 //     Relative to the system clock; 31 December 9999 when there is no time limit.
 //   https://learn.microsoft.com/uwp/api/windows.services.store.storecontext.getstoreproductforcurrentappasync
+//   https://learn.microsoft.com/uwp/api/windows.services.store.storecontext.requestrateandreviewappasync
+//     (read 2026-11-16) Windows 10, version 1809 (10.0.17763.0), StoreContract v4. "This
+//     method must be called on the UI thread." "In-app rate and review functionality is not
+//     supported in elevated applications." 0x80070578 has the same meaning as for purchases:
+//     the wrong thread, or a desktop app that did not set the owner window.
+//   https://learn.microsoft.com/uwp/api/windows.services.store.storerateandreviewstatus
+//     Succeeded 0, CanceledByUser 1, NetworkError 2, Error 3.
 //
 // License reads run on this file's own thread (multi-threaded apartment) and are posted
 // to the window as events. The purchase runs on the window's thread, as Learn requires,
@@ -58,6 +65,8 @@ using winrt::Windows::Services::Store::StoreProduct;
 using winrt::Windows::Services::Store::StoreProductResult;
 using winrt::Windows::Services::Store::StorePurchaseResult;
 using winrt::Windows::Services::Store::StorePurchaseStatus;
+using winrt::Windows::Services::Store::StoreRateAndReviewResult;
+using winrt::Windows::Services::Store::StoreRateAndReviewStatus;
 using Clock = std::chrono::steady_clock;
 
 constexpr int32_t kNotKnownToStore = static_cast<int32_t>(0x803F6107);
@@ -103,6 +112,12 @@ struct Shared {
         Event event;
         event.type = Event::Type::Purchase;
         event.outcome = outcome;
+        Push(event);
+    }
+    void PushRating(Rating outcome) {
+        Event event;
+        event.type = Event::Type::Rating;
+        event.rating = outcome;
         Push(event);
     }
     void Enqueue(Task task) {
@@ -161,15 +176,36 @@ const char* PurchaseName(Purchase outcome) {
     return "unknown";
 }
 
+const char* RatingName(Rating outcome) {
+    switch (outcome) {
+    case Rating::Succeeded: return "succeeded";
+    case Rating::Canceled: return "canceled";
+    case Rating::NetworkError: return "network-error";
+    case Rating::Failed: return "failed";
+    }
+    return "unknown";
+}
+
 struct StoreLicense::Impl {
     std::shared_ptr<Shared> shared = std::make_shared<Shared>();
     bool simulated = false;
     std::thread worker;
     // Window thread only.
     bool buying = false;
-    StoreContext purchaseContext{nullptr};
+    bool rating = false;
+    StoreContext purchaseContext{nullptr};  // also opens the rating dialog
     IAsyncOperation<StoreProductResult> lookup{nullptr};
     IAsyncOperation<StorePurchaseResult> request{nullptr};
+    IAsyncOperation<StoreRateAndReviewResult> rateRequest{nullptr};
+
+    // A context of the window's thread, owned by the window, for the dialogs. Throws.
+    void EnsureDialogContext() {
+        if (!purchaseContext) {
+            StoreContext context = StoreContext::GetDefault();
+            winrt::check_hresult(context.as<::IInitializeWithWindow>()->Initialize(shared->window));
+            purchaseContext = context;
+        }
+    }
 
     void PushLicense(const Answer& answer) {
         Event event;
@@ -363,11 +399,7 @@ bool StoreLicense::Buy() {
     s.buying = true;
     const std::shared_ptr<Shared> state = s.shared;
     try {
-        // A context of the window's thread, owned by the window, for the purchase only.
-        if (!s.purchaseContext) {
-            s.purchaseContext = StoreContext::GetDefault();
-            winrt::check_hresult(s.purchaseContext.as<::IInitializeWithWindow>()->Initialize(state->window));
-        }
+        s.EnsureDialogContext();
         s.lookup = s.purchaseContext.GetStoreProductForCurrentAppAsync();
         s.lookup.Completed([state](const IAsyncOperation<StoreProductResult>& operation, AsyncStatus status) {
             Purchase failure = Purchase::Failed;
@@ -402,6 +434,61 @@ bool StoreLicense::Buy() {
         state->PushPurchase(Purchase::Failed);
     }
     return true;
+}
+
+RateStart StoreLicense::Rate() {
+    Impl& s = *impl_;
+    if (s.simulated) {
+        // main.cpp answers a self-test itself; this is the second guard: never the real dialog.
+        LOGI("[STORE] self-test: rating simulated, no Store call");
+        s.shared->PushRating(Rating::Canceled);
+        return RateStart::Started;
+    }
+    if (s.rating) {
+        return RateStart::AlreadyOpen;
+    }
+    if (!s.worker.joinable()) {
+        LOGW("[STORE] this run does not ask the Store; no rating dialog");
+        return RateStart::Unavailable;
+    }
+    const std::shared_ptr<Shared> state = s.shared;
+    try {
+        s.EnsureDialogContext();
+        LOGI("[STORE] opening the rating dialog");
+        s.rateRequest = s.purchaseContext.RequestRateAndReviewAppAsync();
+        s.rating = true;
+        s.rateRequest.Completed([state](const IAsyncOperation<StoreRateAndReviewResult>& operation, AsyncStatus status) {
+            Rating outcome = Rating::Failed;
+            try {
+                if (status == AsyncStatus::Completed) {
+                    const auto result = operation.GetResults();
+                    const auto answer = result.Status();
+                    LOGI("[STORE] rating status %d (extended 0x%08lX, updated %d): %ls", static_cast<int>(answer),
+                         static_cast<unsigned long>(result.ExtendedError()), result.WasUpdated() ? 1 : 0,
+                         result.ExtendedJsonData().c_str());
+                    switch (answer) {
+                    case StoreRateAndReviewStatus::Succeeded: outcome = Rating::Succeeded; break;
+                    case StoreRateAndReviewStatus::CanceledByUser: outcome = Rating::Canceled; break;
+                    case StoreRateAndReviewStatus::NetworkError: outcome = Rating::NetworkError; break;
+                    case StoreRateAndReviewStatus::Error: outcome = Rating::Failed; break;
+                    }
+                } else {
+                    LOGW("[STORE] rating dialog ended with status %d", static_cast<int>(status));
+                }
+            } catch (const winrt::hresult_error& error) {
+                LOGW("[STORE] rating failed (0x%08lX: %ls)", Code(error), error.message().c_str());
+            } catch (const std::exception& error) {
+                LOGW("[STORE] rating failed (%s)", error.what());
+            }
+            state->PushRating(outcome);
+        });
+    } catch (const winrt::hresult_error& error) {
+        LOGW("[STORE] the rating dialog could not open (0x%08lX: %ls)", Code(error), error.message().c_str());
+        s.rating = false;
+        s.rateRequest = nullptr;
+        return RateStart::Unavailable;
+    }
+    return RateStart::Started;
 }
 
 bool StoreLicense::SimulateExpiry() {
@@ -447,6 +534,8 @@ std::vector<Event> StoreLicense::Take() {
     for (const Event& event : taken) {
         if (event.type == Event::Type::Purchase) {
             s.buying = false;
+        } else if (event.type == Event::Type::Rating) {
+            s.rating = false;
         }
     }
     return taken;
@@ -459,21 +548,23 @@ void StoreLicense::Stop() {
         s.shared->closed = true;
     }
     s.shared->quitting = true;
-    // A purchase dialog still open is cancelled, not waited for: its handler finds the
-    // shared state closed and posts nothing.
-    const auto cancel = [](const auto& operation) {
+    // A purchase or rating dialog still open is cancelled, not waited for: its handler finds
+    // the shared state closed and posts nothing.
+    const auto cancel = [](const auto& operation, const char* what) {
         if (!operation || operation.Status() != AsyncStatus::Started) return;
         try {
             operation.Cancel();
-            LOGI("[STORE] purchase still open at close: cancelled");
+            LOGI("[STORE] %s still open at close: cancelled", what);
         } catch (const winrt::hresult_error& error) {
-            LOGW("[STORE] could not cancel the purchase on close (0x%08lX)", Code(error));
+            LOGW("[STORE] could not cancel the %s on close (0x%08lX)", what, Code(error));
         }
     };
-    cancel(s.lookup);
-    cancel(s.request);
+    cancel(s.lookup, "purchase");
+    cancel(s.request, "purchase");
+    cancel(s.rateRequest, "rating");
     s.lookup = nullptr;
     s.request = nullptr;
+    s.rateRequest = nullptr;
     s.purchaseContext = nullptr;
     if (!s.worker.joinable()) {
         return;

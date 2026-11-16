@@ -27,6 +27,8 @@
 #define IDM_BUY_APP 40053
 // Help > PhonePort support: opens the support page (AIRWINDOWS_SUPPORT_URL) in the browser.
 #define IDM_SUPPORT 40054
+// Help > Rate PhonePort…: copies from the Store (and --selftest-license), bought or in trial.
+#define IDM_RATE_APP 40055
 #define IDM_SCREENSHOT 40060
 #define IDM_RECORD 40061
 #define IDM_OPEN_SCREENSHOTS 40062

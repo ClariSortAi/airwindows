@@ -25,10 +25,19 @@ enum class Purchase { Succeeded, AlreadyPurchased, NotPurchased, NetworkError, S
 
 const char* PurchaseName(Purchase outcome);
 
+// StoreRateAndReviewStatus, plus Failed when the call threw or did not complete.
+enum class Rating { Succeeded, Canceled, NetworkError, Failed };
+
+const char* RatingName(Rating outcome);
+
+// What Rate did.
+enum class RateStart { Started, AlreadyOpen, Unavailable };
+
 struct Event {
-    enum class Type { License, Purchase } type = Type::License;
+    enum class Type { License, Purchase, Rating } type = Type::License;
     Answer answer;                          // License
     Purchase outcome = Purchase::Failed;    // Purchase
+    Rating rating = Rating::Failed;         // Rating
 };
 
 class StoreLicense {
@@ -48,6 +57,12 @@ public:
     // license is read again after it (at 2, 10 and 30 s after a successful purchase).
     // False when a purchase is already in progress.
     bool Buy();
+    // Opens the Store's rate-and-review dialog for this app, owned by the window
+    // (StoreContext.RequestRateAndReviewAppAsync). Call on the window's thread; it does not
+    // block. The outcome arrives as a Rating event. Unavailable when no Store context could
+    // be made (or this run never asks the Store): the caller opens the Store's review page.
+    // Never called in an elevated process: the Store does not support it there.
+    RateStart Rate();
     // Queues one more license read (for a trial past its local expiry).
     void Refresh();
     // Self-test only (a simulated Start): queue the answer the Store gives when a trial
@@ -56,7 +71,7 @@ public:
     // Call on the window's thread when `message` arrives. It also opens the purchase
     // dialog once the product lookup started by Buy has finished.
     std::vector<Event> Take();
-    // Call on the window's thread. Cancels a purchase dialog that is still open.
+    // Call on the window's thread. Cancels a purchase or rating dialog that is still open.
     void Stop();
 
 private:

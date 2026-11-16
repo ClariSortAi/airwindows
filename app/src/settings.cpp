@@ -194,6 +194,8 @@ void Settings::Load() {
     windowMaximized = ReadInt(path, L"WindowMaximized", 0) != 0;
     setupGuideSeen = ReadInt(path, L"SetupGuideSeen", 0) != 0;
     setupControlled = ReadInt(path, L"SetupControlled", 0) != 0;
+    rateControlSessions = std::clamp(ReadInt(path, L"RateControlSessions", 0), 0, 1000);
+    rateNudgeShown = ReadInt(path, L"RateNudgeShown", 0) != 0;
 }
 
 void Settings::Save() const {
@@ -218,6 +220,8 @@ void Settings::Save() const {
     WriteString(path, L"WindowMaximized", windowMaximized ? L"1" : L"0");
     WriteString(path, L"SetupGuideSeen", setupGuideSeen ? L"1" : L"0");
     WriteString(path, L"SetupControlled", setupControlled ? L"1" : L"0");
+    WriteString(path, L"RateControlSessions", std::to_wstring(rateControlSessions));
+    WriteString(path, L"RateNudgeShown", rateNudgeShown ? L"1" : L"0");
 }
 
 std::string WideToUtf8(const std::wstring& text) {

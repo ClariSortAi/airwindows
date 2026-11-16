@@ -35,6 +35,10 @@ struct Settings {
     // First-run setup guide: closed at least once, and the phone controlled at least once.
     bool setupGuideSeen = false;
     bool setupControlled = false;
+    // The one-time line pointing to Help > Rate PhonePort… (rating.h): mirror sessions with
+    // Bluetooth control used so far, and whether the line has been shown.
+    int rateControlSessions = 0;
+    bool rateNudgeShown = false;
 
     void Load();
     void Save() const;
