@@ -115,6 +115,18 @@ private:
     uint64_t generation_=0;
 };
 
+// What the sender last said about its mirror. A pause belongs to the session that sent it:
+// a session that ends while paused never sends the resume, so the next session starts
+// unpaused. On 2026-11-14 a phone locked and its mirror ended a minute later; the pause
+// stayed, and the next mirror took no click or key until the receiver was restarted.
+struct MirrorFlags {
+    bool running=false, paused=false;
+    // Both return true when the value changed, so the caller can drop pending input.
+    bool SetRunning(bool value){const bool changed=running!=value;running=value;if(changed)paused=false;return changed;}
+    bool SetPaused(bool value){const bool changed=paused!=value;paused=value;return changed;}
+    bool Live() const {return running && !paused;}
+};
+
 inline std::optional<std::string> PrintablePaste(std::wstring_view input){
     std::string output;
     for(size_t i=0;i<input.size();++i){

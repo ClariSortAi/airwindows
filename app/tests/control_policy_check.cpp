@@ -65,6 +65,16 @@ int main(){
     check(gate.Accept(5));check(!gate.Await(5)); // decoder wins the scheduling race
     check(gate.Await(6));check(!gate.Accept(5));check(gate.Accept(6));
     check(!gate.Await(5));check(gate.Accept(7));check(!gate.Await(7));
+    // The phone locks, and its mirror ends before it unlocks: the next mirror is not paused.
+    MirrorFlags flags;
+    check(!flags.Live() && flags.SetRunning(true) && flags.Live() && !flags.SetRunning(true));
+    check(flags.SetPaused(true) && !flags.Live() && !flags.SetPaused(true)); // locked: no input
+    check(flags.SetPaused(false) && flags.Live());                           // unlocked in the same mirror
+    flags.SetPaused(true);
+    check(flags.SetRunning(false) && !flags.paused && !flags.Live());        // the mirror ends while locked
+    check(flags.SetRunning(true) && flags.Live());                           // and the next one takes input
+    flags.SetRunning(false);flags.SetPaused(true);                           // a late pause after the end
+    check(flags.SetRunning(true) && flags.Live());
     const std::vector<uint8_t> last{1,0x34,0x12,0x78,0x56};
     const auto homeDown=AbsoluteButtons(last,true,2);
     check(homeDown==std::vector<uint8_t>({2,0x34,0x12,0x78,0x56})); // button2, never button1

@@ -22,7 +22,8 @@ struct NativeControl::Impl {
     ControlQueue queue;
     NativeControlState state;
     bool quitting=false, pair=false, disconnect=false, stop=false;
-    bool focused=false, mirror=false, paused=false, picture=false;
+    bool focused=false, picture=false;
+    MirrorFlags mirror;  // what the sender last said: mirroring, and paused or not
     bool live=false; // the chosen phone was on screen, unpaused, at the last inspection
     int width=0,height=0;
     ControlFrameGate frameGate;
@@ -39,7 +40,7 @@ struct NativeControl::Impl {
     std::atomic<bool> processing{false};
 
     void RefreshFocus() { // mutex held
-        const bool usable = focused && mirror && !paused && picture && state.ready;
+        const bool usable = focused && mirror.Live() && picture && state.ready;
         // Taking control again clears an earlier complaint ("Paste rejected...") from the status line.
         if (usable && !queue.Armed()) state.message="Click the mirrored phone to control it; click elsewhere to return";
         if (usable != queue.Armed()) {
@@ -198,12 +199,12 @@ struct NativeControl::Impl {
                         state.waiting=!lost && state.bound.empty() && !link.wanted.empty() && view.published;
                         // "Live": the chosen phone is the one on screen right now. The status line follows
                         // that rather than the identity match alone, which outlives a mirror that stopped.
-                        const bool nowLive=state.ready && mirror && picture && !paused;
+                        const bool nowLive=state.ready && mirror.Live() && picture;
                         const bool becameLive=nowLive && !live;
                         live=nowLive;
                         if (lost) state.message="Phone disconnected. Waiting for the saved phone.";
                         else if(becameLive)state.message="Click the mirrored phone to control it; click elsewhere to return";
-                        else if(subscribed && state.ready && mirror && paused)state.message="Mirroring is paused. Unlock the iPhone to continue.";
+                        else if(subscribed && state.ready && mirror.running && mirror.paused)state.message="Mirroring is paused. Unlock the iPhone to continue.";
                         else if(subscribed && !nowLive)state.message="Bluetooth connected; mirror the selected iPhone";
                         // The phone on screen is a remembered one whose Bluetooth has not arrived. Do not
                         // ask for a choice: the phones listed meanwhile are other phones.
@@ -314,12 +315,13 @@ void NativeControl::Focus(bool value){
     if(!value)impl_->Cancel();else impl_->wake.notify_one();
 }
 void NativeControl::Mirror(bool value){
-    {std::lock_guard<std::mutex> lock(impl_->mutex);if(impl_->mirror!=value){impl_->DropInput();impl_->focused=false;}impl_->mirror=value;
+    // A session that starts or ends also clears a pause left by the session before it.
+    {std::lock_guard<std::mutex> lock(impl_->mutex);if(impl_->mirror.SetRunning(value)){impl_->DropInput();impl_->focused=false;}
       if(!value)impl_->link.OnMirrorEnded();impl_->RefreshFocus();}
     impl_->Cancel();
 }
 void NativeControl::Pause(bool value){
-    {std::lock_guard<std::mutex> lock(impl_->mutex);if(impl_->paused!=value){impl_->DropInput();impl_->focused=false;}impl_->paused=value;impl_->RefreshFocus();}
+    {std::lock_guard<std::mutex> lock(impl_->mutex);if(impl_->mirror.SetPaused(value)){impl_->DropInput();impl_->focused=false;}impl_->RefreshFocus();}
     impl_->Cancel();
 }
 void NativeControl::Picture(bool present,int width,int height,uint64_t generation){
