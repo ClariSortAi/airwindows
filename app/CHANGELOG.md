@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 (2026-11-16)
+
+- Clicks and typing work again after a mirror that ended while the iPhone was locked. Locking the phone pauses mirroring. If the mirror then ended before the phone was unlocked, PhonePort kept the pause. The next mirror showed the phone but took no click and no key, and the status bar said "Mirroring is paused. Unlock the iPhone to continue." although the phone was unlocked. Only locking and unlocking the phone during the new mirror, or restarting PhonePort, cleared it. A pause now ends with the mirror that sent it.
+
 ## 1.0.0 (2026-11-14)
 
 - PhonePort 1.0.0 is sold through the Microsoft Store: a 7-day free trial, then a one-time purchase. The Store installs and updates it and takes the payment. Open it from the Start menu, or run `phoneport --frames`; `iosctl` is on the command path too. There is no ZIP download of 1.0.0.
