@@ -151,7 +151,7 @@ The older Python reader is in the install folder at `app\scripts\observe-phone.p
 
 ## 8. Prove agent control
 
-Use `iosctl` where your environment permits its desktop input, or your supported desktop tool, for these tests. Read [the helper guide](app/tools/iosctl/README.md) before sending commands:
+Use `iosctl` where your environment permits its desktop input, or your supported desktop tool, for these tests. Read [the helper guide](app/tools/iosctl/README.md) before sending commands. From 1.0.2, a host that speaks the Model Context Protocol can register `iosctl --mcp` and run the same tests with its `phoneport_` tools ([setup](app/tools/iosctl/README.md#mcp-server)):
 
 | Action | Visible result |
 |---|---|

@@ -91,6 +91,58 @@ Normal capture, input and verification reject images older than one second. For 
 
 `wake` requires the helper from **0.3.1-rc.3 or later**. Doctor and idle snapshots require the receiver from **0.3.1-rc.2 or later**. Older receivers still support fresh captures; upgrade both executables together for the new commands. `preflight` remains the three-observation check before input.
 
+## MCP server
+
+From 1.0.2, `iosctl --mcp` offers the phone to any agent host that speaks the Model Context Protocol (MCP). The host starts it and talks to it over standard input and output. Nothing listens on the network. The server adds no input path of its own: each tool builds a command batch and runs it through the same focus, identity and release checks as the command line.
+
+Start PhonePort and Screen Mirroring first. Then register the server with the host.
+
+```powershell
+# Claude Code
+claude mcp add phoneport -- iosctl --mcp
+```
+
+Hosts that read a JSON file (Claude Desktop, Cursor and others) take the same command and argument:
+
+```json
+{
+  "mcpServers": {
+    "phoneport": { "command": "iosctl", "args": ["--mcp"] }
+  }
+}
+```
+
+With a ZIP or source build, give the full path to `iosctl.exe` as the command.
+
+| Option | Effect |
+|---|---|
+| `--pid PID` | Use this receiver. Without it the server uses the one running receiver and refuses to choose between several |
+| `--max-side N` | Longest side of a returned picture in pixels, 320 to 4096. Default 1280 |
+| `--keep-focus` | Leave PhonePort in front after an input instead of restoring the previous window |
+
+| Tool | Behavior |
+|---|---|
+| `phoneport_status` | Setup check with the next step, as `--doctor`. No input, no focus change |
+| `phoneport_screenshot` | The phone's picture as JPEG or PNG, with its width, height and age. `x`, `y`, `width` and `height` return one region enlarged for reading. No input, no focus change |
+| `phoneport_tap` | One tap |
+| `phoneport_swipe` | One drag; `flick` makes it fast and straight |
+| `phoneport_type` | US ASCII text, 1 to 1,024 characters, into the focused field |
+| `phoneport_key` | One of enter, tab, backspace, left, right, up, down, space |
+| `phoneport_home` | Home; requires Button 2 mapped to Home |
+| `phoneport_batch` | Several input and timing commands in one call. File commands (`shot`, `crop`, `snapshot`) are refused |
+
+What a host should know:
+
+- Coordinates are pixels of the picture the server returns, with 0,0 at the top left. The server shrinks a picture whose longer side exceeds the limit and converts coordinates back to phone pixels itself. Take coordinates from the newest full screenshot.
+- Every input tool waits `wait_ms` (default 700, at most 5000) and then returns the picture, so one call both acts and observes. The result also gives `change_permille` and `screen_changed`. They report pixels, not task success.
+- A still screen sends no frames. `phoneport_screenshot` then returns the kept picture and says how old it is. An input tool starts with `wake` whenever the newest frame is older than 300 ms.
+- Input brings the PhonePort window to the front and restores the previous window afterwards. If the user is working in another window, Windows refuses, the tool reports `Windows denied focus` and nothing is sent. Clicking any other window is also how a person stops an agent.
+- A tool that fails returns a result marked `isError` with `error`, `input_may_have_been_submitted` and `next`. Nothing is retried. After a failure that may have sent input, look before acting again.
+- Standard output carries protocol messages only. Diagnostics go to standard error.
+- Pictures go to the host and from there to its model. They can hold private information.
+
+The self-test covers the protocol answers, argument refusal, coordinate conversion and a screenshot read over a real local pipe. It sends no input.
+
 ## Build and checks
 
 The normal receiver build also builds `iosctl`. To build it separately, run `app\tools\iosctl\build.ps1` from the source root. It uses the Windows .NET Framework C# compiler and takes its version from `app\CMakeLists.txt`.

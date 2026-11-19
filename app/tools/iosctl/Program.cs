@@ -81,10 +81,17 @@ sealed class Plan {
             default:throw new ArgumentException("Unsupported key: "+name);
         }
     }
-    internal Plan(string script) {
+    static List<string[]> Bounded(string script) {
         if(script.Length>16384)throw new ArgumentException("Command batch is too long");
+        return Tokenize(script);
+    }
+    internal Plan(string script):this(Bounded(script)) {}
+    // Commands already split into words. The MCP server builds its batches this way, so
+    // text to type needs no quoting. Every rule below applies to both entry points.
+    internal Plan(IEnumerable<string[]> batch) {
         bool held=false;int heldWait=0,totalWait=0;
-        foreach(var tokens in Tokenize(script)) {
+        foreach(var tokens in batch) {
+            if(tokens==null || tokens.Length==0)throw new ArgumentException("Empty command");
             var c=new Command{Name=tokens[0].ToLowerInvariant(),Args=tokens.Skip(1).ToArray()};
             if(held && c.Name!="move" && c.Name!="up" && c.Name!="wait")throw new ArgumentException("While holding, use only move, a short wait, and up");
             bool action=false;
@@ -312,6 +319,7 @@ static class Program {
                 if(args.Length!=1 && (args.Length!=3 || args[1]!="--pid" || !Int32.TryParse(args[2],out selected) || selected<1))throw new ArgumentException("Use --doctor [--pid PID]");
                 return Doctor.Run(selected);
             }
+            if(args.Length>=1 && args[0]=="--mcp")return McpServer.Run(args);
             if(args.Length==1 && args[0]=="--version"){Console.WriteLine("iosctl "+FileVersionInfo.GetVersionInfo(typeof(Program).Assembly.Location).ProductVersion);return 0;}
             if(args.Length==0 && StartMenuLaunch.Applies(0)) {
                 Console.Write(StartMenuLaunch.Message+"\nPress Enter to close.");
@@ -319,7 +327,7 @@ static class Program {
                 return 0;
             }
             if(args.Length==0 || (args.Length==1 && args[0]=="--help")) {
-                Console.WriteLine("iosctl --pid PID [--targets FILE] [--keep-focus] \"commands\"\nRead README.md for input permissions and examples.\nCommands: status, preflight, shot PATH [scale], crop PATH X Y W H [zoom],\ngrid [threshold], tap X Y, go NAME, home, type 'text', key NAME,\nswipe/flick X1 Y1 X2 Y2 [ms], page left|right, hold MS,\ndown X Y; move X Y; up X Y, wait MS, changed, settle [ms], targets.\nwake (first in a batch) moves the pointer without pressing so a still screen sends frames.\nsnapshot PATH [scale] saves a retained image for inspection only; run alone.\nQuotes preserve spaces and semicolons. No automatic retries.\n--doctor [--pid PID] diagnoses setup without input (exit 2: action needed).\n--list lists receiver processes; --self-test sends no input.");return 0;
+                Console.WriteLine("iosctl --pid PID [--targets FILE] [--keep-focus] \"commands\"\nRead README.md for input permissions and examples.\nCommands: status, preflight, shot PATH [scale], crop PATH X Y W H [zoom],\ngrid [threshold], tap X Y, go NAME, home, type 'text', key NAME,\nswipe/flick X1 Y1 X2 Y2 [ms], page left|right, hold MS,\ndown X Y; move X Y; up X Y, wait MS, changed, settle [ms], targets.\nwake (first in a batch) moves the pointer without pressing so a still screen sends frames.\nsnapshot PATH [scale] saves a retained image for inspection only; run alone.\nQuotes preserve spaces and semicolons. No automatic retries.\n--doctor [--pid PID] diagnoses setup without input (exit 2: action needed).\n--list lists receiver processes; --self-test sends no input.\n--mcp [--pid PID] [--keep-focus] [--max-side N] serves the phone to an agent host as\nModel Context Protocol tools over standard input and output.");return 0;
             }
             if(args.Length==1 && args[0]=="--list") {
                 foreach(string name in Receiver.ProcessNames)foreach(var p in Process.GetProcessesByName(name))using(p){

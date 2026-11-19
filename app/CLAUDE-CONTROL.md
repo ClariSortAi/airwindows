@@ -10,7 +10,7 @@ The iPhone controls are pixels inside a Windows video window. They are not brows
 
 Use the bundled [iosctl helper](tools/iosctl/README.md) where your environment permits local CLI-based desktop input, or a supported Windows desktop tool. The helper supplies taps, typing, paced drags, Home, fresh image capture and preflight. Follow your environment's tool restrictions; a bundled executable does not authorize a prohibited input mechanism. If neither input route is available, identify the missing capability before attempting phone operations.
 
-The decoded-frame pipe is read-only. `iosctl` reads it for observation and sends checked desktop input to the same focused video window; it does not bypass the receiver's queue or Bluetooth identity checks. There is no phone-input HTTP/MCP endpoint. The separate `native_hid.exe` bench provider must not run alongside it. The older ESP `IPhone-Ble.py` and AI KVM MCP actions are not the native GUI control route.
+The decoded-frame pipe is read-only. `iosctl` reads it for observation and sends checked desktop input to the same focused video window; it does not bypass the receiver's queue or Bluetooth identity checks. From 1.0.2, `iosctl --mcp` offers the same observation and checked input to an MCP host as tools; see [its guide](tools/iosctl/README.md#mcp-server). There is no phone-input HTTP endpoint, and nothing listens on the network for input. The separate `native_hid.exe` bench provider must not run alongside it. The older ESP `IPhone-Ble.py` and AI KVM MCP actions are not the native GUI control route.
 
 ## Locate the running receiver
 

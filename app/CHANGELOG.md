@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.2 (not yet released)
+
+- `iosctl --mcp` is a Model Context Protocol (MCP) server. An agent host such as Claude Code, Claude Desktop or Cursor starts it and gets the mirrored iPhone as eight tools: `phoneport_status`, `phoneport_screenshot`, `phoneport_tap`, `phoneport_swipe`, `phoneport_type`, `phoneport_key`, `phoneport_home` and `phoneport_batch`. Register it with `claude mcp add phoneport -- iosctl --mcp`, or with the command `iosctl` and the argument `--mcp` in a host's JSON file.
+  - The server talks over standard input and output. Nothing listens on the network.
+  - Every input runs through the same checks as an `iosctl` command batch: the selected phone, the focused PhonePort window, a fresh picture, and release of held buttons on failure. Nothing is retried.
+  - Each input tool returns the phone's picture taken after a short wait, so one call acts and observes. Coordinates are pixels of the returned picture. Pictures are JPEG by default and at most 1,280 pixels on the longer side (`--max-side`).
+  - A still screen sends no frames. The screenshot tool then returns the kept picture with its age, and an input tool moves the pointer first so that new frames arrive.
+  - Input needs the PhonePort window in front. If the user is working in another window, Windows refuses and nothing is sent.
+- `Plan` accepts a batch already split into words, so text typed through the MCP server needs no quoting. Command batches on the command line parse as before.
+
 ## 1.0.1 (2026-11-16)
 
 - Clicks and typing work again after a mirror that ended while the iPhone was locked. Locking the phone pauses mirroring. If the mirror then ended before the phone was unlocked, PhonePort kept the pause. The next mirror showed the phone but took no click and no key, and the status bar said "Mirroring is paused. Unlock the iPhone to continue." although the phone was unlocked. Only locking and unlocking the phone during the new mirror, or restarting PhonePort, cleared it. A pause now ends with the mirror that sent it.

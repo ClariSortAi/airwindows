@@ -26,7 +26,72 @@ static class Tests {
         byte[] header=Encoding.ASCII.GetBytes("P6\n2 2\n255\n");var data=new byte[header.Length+12];header.CopyTo(data,0);
         new byte[]{255,0,0,0,255,0,0,0,255,255,255,255}.CopyTo(data,header.Length);return data;
     }
-    static void PipeRoundTrip(bool stall,bool retained=false,bool inspect=false,bool save=false) {
+    static Dictionary<string,object> Rpc(McpServer server,string json) {
+        string reply=server.Handle(json);
+        Check(reply!=null && reply.IndexOf('\n')<0 && reply.IndexOf('\r')<0,"an MCP reply is one line");
+        return (Dictionary<string,object>)McpServer.Json.DeserializeObject(reply);
+    }
+    static Dictionary<string,object> Member(object value,string key) { return (Dictionary<string,object>)((Dictionary<string,object>)value)[key]; }
+    static int ErrorCode(Dictionary<string,object> reply) { return Convert.ToInt32(Member(reply,"error")["code"]); }
+    // The text part of a tool result that reports a failure, or null when the call succeeded.
+    static string ToolError(McpServer server,string name,string arguments) {
+        var result=Member(Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\""+name+"\",\"arguments\":"+arguments+"}}"),"result");
+        object failed;
+        if(!result.TryGetValue("isError",out failed) || !(failed is bool) || !(bool)failed)return null;
+        var content=(object[])result["content"];
+        var facts=(Dictionary<string,object>)McpServer.Json.DeserializeObject((string)((Dictionary<string,object>)content[content.Length-1])["text"]);
+        return (string)facts["error"];
+    }
+    // The MCP server without a phone: protocol answers, argument refusal and coordinate mapping.
+    static void McpChecks() {
+        McpServer.Quiet=true; // these checks provoke refusals on purpose; keep them off standard error
+        var server=new McpServer(0,false,1280);
+        server.Resolve=()=>{throw new InvalidOperationException("the self-test must not look for a receiver");};
+        Check(server.Handle("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}")==null,"an MCP notification gets no reply");
+        var hello=Member(Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"self-test\",\"version\":\"1\"}}}"),"result");
+        Check((string)hello["protocolVersion"]=="2025-03-26" && Member(hello,"capabilities").ContainsKey("tools")
+            && (string)Member(hello,"serverInfo")["name"]=="phoneport" && ((string)hello["instructions"]).Contains("phoneport_screenshot"),
+            "MCP initialize keeps a known protocol version, declares tools and gives instructions");
+        hello=Member(Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"1999-01-01\"}}"),"result");
+        Check((string)hello["protocolVersion"]==McpServer.Fallback,"MCP initialize answers an unknown protocol version with its own");
+        var pong=Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":\"a\",\"method\":\"ping\"}");
+        Check((string)pong["id"]=="a" && Member(pong,"result").Count==0,"MCP ping keeps a string id");
+        Check(ErrorCode(Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"resources/list\"}"))==-32601,"unknown MCP method");
+        Check(ErrorCode(Rpc(server,"{not json"))==-32700,"MCP parse error");
+        Check(ErrorCode(Rpc(server,"[1,2]"))==-32600,"MCP request arrays are refused");
+        Check(ErrorCode(Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"phoneport_reboot\"}}"))==-32602,"unknown MCP tool");
+        var tools=(object[])Member(Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/list\"}"),"result")["tools"];
+        var names=new List<string>();
+        foreach(object tool in tools) {
+            string name=(string)((Dictionary<string,object>)tool)["name"];names.Add(name);
+            bool observes=name=="phoneport_status" || name=="phoneport_screenshot";
+            Check(name.StartsWith("phoneport_",StringComparison.Ordinal) && (string)Member(tool,"inputSchema")["type"]=="object"
+                && (bool)Member(tool,"annotations")["readOnlyHint"]==observes && (bool)Member(tool,"annotations")["destructiveHint"]==!observes,
+                "MCP tool "+name+" has a schema and says whether it only observes");
+        }
+        Check(names.Count==8 && new HashSet<string>(names).Count==8,"eight distinct MCP tools");
+        Check(ToolError(server,"phoneport_tap","{\"x\":5}").Contains("Missing argument: y"),"MCP tap without y sends nothing");
+        Check(ToolError(server,"phoneport_tap","{\"x\":\"5\",\"y\":1}").Contains("must be a number"),"MCP tap refuses text coordinates");
+        Check(ToolError(server,"phoneport_type","{\"text\":\"snowman ☃\"}").Contains("US ASCII"),"MCP type refuses Unicode before the receiver is contacted");
+        Check(ToolError(server,"phoneport_key","{\"key\":\"escape\"}").Contains("Unsupported key"),"MCP key refuses an unsupported key");
+        Check(ToolError(server,"phoneport_swipe","{\"x1\":1,\"y1\":1,\"x2\":2,\"y2\":2,\"duration_ms\":5000}").Contains("duration_ms"),"MCP swipe bounds its duration");
+        Check(ToolError(server,"phoneport_batch","{\"commands\":\"tap 1 2; shot x.png\"}").Contains("does not run 'shot'"),"MCP batch refuses file commands");
+        Check(ToolError(server,"phoneport_screenshot","{\"format\":\"gif\"}").Contains("jpeg or png"),"MCP screenshot refuses an unknown format");
+        Check(ToolError(server,"phoneport_screenshot","{}").Contains("must not look for a receiver"),"an MCP tool failure is a result the agent can read, not a protocol error");
+        Check(McpServer.Shown(1170,2532,1280)==new Size(591,1280) && McpServer.Shown(100,200,1280)==new Size(100,200),"MCP screenshots shrink to the size limit and never enlarge");
+        Check(McpServer.Native(0,591,1170,"x")=="0.49" && McpServer.Native(590,591,1170,"x")=="1168.51","MCP coordinates map to the phone pixel under the screenshot pixel");
+        Reject(()=>McpServer.Native(591,591,1170,"x"),"MCP coordinate past the screenshot edge");
+        var mapped=McpServer.MapBatch("tap 10 20; type 'a; b'; flick 1 2 3 4 200",new Size(100,200),new Size(200,400));
+        Check(mapped.Count==3 && mapped[0][1]=="20.5" && mapped[0][2]=="40.5" && mapped[1][1]=="a; b" && mapped[2][4]=="8.5" && mapped[2][5]=="200",
+            "MCP batch moves coordinates to phone pixels and leaves text and timing alone");
+        Reject(()=>McpServer.MapBatch("tap 100 20",new Size(100,200),new Size(200,400)),"MCP batch coordinate outside the screenshot");
+        Reject(()=>McpServer.MapBatch("",new Size(100,200),new Size(200,400)),"empty MCP batch");
+        string awkward="it's \"quoted\"; ends with a backslash\\";
+        Check(new Plan(new List<string[]>{new[]{"type",awkward}}).Commands[0].Args[0]==awkward,"a batch built from words needs no quoting");
+        Reject(()=>new Plan(new List<string[]>{new string[0]}),"empty word list");
+        Reject(()=>new Plan(new List<string[]>{new[]{"wait","10"},new[]{"wake"}}),"batch rules apply to a batch built from words");
+    }
+    static void PipeRoundTrip(bool stall,bool retained=false,bool inspect=false,bool save=false,bool mcp=false) {
         int pid=Process.GetCurrentProcess().Id;Exception error=null;
         using(var server=new NamedPipeServerStream("AirWindows.Frames."+pid,PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous)) {
             var worker=new Thread(()=>{
@@ -50,6 +115,15 @@ static class Tests {
                     var saved=Frames.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.ChangeExtension(path,".json")));
                     Check(Frames.Number(saved,"frame_age_ms")>=60000 && !Frames.Flag(saved,"frame_fresh") && Frames.Text(saved,"purpose")=="inspection_only","snapshot sidecar retains age and inspection purpose");
                 }finally{File.Delete(path);File.Delete(Path.ChangeExtension(path,".json"));}
+            }
+            else if(mcp) {
+                var tools=new McpServer(0,false,1280);tools.Resolve=()=>pid;
+                var result=Member(Rpc(tools,"{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"phoneport_screenshot\",\"arguments\":{}}}"),"result");
+                var content=(object[])result["content"];var picture=(Dictionary<string,object>)content[0];
+                var facts=(Dictionary<string,object>)McpServer.Json.DeserializeObject((string)((Dictionary<string,object>)content[1])["text"]);
+                Check(!result.ContainsKey("isError") && (string)picture["type"]=="image" && (string)picture["mimeType"]=="image/jpeg","MCP screenshot returns a JPEG over a real pipe");
+                using(var image=new Bitmap(new MemoryStream(Convert.FromBase64String((string)picture["data"]))))Check(image.Width==2 && image.Height==2,"MCP screenshot keeps a small picture at its own size");
+                Check(Convert.ToInt32(facts["width"])==2 && Convert.ToInt64(facts["frame_age_ms"])>=60000 && ((string)facts["note"]).Contains("still"),"MCP screenshot gives its size and says a kept picture is old");
             }
             else using(var frame=Frames.Read(pid,retained,inspect))Check(inspect?frame.Image==null && !Frames.Flag(frame.Meta,"ok"):frame.Width==2 && frame.Image.GetPixel(0,0).R==255,"real pipe image/status decoding");
             Check(worker.Join(3000),"pipe test worker finished");
@@ -177,6 +251,7 @@ static class Tests {
         }
         Reject(()=>Frames.Decode(new byte[2],2,2),"truncated PPM");
         PipeRoundTrip(false);PipeRoundTrip(true);PipeRoundTrip(false,true);PipeRoundTrip(false,false,true);PipeRoundTrip(false,true,false,true);
+        McpChecks();PipeRoundTrip(false,true,false,false,true);
         Program.Output(new{status="passed",checks=count,desktop_input=false,bluetooth=false});return 0;
     }
 }

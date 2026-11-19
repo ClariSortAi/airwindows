@@ -54,6 +54,8 @@ An agent operates the same window you do. It reads the phone image and sends des
 
 [The operating guide](app/CLAUDE-CONTROL.md) covers focus, coordinates, frame capture and failure diagnosis. The Start menu entry and the `phoneport --frames` command enable `--frames`, which supplies native-resolution images to programs running as the same Windows user. It is read-only; input goes through the focused window. The bundled `iosctl` command supplies command-line capture, taps, typing, drags, Home and preflight. Use it where your agent environment permits desktop input through a local CLI, or use a supported desktop tool. Python is optional.
 
+From 1.0.2, an agent host that speaks the Model Context Protocol can use the phone as tools: register `iosctl --mcp` with the host. [The iosctl guide](app/tools/iosctl/README.md#mcp-server) lists the tools and the setup line.
+
 Start with [the iosctl guide](app/tools/iosctl/README.md). The helper uses the selected receiver's actual dimensions, checks input/focus results, releases held buttons on failure and never retries a click automatically. [The Claude Code review](docs/CLAUDE-CODE-REVIEW.md) records what was integrated and what still needs a device test. Personal target maps and recipients are excluded.
 
 ## Development

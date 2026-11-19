@@ -6,7 +6,7 @@ For a new installation, follow [FOR-AGENTS.md](FOR-AGENTS.md). It covers downloa
 
 For an existing setup, read [the operating guide](app/CLAUDE-CONTROL.md). Reuse the intended receiver, observe the current screen, act once and verify the result. Follow your desktop tool's restrictions. Keep phone captures and device identifiers in a local, untracked folder.
 
-The package includes `iosctl.exe`. Read [its guide](app/tools/iosctl/README.md) for commands, coordinates and exit codes. Use input commands only where local CLI-based desktop automation is permitted. Observation commands use the phone-only frame pipe and do not take focus. Python is optional.
+The package includes `iosctl.exe`. Read [its guide](app/tools/iosctl/README.md) for commands, coordinates and exit codes. Use input commands only where local CLI-based desktop automation is permitted. Observation commands use the phone-only frame pipe and do not take focus. Python is optional. From 1.0.2, `iosctl --mcp` serves the same observation and input to an MCP host as `phoneport_` tools; the same permission rule applies to its input tools.
 
 Start troubleshooting with `iosctl --doctor`; it sends no input. `snapshot` is a standalone retained-image inspection command. Its output cannot verify an action or replace the fresh observation required for input. Check affected guides, both frame clients, tests and release contents when changing these contracts.
 
