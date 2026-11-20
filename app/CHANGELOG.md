@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.2 (not yet released)
+## 1.0.2 (2026-11-20)
 
 - `iosctl --mcp` is a Model Context Protocol (MCP) server. An agent host such as Claude Code, Claude Desktop or Cursor starts it and gets the mirrored iPhone as eight tools: `phoneport_status`, `phoneport_screenshot`, `phoneport_tap`, `phoneport_swipe`, `phoneport_type`, `phoneport_key`, `phoneport_home` and `phoneport_batch`. Register it with `claude mcp add phoneport -- iosctl --mcp`, or with the command `iosctl` and the argument `--mcp` in a host's JSON file.
   - The server talks over standard input and output. Nothing listens on the network.
