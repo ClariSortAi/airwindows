@@ -199,6 +199,7 @@ An idle screen can exceed the normal one-second image limit. `iosctl --pid PID '
 | User's first click does nothing on the phone | Known issue: the first click focuses the window. Click again |
 | `Windows denied focus` from `iosctl` | Only with `--foreground` or `--keep-focus`, or an `iosctl` from before 1.0.2. Drop the option, or ask the user to click PhonePort. No press was sent |
 | `PhonePort is minimized` from `iosctl` | Ask the user to restore the PhonePort window; it can stay behind other windows. No press was sent |
+| `someone is using the phone` from `iosctl` | The user has PhonePort in front and is using the PC. Stop and ask the user; input is accepted again once another window is in front |
 | Clicks miss | Recalculate picture bounds, DPI scale and overlay positions |
 | Typing stops or goes elsewhere | Restore the intended field and video focus, then inspect before continuing |
 | Home opens the PC menu | Use the toolbar or click inside the picture; verify Button 2 mapping |

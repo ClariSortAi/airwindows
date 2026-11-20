@@ -23,6 +23,8 @@ sealed class Desktop : IDisposable {
         [FieldOffset(8)] public Keyboard keyboard;
     }
     [StructLayout(LayoutKind.Sequential)] struct GuiInfo { public uint size,flags; public IntPtr active,focus,capture,menu,move,caret;public Rect caretRect; }
+    [StructLayout(LayoutKind.Sequential)] struct LastInput { public uint size,tick; }
+    [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInput info);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent,IntPtr after,string name,string title);
     [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr window,out Rect rect);
     [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr window,ref Point point);
@@ -121,21 +123,39 @@ sealed class Desktop : IDisposable {
         if(!AttachThreadInput(self,thread,true))throw new InvalidOperationException("Could not reach the receiver's input queue; no press was sent");
         try { SetFocus(target); } finally { AttachThreadInput(self,thread,false); }
     }
-    // The person at the PC comes first. A mouse button held on the PhonePort window means
-    // they are using the phone themselves, so scripted input stands back.
+    // How long after the person's last mouse or keyboard use, with PhonePort in front, the
+    // phone still counts as theirs. People pause to read between taps, so this is generous.
+    internal const int PersonHoldMs=60000;
+    // Pure rule, covered by the self-test: PhonePort is the front window and the person used
+    // the mouse or keyboard within the hold time. Background input sends no real input
+    // events, so the idle clock measures only the person.
+    internal static bool PersonHasPhone(bool phonePortInFront,long idleMs) { return phonePortInFront && idleMs>=0 && idleMs<PersonHoldMs; }
+    static long PersonIdleMs() {
+        var info=new LastInput{size=(uint)Marshal.SizeOf(typeof(LastInput))};
+        if(!GetLastInputInfo(ref info))throw new InvalidOperationException("Could not read when the mouse or keyboard was last used; input stopped without replay");
+        return unchecked((uint)Environment.TickCount-info.tick);
+    }
+    // The person at the PC comes first. On 2026-11-20 a scripted tap and Home landed while
+    // the owner was using the mirrored phone himself, six seconds after his last click.
+    // Scripted input now stands back while PhonePort is the front window and the person is
+    // using the PC, and while a mouse button is held on the PhonePort window.
     void PersonCheck() {
-        if((GetAsyncKeyState(1)&0x8000)==0 && (GetAsyncKeyState(2)&0x8000)==0)return;
-        Point cursor;
-        if(!GetCursorPos(out cursor))throw new InvalidOperationException("A mouse button is pressed and the pointer could not be located; input stopped without replay");
-        IntPtr under=WindowFromPoint(cursor);
-        if(under!=IntPtr.Zero && GetAncestor(under,2)==main)
-            throw new InvalidOperationException("A mouse button is pressed on the PhonePort window: someone is using the phone. Input stopped without replay");
+        if((GetAsyncKeyState(1)&0x8000)!=0 || (GetAsyncKeyState(2)&0x8000)!=0) {
+            Point cursor;
+            if(!GetCursorPos(out cursor))throw new InvalidOperationException("A mouse button is pressed and the pointer could not be located; input stopped without replay");
+            IntPtr under=WindowFromPoint(cursor);
+            if(under!=IntPtr.Zero && GetAncestor(under,2)==main)
+                throw new InvalidOperationException("A mouse button is pressed on the PhonePort window: someone is using the phone. Input stopped without replay");
+        }
+        if(PersonHasPhone(GetForegroundWindow()==main,PersonIdleMs()))
+            throw new InvalidOperationException("The PhonePort window is in front and the mouse or keyboard was used in the last minute: someone is using the phone. Input stopped without replay");
     }
     // Background: turn phone control on in the receiver without taking the desktop's
     // foreground. The receiver arms control when its video window gets the focus message.
     void Arm() {
         IntPtr focus=ReceiverFocus();
-        // The person has PhonePort in front with control on: share it and change nothing.
+        // PhonePort was left in front with control on and nobody is at the PC (PersonCheck
+        // has passed): use it as it is and change nothing.
         if(focus==video && GetForegroundWindow()==main)return;
         // Focus left on the video window by an earlier run tells the receiver nothing new;
         // take it away first so the receiver sees a fresh focus message.
@@ -277,9 +297,9 @@ sealed class Desktop : IDisposable {
         try { Release();ReleaseKey(); }
         catch(Exception e) { RestoreWarning="Button/key release was not confirmed: "+e.Message; }
         if(background) {
-            // Turn phone control off again, unless the person has since brought PhonePort to
-            // the front: then the focus is theirs.
-            try { if(armed && GetForegroundWindow()!=main && ReceiverFocus()==video)SetReceiverFocus(priorFocus); }
+            // Put PhonePort's own focus back where it was, which turns phone control off
+            // again. Not if the person has taken the phone meanwhile: the focus is theirs.
+            try { if(armed && ReceiverFocus()==video && !PersonHasPhone(GetForegroundWindow()==main,PersonIdleMs()))SetReceiverFocus(priorFocus); }
             catch(Exception e) { RestoreWarning=(RestoreWarning==null?"":RestoreWarning+" ")+"Input finished; phone control stayed on in PhonePort: "+e.Message; }
         }
         else if(acquired && !keepFocus && previous!=IntPtr.Zero && previous!=main && GetForegroundWindow()==main) {

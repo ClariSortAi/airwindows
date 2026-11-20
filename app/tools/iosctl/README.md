@@ -12,7 +12,7 @@ From 1.0.2, input goes to the PhonePort window in the background. `iosctl` posts
 
 - The PhonePort window must not be minimized or hidden. Windows gives no focus to such a window, and PhonePort turns phone control on only with it. A refused command says so and sends nothing.
 - While a batch runs, phone control is on inside PhonePort and its status bar says so. When the batch ends, control goes off again, unless you have brought PhonePort to the front yourself in the meantime.
-- A mouse button held down on the PhonePort window stops scripted input: the person at the PC is using the phone. To stop an agent for good, stop it in its host or end Screen Mirroring.
+- The person at the PC comes first. To take the phone from an agent, click the PhonePort window. While PhonePort is the front window and you are using the mouse or keyboard, scripted input is refused, and it stays refused for a minute after you stop. A mouse button held down on the PhonePort window refuses it too. Click another window to hand the phone back. To stop an agent for good, stop it in its host or end Screen Mirroring.
 - While a batch runs, a pointer moved across PhonePort's picture also moves the phone's pointer.
 
 `--foreground` selects the behavior from before 1.0.2. `iosctl` then brings PhonePort to the front, sends real mouse and keyboard events and restores the previous foreground window when it finishes. Windows refuses to bring PhonePort forward while you work in another window; the command reports `Windows denied focus` and sends nothing. `--keep-focus` leaves PhonePort in front afterwards and implies `--foreground`.
@@ -148,7 +148,7 @@ What a host should know:
 - Coordinates are pixels of the picture the server returns, with 0,0 at the top left. The server shrinks a picture whose longer side exceeds the limit and converts coordinates back to phone pixels itself. Take coordinates from the newest full screenshot.
 - Every input tool waits `wait_ms` (default 700, at most 5000) and then returns the picture, so one call both acts and observes. The result also gives `change_permille` and `screen_changed`. They report pixels, not task success.
 - A still screen sends no frames. `phoneport_screenshot` then returns the kept picture and says how old it is. An input tool starts with `wake` whenever the newest frame is older than 300 ms.
-- Input goes to the PhonePort window in the background, so the user can keep working in another window. A minimized or hidden PhonePort window refuses input, and so does a mouse button held down on the PhonePort window. Each refusal says what to ask the user.
+- Input goes to the PhonePort window in the background, so the user can keep working in another window. A minimized or hidden PhonePort window refuses input. So does a person using the phone: PhonePort in front with the mouse or keyboard used in the last minute, or a mouse button held down on its window. Each refusal says what to ask the user.
 - With `--foreground`, input brings the PhonePort window to the front and restores the previous window afterwards. If the user is working in another window, Windows refuses, the tool reports `Windows denied focus` and nothing is sent.
 - A tool that fails returns a result marked `isError` with `error`, `input_may_have_been_submitted` and `next`. Nothing is retried. After a failure that may have sent input, look before acting again.
 - Standard output carries protocol messages only. Diagnostics go to standard error.
@@ -156,7 +156,7 @@ What a host should know:
 
 The self-test covers the protocol answers, argument refusal, coordinate conversion and a screenshot read over a real local pipe. It sends no input.
 
-Device run, 2026-11-20: all eight tools ran against an iPhone 14 Pro mirrored to the 1.0.1 receiver from the Microsoft Store, in the background, while another program had the keyboard and mouse. The run opened Spotlight, typed a search, pressed Enter, tapped Calculator keys one at a time and in a batch, went Home and paged the Home Screen both ways. A separate Claude Code session that was given the server opened Calculator and worked out 12 × 12 in 21 seconds with four tool calls. A minimized window refused input and sent nothing. Not run that day: `--foreground`, the held-mouse-button refusal, landscape, and a second paired phone.
+Device run, 2026-11-20: all eight tools ran against an iPhone 14 Pro mirrored to the 1.0.1 receiver from the Microsoft Store, in the background, while another program had the keyboard and mouse. The run opened Spotlight, typed a search, pressed Enter, tapped Calculator keys one at a time and in a batch, went Home and paged the Home Screen both ways. A separate Claude Code session that was given the server opened Calculator and worked out 12 × 12 in 21 seconds with four tool calls. A minimized window refused input and sent nothing. During that run a scripted tap and Home landed while the owner was using the mirrored phone by hand, six seconds after his last click. The rule that a front PhonePort window with a person at the PC refuses input was added because of it; so far only the self-test covers that rule. Not run that day: `--foreground` with PhonePort in front, the two refusals for a person using the phone, landscape, and a second paired phone.
 
 ## Build and checks
 

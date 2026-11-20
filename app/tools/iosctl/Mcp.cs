@@ -39,7 +39,7 @@ sealed class McpServer {
         (foreground
             ?"Each input brings the PhonePort window to the front for a moment. If the user is working in another window, Windows refuses and no input is sent: ask the user to click the PhonePort window. "
             :"Input goes to the PhonePort window in the background: the window does not need to be in front, and the PC's pointer and keyboard are not used, so the user can keep working. "+
-             "If a result says someone is using the phone, the user is pressing the mouse on the PhonePort window: stop and ask before continuing. ")+
+             "If a result says someone is using the phone, the user has taken it: the PhonePort window is in front and they are using the PC. Stop and ask before continuing. ")+
         "Ask the user before a step that sends a message, pays, deletes something or changes a setting. "+
         "After a tool error, call phoneport_status for the next setup step. Phone pictures can hold private information: keep them in this session.";
     }
@@ -360,7 +360,7 @@ sealed class McpServer {
                 "Windows kept another window in front, so input stopped. Ask the user to click the PhonePort window, then act again.";
         if(error.IndexOf("someone is using the phone",StringComparison.OrdinalIgnoreCase)>=0)
             return (submitted?"Part of the input may have reached the phone before it stopped: read the picture first. ":"Nothing was sent. ")+
-                "The user is pressing the mouse on the PhonePort window, so input stood back. Stop and ask the user before continuing.";
+                "The user has the PhonePort window in front and is using the PC, so input stood back. Stop and ask the user before continuing. Input is accepted again once another window is in front, or a minute after the user stops.";
         if(error.IndexOf("is minimized",StringComparison.OrdinalIgnoreCase)>=0 || error.IndexOf("is hidden",StringComparison.OrdinalIgnoreCase)>=0)
             return (submitted?"Part of the input may have reached the phone before it stopped: read the picture first. ":"Nothing was sent. ")+
                 "Ask the user to restore the PhonePort window. It can stay behind other windows; it only must not be minimized or hidden.";

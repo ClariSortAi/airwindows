@@ -166,6 +166,8 @@ static class Tests {
         Check(Desktop.Pack(new Point(280,920))==new IntPtr((920<<16)|280),"a posted pointer position carries x in the low word and y in the high word");
         Check(Desktop.MouseMessage(Desktop.MoveFlag)==0x200 && Desktop.MouseMessage(Desktop.LeftDown)==0x201 && Desktop.MouseMessage(Desktop.LeftUp)==0x202
             && Desktop.MouseMessage(Desktop.RightDown)==0x204 && Desktop.MouseMessage(Desktop.RightUp)==0x205 && Desktop.MouseMessage(64)==0,"pointer events map to their window messages");
+        Check(Desktop.PersonHasPhone(true,0) && Desktop.PersonHasPhone(true,6000) && Desktop.PersonHasPhone(true,Desktop.PersonHoldMs-1),"PhonePort in front and a person at the PC: scripted input stands back");
+        Check(!Desktop.PersonHasPhone(false,0) && !Desktop.PersonHasPhone(true,Desktop.PersonHoldMs) && !Desktop.PersonHasPhone(true,-5),"another window in front, or nobody at the PC for a minute: scripted input may run");
         int released=0;
         Reject(()=>Desktop.WithRelease(()=>{},()=>{throw new Exception("body");},()=>released++),"gesture body failure");
         Reject(()=>Desktop.WithRelease(()=>{throw new Exception("press");},()=>{},()=>released++),"partial press failure");
