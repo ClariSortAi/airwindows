@@ -1,6 +1,6 @@
 // PhonePort GPL-3.0-or-later. Model Context Protocol server over standard input and
 // output. It adds no input path of its own: every action is built as a command batch and
-// runs through Plan and Program.Execute, with the same focus, identity and release checks.
+// runs through Plan and Program.Execute, with the same identity and release checks.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -26,24 +26,31 @@ sealed class McpServer {
     static readonly string[] Versions={"2025-11-25","2025-06-18","2025-03-26","2024-11-05"};
     internal static readonly JavaScriptSerializer Json=new JavaScriptSerializer{MaxJsonLength=64*1024*1024};
     static readonly string[] BatchCommands={"tap","move","down","up","swipe","flick","home","wake","page","type","key","hold","wait","settle","changed"};
-    const string Instructions=
+    // What the host's model is told once, at the start. The sentence about how input is
+    // delivered differs by mode, because it decides what the model should tell the user.
+    internal static string Instructions(bool foreground) {
+        return
         "PhonePort mirrors a real iPhone in a window on this Windows PC and sends mouse and keyboard input to it over Bluetooth. "+
         "The phone has no accessibility tree: find targets by looking at the picture. "+
         "Work in a loop: call phoneport_screenshot, choose one visible target, act once, then read the picture the action returns before the next step. "+
         "Coordinates are pixels of the newest full screenshot, with 0,0 at the top left. "+
         "Never repeat an action because its result is unclear: look first. A tool that reports an error may still have sent input, and its result says so. "+
         "Typing needs a text field with a visible cursor and accepts US ASCII only. Home needs AssistiveTouch Button 2 mapped to Home on the iPhone. "+
-        "Each input brings the PhonePort window to the front for a moment. If the user is working in another window, Windows refuses and no input is sent: ask the user to click the PhonePort window. "+
+        (foreground
+            ?"Each input brings the PhonePort window to the front for a moment. If the user is working in another window, Windows refuses and no input is sent: ask the user to click the PhonePort window. "
+            :"Input goes to the PhonePort window in the background: the window does not need to be in front, and the PC's pointer and keyboard are not used, so the user can keep working. "+
+             "If a result says someone is using the phone, the user is pressing the mouse on the PhonePort window: stop and ask before continuing. ")+
         "Ask the user before a step that sends a message, pays, deletes something or changes a setting. "+
         "After a tool error, call phoneport_status for the next setup step. Phone pictures can hold private information: keep them in this session.";
+    }
 
     readonly int fixedPid,maxSide;
-    readonly bool keepFocus;
+    readonly bool keepFocus,foreground;
     // Tests replace this to point the server at a pipe they serve themselves.
     internal Func<int> Resolve;
 
-    internal McpServer(int pid,bool keep,int side) {
-        fixedPid=pid;keepFocus=keep;maxSide=side;
+    internal McpServer(int pid,bool keep,int side,bool front=false) {
+        fixedPid=pid;keepFocus=keep;maxSide=side;foreground=front;
         Resolve=()=>Doctor.Select(Receivers(),fixedPid);
     }
     static int[] Receivers() {
@@ -57,21 +64,23 @@ sealed class McpServer {
     static void Log(string message) { if(!Quiet)Console.Error.WriteLine("phoneport mcp: "+message); }
 
     internal static int Run(string[] args) {
-        int pid=0,side=1280;bool keep=false;
+        int pid=0,side=1280;bool keep=false,front=false;
         for(int i=1;i<args.Length;i++) {
-            if(args[i]=="--keep-focus")keep=true;
+            // Keeping PhonePort in front only means something for foreground input, so it selects it.
+            if(args[i]=="--keep-focus")keep=front=true;
+            else if(args[i]=="--foreground")front=true;
             else if(args[i]=="--pid") { if(++i>=args.Length || !Int32.TryParse(args[i],out pid) || pid<1)throw new ArgumentException("Use --mcp --pid PID with one positive receiver PID"); }
             else if(args[i]=="--max-side") { if(++i>=args.Length || !Int32.TryParse(args[i],out side) || side<320 || side>4096)throw new ArgumentException("Use --mcp --max-side N with N from 320 to 4096"); }
             else throw new ArgumentException("Unknown --mcp option: "+args[i]);
         }
-        var server=new McpServer(pid,keep,side);
+        var server=new McpServer(pid,keep,side,front);
         // Standard output carries protocol messages only, one JSON object per line, UTF-8.
         // Anything else this process prints goes to standard error.
         var input=new StreamReader(Console.OpenStandardInput(),new UTF8Encoding(false));
         var output=new StreamWriter(Console.OpenStandardOutput(),new UTF8Encoding(false));
         output.NewLine="\n";output.AutoFlush=true;
         Console.SetOut(Console.Error);
-        Log("server "+Version()+" ready on standard input and output");
+        Log("server "+Version()+" ready on standard input and output; "+(front?"foreground":"background")+" input");
         string line;
         while((line=input.ReadLine())!=null) {
             if(line.Trim().Length==0)continue;
@@ -117,7 +126,7 @@ sealed class McpServer {
                     {"protocolVersion",version!=null && Versions.Contains(version)?version:Fallback},
                     {"capabilities",new Dictionary<string,object>{{"tools",new Dictionary<string,object>{{"listChanged",false}}}}},
                     {"serverInfo",new Dictionary<string,object>{{"name","phoneport"},{"title","PhonePort"},{"version",Version()}}},
-                    {"instructions",Instructions}};
+                    {"instructions",Instructions(foreground)}};
             case "ping":return new Dictionary<string,object>();
             case "tools/list":return new Dictionary<string,object>{{"tools",Tools()}};
             case "tools/call":return Call(p);
@@ -349,6 +358,12 @@ sealed class McpServer {
         if(error.IndexOf("denied focus",StringComparison.OrdinalIgnoreCase)>=0 || error.IndexOf("Focus changed",StringComparison.OrdinalIgnoreCase)>=0)
             return (submitted?"Part of the input may have reached the phone before focus was lost: read the picture first. ":"")+
                 "Windows kept another window in front, so input stopped. Ask the user to click the PhonePort window, then act again.";
+        if(error.IndexOf("someone is using the phone",StringComparison.OrdinalIgnoreCase)>=0)
+            return (submitted?"Part of the input may have reached the phone before it stopped: read the picture first. ":"Nothing was sent. ")+
+                "The user is pressing the mouse on the PhonePort window, so input stood back. Stop and ask the user before continuing.";
+        if(error.IndexOf("is minimized",StringComparison.OrdinalIgnoreCase)>=0 || error.IndexOf("is hidden",StringComparison.OrdinalIgnoreCase)>=0)
+            return (submitted?"Part of the input may have reached the phone before it stopped: read the picture first. ":"Nothing was sent. ")+
+                "Ask the user to restore the PhonePort window. It can stay behind other windows; it only must not be minimized or hidden.";
         string lead=submitted?"Part of the input may have reached the phone. Read the picture before anything else, and do not repeat the action blindly. ":"Nothing was sent. ";
         try {
             using(var status=Frames.Read(pid,false,true)) {
@@ -402,7 +417,7 @@ sealed class McpServer {
         TextWriter savedOut=Console.Out,savedError=Console.Error;
         long started=(long)Frames.GetTickCount64();
         Console.SetOut(printed);Console.SetError(complaints);
-        try { using(var lease=plan.Input?new InputLease(pid):null)code=Program.Execute(pid,plan,new Targets(null),keepFocus); }
+        try { using(var lease=plan.Input?new InputLease(pid):null)code=Program.Execute(pid,plan,new Targets(null),keepFocus,foreground); }
         finally { Console.SetOut(savedOut);Console.SetError(savedError); }
         var problems=Lines(complaints.ToString()).OfType<Dictionary<string,object>>().ToList();
         var info=new Dictionary<string,object>{{"action",name.Substring("phoneport_".Length)},{"steps",Lines(printed.ToString())}};

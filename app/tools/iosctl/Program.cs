@@ -195,7 +195,7 @@ static class Program {
             }
         }
     }
-    internal static int Execute(int pid,Plan plan,Targets targets,bool keep) {
+    internal static int Execute(int pid,Plan plan,Targets targets,bool keep,bool foreground=false) {
         var session=new FrameSession();Desktop desktop=null;byte[] baseline=null;int hold=-1;bool submitted=false; // -1: per-gesture default (flick 40 ms, page 300 ms)
         var total=Stopwatch.StartNew();
         try {
@@ -216,7 +216,7 @@ static class Program {
                     session.Check(idle,true);
                     if(Frames.Flag(idle.Meta,"control_busy"))throw new InvalidOperationException("Receiver is processing input; observe before starting another batch");
                     before=Frames.Number(idle.Meta,"received_tick_ms");
-                    desktop=new Desktop(pid,keep);desktop.Prepare(idle);submitted=true;desktop.Wake();
+                    desktop=new Desktop(pid,keep,foreground);desktop.Prepare(idle);submitted=true;desktop.Wake();
                 }
                 // A new frame separates a static screen from a stalled stream.
                 // Require two consecutive idle probes: wake's second move can still be queued
@@ -240,7 +240,7 @@ static class Program {
                 Geometry(plan,targets,first);
                 if(plan.Input && Frames.Flag(first.Meta,"control_busy"))throw new InvalidOperationException("Receiver is processing input; observe before starting another batch");
             }
-            if(plan.Input && desktop==null)desktop=new Desktop(pid,keep);
+            if(plan.Input && desktop==null)desktop=new Desktop(pid,keep,foreground);
             foreach(var c in plan.Commands) {
                 if(c.Name=="wake")continue;
                 if(total.ElapsedMilliseconds>120000)throw new TimeoutException("Batch exceeded two minutes");
@@ -327,7 +327,7 @@ static class Program {
                 return 0;
             }
             if(args.Length==0 || (args.Length==1 && args[0]=="--help")) {
-                Console.WriteLine("iosctl --pid PID [--targets FILE] [--keep-focus] \"commands\"\nRead README.md for input permissions and examples.\nCommands: status, preflight, shot PATH [scale], crop PATH X Y W H [zoom],\ngrid [threshold], tap X Y, go NAME, home, type 'text', key NAME,\nswipe/flick X1 Y1 X2 Y2 [ms], page left|right, hold MS,\ndown X Y; move X Y; up X Y, wait MS, changed, settle [ms], targets.\nwake (first in a batch) moves the pointer without pressing so a still screen sends frames.\nsnapshot PATH [scale] saves a retained image for inspection only; run alone.\nQuotes preserve spaces and semicolons. No automatic retries.\n--doctor [--pid PID] diagnoses setup without input (exit 2: action needed).\n--list lists receiver processes; --self-test sends no input.\n--mcp [--pid PID] [--keep-focus] [--max-side N] serves the phone to an agent host as\nModel Context Protocol tools over standard input and output.");return 0;
+                Console.WriteLine("iosctl --pid PID [--targets FILE] [--foreground [--keep-focus]] \"commands\"\nRead README.md for input permissions and examples.\nInput goes to the PhonePort window in the background: the window need not be in front,\nand the PC's pointer and keyboard are not used. --foreground sends real mouse and keyboard\nevents instead, with PhonePort brought to the front.\nCommands: status, preflight, shot PATH [scale], crop PATH X Y W H [zoom],\ngrid [threshold], tap X Y, go NAME, home, type 'text', key NAME,\nswipe/flick X1 Y1 X2 Y2 [ms], page left|right, hold MS,\ndown X Y; move X Y; up X Y, wait MS, changed, settle [ms], targets.\nwake (first in a batch) moves the pointer without pressing so a still screen sends frames.\nsnapshot PATH [scale] saves a retained image for inspection only; run alone.\nQuotes preserve spaces and semicolons. No automatic retries.\n--doctor [--pid PID] diagnoses setup without input (exit 2: action needed).\n--list lists receiver processes; --self-test sends no input.\n--mcp [--pid PID] [--foreground [--keep-focus]] [--max-side N] serves the phone to an agent host as\nModel Context Protocol tools over standard input and output.");return 0;
             }
             if(args.Length==1 && args[0]=="--list") {
                 foreach(string name in Receiver.ProcessNames)foreach(var p in Process.GetProcessesByName(name))using(p){
@@ -339,10 +339,12 @@ static class Program {
                 }
                 return 0;
             }
-            int pid=0;string path=null;bool keep=false;int at=0;
+            int pid=0;string path=null;bool keep=false,foreground=false;int at=0;
             while(at<args.Length && args[at].StartsWith("--",StringComparison.Ordinal)) {
                 string option=args[at++];
-                if(option=="--keep-focus"){keep=true;continue;}
+                // Keeping PhonePort in front only means something for foreground input, so it selects it.
+                if(option=="--keep-focus"){keep=true;foreground=true;continue;}
+                if(option=="--foreground"){foreground=true;continue;}
                 if(at==args.Length)throw new ArgumentException("Missing option value");
                 if(option=="--pid"){if(pid!=0 || !Int32.TryParse(args[at++],out pid) || pid<1)throw new ArgumentException("Use one positive receiver PID");}
                 else if(option=="--targets"){if(path!=null)throw new ArgumentException("Use one target map");path=args[at++];}
@@ -351,7 +353,7 @@ static class Program {
             if(pid<1 || at!=args.Length-1)throw new ArgumentException("Use --pid PID followed by one quoted command batch");
             var plan=new Plan(args[at]);var targets=new Targets(path);
             foreach(var c in plan.Commands)if(c.Name=="go" && !targets.Values.ContainsKey(c.Args[0]))throw new ArgumentException("Unknown target: "+c.Args[0]);
-            using(var lease=plan.Input?new InputLease(pid):null)return Execute(pid,plan,targets,keep);
+            using(var lease=plan.Input?new InputLease(pid):null)return Execute(pid,plan,targets,keep,foreground);
         } catch(Exception e) {Console.Error.WriteLine(Frames.Json.Serialize(new{status="error",error=e.Message,replayed=false}));return 1;}
     }
 }

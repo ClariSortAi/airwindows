@@ -52,6 +52,9 @@ static class Tests {
         Check((string)hello["protocolVersion"]=="2025-03-26" && Member(hello,"capabilities").ContainsKey("tools")
             && (string)Member(hello,"serverInfo")["name"]=="phoneport" && ((string)hello["instructions"]).Contains("phoneport_screenshot"),
             "MCP initialize keeps a known protocol version, declares tools and gives instructions");
+        Check(((string)hello["instructions"])==McpServer.Instructions(false) && McpServer.Instructions(false).Contains("in the background") && !McpServer.Instructions(false).Contains("to the front")
+            && McpServer.Instructions(true).Contains("to the front") && !McpServer.Instructions(true).Contains("in the background"),
+            "MCP instructions describe the input mode in use, and background is the default");
         hello=Member(Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"1999-01-01\"}}"),"result");
         Check((string)hello["protocolVersion"]==McpServer.Fallback,"MCP initialize answers an unknown protocol version with its own");
         var pong=Rpc(server,"{\"jsonrpc\":\"2.0\",\"id\":\"a\",\"method\":\"ping\"}");
@@ -157,6 +160,12 @@ static class Tests {
         Check(Desktop.Map(new Rectangle(0,0,1000,2000),500,1000,100,200)==new Point(201,401),"DPI-independent source mapping");
         Reject(()=>Desktop.Map(new Rectangle(0,0,100,100),50,50,50,10),"outside source width");
         Reject(()=>Desktop.Map(new Rectangle(0,0,0,100),50,50,1,1),"empty video rectangle");
+        // Background input: the same mapping into the picture area's own coordinates, then the
+        // window message a real mouse would have produced. Values from a run on 2026-11-20.
+        Check(Desktop.Map(new Rectangle(0,0,560,1124),498,1080,249,884)==new Point(280,920),"background input maps a phone pixel into the picture area");
+        Check(Desktop.Pack(new Point(280,920))==new IntPtr((920<<16)|280),"a posted pointer position carries x in the low word and y in the high word");
+        Check(Desktop.MouseMessage(Desktop.MoveFlag)==0x200 && Desktop.MouseMessage(Desktop.LeftDown)==0x201 && Desktop.MouseMessage(Desktop.LeftUp)==0x202
+            && Desktop.MouseMessage(Desktop.RightDown)==0x204 && Desktop.MouseMessage(Desktop.RightUp)==0x205 && Desktop.MouseMessage(64)==0,"pointer events map to their window messages");
         int released=0;
         Reject(()=>Desktop.WithRelease(()=>{},()=>{throw new Exception("body");},()=>released++),"gesture body failure");
         Reject(()=>Desktop.WithRelease(()=>{throw new Exception("press");},()=>{},()=>released++),"partial press failure");

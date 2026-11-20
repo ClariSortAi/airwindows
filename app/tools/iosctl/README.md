@@ -4,7 +4,18 @@
 
 The helper runs on Windows x64 with .NET Framework 4.8. Python is optional. Start PhonePort (formerly AirWindows) from the Start menu or with `phoneport --frames`, pair the intended phone and map Button 2 to Home. Follow [the operating guide](../../CLAUDE-CONTROL.md) for those steps. A ZIP build from before 1.0.0 starts with `Start-AirWindows.cmd` instead.
 
-Use input commands only where your agent environment permits desktop automation through a local CLI. This helper does not override tool restrictions. Observation commands read the phone-only pipe and leave focus alone. Input commands bring PhonePort forward, check focus and restore the previous foreground window when finished; `--keep-focus` leaves PhonePort active.
+Use input commands only where your agent environment permits desktop automation through a local CLI. This helper does not override tool restrictions. Observation commands read the phone-only pipe and leave focus alone.
+
+## How input reaches the phone
+
+From 1.0.2, input goes to the PhonePort window in the background. `iosctl` posts the window messages that a mouse and keyboard produce to PhonePort's picture area. The window does not have to be in front, other windows can cover it, and the PC's pointer and keyboard are not used. You can keep working in another program while an agent drives the phone. PhonePort still runs its own checks and sends the input over Bluetooth, as it does for a person's clicks.
+
+- The PhonePort window must not be minimized or hidden. Windows gives no focus to such a window, and PhonePort turns phone control on only with it. A refused command says so and sends nothing.
+- While a batch runs, phone control is on inside PhonePort and its status bar says so. When the batch ends, control goes off again, unless you have brought PhonePort to the front yourself in the meantime.
+- A mouse button held down on the PhonePort window stops scripted input: the person at the PC is using the phone. To stop an agent for good, stop it in its host or end Screen Mirroring.
+- While a batch runs, a pointer moved across PhonePort's picture also moves the phone's pointer.
+
+`--foreground` selects the behavior from before 1.0.2. `iosctl` then brings PhonePort to the front, sends real mouse and keyboard events and restores the previous foreground window when it finishes. Windows refuses to bring PhonePort forward while you work in another window; the command reports `Windows denied focus` and sends nothing. `--keep-focus` leaves PhonePort in front afterwards and implies `--foreground`.
 
 ## First use
 
@@ -29,7 +40,7 @@ Open the PNG with your image tool. Choose a visible target, then supply its coor
 .\iosctl.exe --pid $receiverPid 'type "Bluetooth"; wait 600; shot ".local\text.png"'
 ```
 
-Output is one JSON object per result. `submitted` means Windows accepted the input sequence; verify the phone's visible result. A screenshot or pixel difference cannot establish that the intended action succeeded.
+Output is one JSON object per result. `submitted` means Windows accepted the input sequence for PhonePort; verify the phone's visible result. A screenshot or pixel difference cannot establish that the intended action succeeded.
 
 ## Commands
 
@@ -79,11 +90,11 @@ The example map contains no app locations. Matching dimensions do not establish 
 | `0` | Commands completed; input results still need visual verification |
 | `1` | Invalid command, unavailable frame, focus/identity change or input failure; batch stopped |
 | `2` | Doctor found a setup issue, or `settle` ended unchanged/unstable and skipped later commands |
-| `3` | Input finished, but cleanup or foreground restoration was not confirmed |
+| `3` | Input finished, but cleanup was not confirmed: a held button or key, phone control left on in PhonePort or, with `--foreground`, the previous foreground window |
 
-After any failure, observe again before issuing another action. The helper never retries an input command. It attempts to release held buttons and keys on exit. Presses cannot intentionally remain held across invocations. Input is rejected if the receiver is minimized, the target is covered, focus moves away or the window changes geometry during a gesture.
+After any failure, observe again before issuing another action. The helper never retries an input command. It attempts to release held buttons and keys on exit. Presses cannot intentionally remain held across invocations. Input is rejected if the receiver is minimized or hidden, or if its picture area changes size during a gesture. With `--foreground` it is also rejected if the target is covered, focus moves away or the window moves.
 
-One `iosctl` input batch may control a receiver at a time. A competing batch fails immediately. While a primitive `down` is active, only `move`, a short `wait` and `up` are allowed; release before capture or other blocking work. Held modifiers stop typing.
+One `iosctl` input batch may control a receiver at a time. A competing batch fails immediately. While a primitive `down` is active, only `move`, a short `wait` and `up` are allowed; release before capture or other blocking work. With `--foreground`, held modifiers stop typing.
 
 Normal capture, input and verification reject images older than one second. For an idle screen, run `snapshot` alone: it saves the last decoded picture with `frame_age_ms`, `frame_fresh` and `purpose:inspection_only` in its result. The adjacent JSON preserves the frame's original timestamps. It cannot distinguish a static screen from a stalled stream, so it cannot authorize input or verify an action. Pause, disconnect and screen-generation changes invalidate the retained picture. Never reuse an older PNG after a failed capture.
 
@@ -93,7 +104,7 @@ Normal capture, input and verification reject images older than one second. For 
 
 ## MCP server
 
-From 1.0.2, `iosctl --mcp` offers the phone to any agent host that speaks the Model Context Protocol (MCP). The host starts it and talks to it over standard input and output. Nothing listens on the network. The server adds no input path of its own: each tool builds a command batch and runs it through the same focus, identity and release checks as the command line.
+From 1.0.2, `iosctl --mcp` offers the phone to any agent host that speaks the Model Context Protocol (MCP). The host starts it and talks to it over standard input and output. Nothing listens on the network. The server adds no input path of its own: each tool builds a command batch and runs it through the same identity and release checks as the command line, and delivers it the same way, [in the background](#how-input-reaches-the-phone) unless `--foreground` is given.
 
 Start PhonePort and Screen Mirroring first. Then register the server with the host.
 
@@ -118,7 +129,8 @@ With a ZIP or source build, give the full path to `iosctl.exe` as the command.
 |---|---|
 | `--pid PID` | Use this receiver. Without it the server uses the one running receiver and refuses to choose between several |
 | `--max-side N` | Longest side of a returned picture in pixels, 320 to 4096. Default 1280 |
-| `--keep-focus` | Leave PhonePort in front after an input instead of restoring the previous window |
+| `--foreground` | Bring PhonePort to the front for each input and send real mouse and keyboard events, as before 1.0.2 |
+| `--keep-focus` | With foreground input, leave PhonePort in front after an input instead of restoring the previous window. Implies `--foreground` |
 
 | Tool | Behavior |
 |---|---|
@@ -136,12 +148,15 @@ What a host should know:
 - Coordinates are pixels of the picture the server returns, with 0,0 at the top left. The server shrinks a picture whose longer side exceeds the limit and converts coordinates back to phone pixels itself. Take coordinates from the newest full screenshot.
 - Every input tool waits `wait_ms` (default 700, at most 5000) and then returns the picture, so one call both acts and observes. The result also gives `change_permille` and `screen_changed`. They report pixels, not task success.
 - A still screen sends no frames. `phoneport_screenshot` then returns the kept picture and says how old it is. An input tool starts with `wake` whenever the newest frame is older than 300 ms.
-- Input brings the PhonePort window to the front and restores the previous window afterwards. If the user is working in another window, Windows refuses, the tool reports `Windows denied focus` and nothing is sent. Clicking any other window is also how a person stops an agent.
+- Input goes to the PhonePort window in the background, so the user can keep working in another window. A minimized or hidden PhonePort window refuses input, and so does a mouse button held down on the PhonePort window. Each refusal says what to ask the user.
+- With `--foreground`, input brings the PhonePort window to the front and restores the previous window afterwards. If the user is working in another window, Windows refuses, the tool reports `Windows denied focus` and nothing is sent.
 - A tool that fails returns a result marked `isError` with `error`, `input_may_have_been_submitted` and `next`. Nothing is retried. After a failure that may have sent input, look before acting again.
 - Standard output carries protocol messages only. Diagnostics go to standard error.
 - Pictures go to the host and from there to its model. They can hold private information.
 
 The self-test covers the protocol answers, argument refusal, coordinate conversion and a screenshot read over a real local pipe. It sends no input.
+
+Device run, 2026-11-20: all eight tools ran against an iPhone 14 Pro mirrored to the 1.0.1 receiver from the Microsoft Store, in the background, while another program had the keyboard and mouse. The run opened Spotlight, typed a search, pressed Enter, tapped Calculator keys one at a time and in a batch, went Home and paged the Home Screen both ways. A separate Claude Code session that was given the server opened Calculator and worked out 12 × 12 in 21 seconds with four tool calls. A minimized window refused input and sent nothing. Not run that day: `--foreground`, the held-mouse-button refusal, landscape, and a second paired phone.
 
 ## Build and checks
 

@@ -10,7 +10,7 @@ The iPhone controls are pixels inside a Windows video window. They are not brows
 
 Use the bundled [iosctl helper](tools/iosctl/README.md) where your environment permits local CLI-based desktop input, or a supported Windows desktop tool. The helper supplies taps, typing, paced drags, Home, fresh image capture and preflight. Follow your environment's tool restrictions; a bundled executable does not authorize a prohibited input mechanism. If neither input route is available, identify the missing capability before attempting phone operations.
 
-The decoded-frame pipe is read-only. `iosctl` reads it for observation and sends checked desktop input to the same focused video window; it does not bypass the receiver's queue or Bluetooth identity checks. From 1.0.2, `iosctl --mcp` offers the same observation and checked input to an MCP host as tools; see [its guide](tools/iosctl/README.md#mcp-server). There is no phone-input HTTP endpoint, and nothing listens on the network for input. The separate `native_hid.exe` bench provider must not run alongside it. The older ESP `IPhone-Ble.py` and AI KVM MCP actions are not the native GUI control route.
+The decoded-frame pipe is read-only. `iosctl` reads it for observation and sends checked input to the receiver's video window. From 1.0.2 that input is posted to the window in the background: PhonePort need not be in front, and the PC's pointer and keyboard are not used. With `--foreground` it is real mouse and keyboard input on the focused window, as before. Either way it does not bypass the receiver's queue or Bluetooth identity checks. From 1.0.2, `iosctl --mcp` offers the same observation and checked input to an MCP host as tools; see [its guide](tools/iosctl/README.md#mcp-server). There is no phone-input HTTP endpoint, and nothing listens on the network for input. The separate `native_hid.exe` bench provider must not run alongside it. The older ESP `IPhone-Ble.py` and AI KVM MCP actions are not the native GUI control route.
 
 ## Locate the running receiver
 
@@ -36,10 +36,10 @@ Reuse the running receiver. Do not start a second copy, delete pairings or resta
 
 ## Observe, act once, observe again
 
-1. With iosctl, run `preflight` and `shot`. Its coordinates are phone pixels, and its input commands bring PhonePort forward themselves. With another desktop tool, bring the existing window forward, obtain a fresh desktop screenshot and locate the actual phone picture, excluding the title bar, the button row above the picture, the status bar below it, the setup guide panel on the right when it is open, and letterbox bars.
+1. With iosctl, run `preflight` and `shot`. Its coordinates are phone pixels. From 1.0.2 its input reaches PhonePort in the background: the window may be behind other windows, but not minimized. With another desktop tool, bring the existing window forward, obtain a fresh desktop screenshot and locate the actual phone picture, excluding the title bar, the button row above the picture, the status bar below it, the setup guide panel on the right when it is open, and letterbox bars.
 2. Check that the intended phone is mirroring and the control status is ready. `[CONTROL] Ready=1` means the BLE and AirPlay identities matched at that log timestamp; an old entry does not establish current readiness.
 3. Choose one visible target. A left click inside the picture both focuses the video and sends a phone click. It is not a harmless focus-only action. Choose the intended button or text field.
-4. Complete one click, text entry or bounded drag. Keep focus in the picture until it finishes. Switching focus to a terminal, chat, toolbar or another window cancels pending input.
+4. Complete one click, text entry or bounded drag. With a desktop tool or `iosctl --foreground`, keep focus in the picture until it finishes: switching focus to a terminal, chat, toolbar or another window cancels pending input. `iosctl` from 1.0.2 does not depend on which window is in front.
 5. Allow about 600-700 ms as an initial observation delay, then inspect the result. Animations and longer text may need more time. Verify the expected screen or exact entered text before continuing.
 6. If the result is uncertain, observe again and inspect status/logs. Do not automatically repeat the action. A submitted HID report does not prove the phone performed it.
 
@@ -95,7 +95,7 @@ Prefer the Home button for Home; a bottom-edge drag also works. For list drags, 
 
 One-time Home setup on the iPhone: Settings > Accessibility > Touch > AssistiveTouch > Devices > your PC > Customize Additional Buttons. Trigger PhonePort Home or right-click inside the mirrored picture, then assign the detected Button 2 to **Home**. Test from an app. Right-click in the bars or chrome intentionally opens the PC menu. A keyboard context-menu command is not the same as right-button input inside the picture.
 
-For a desktop tool that exposes message-based operations: input belongs to the **video child window**, not merely the top-level receiver. The implementation handles `WM_LBUTTONDOWN`, `WM_MOUSEMOVE`, `WM_LBUTTONUP`, right-button release, focused `WM_MOUSEWHEEL`, printable `WM_CHAR`, supported `WM_KEYDOWN` keys, and explicit `WM_PASTE`. Setting an accessibility value or injecting a background message without proper focus is not equivalent to this input sequence.
+For a desktop tool that exposes message-based operations: input belongs to the **video child window**, not merely the top-level receiver. The implementation handles `WM_LBUTTONDOWN`, `WM_MOUSEMOVE`, `WM_LBUTTONUP`, right-button release, focused `WM_MOUSEWHEEL`, printable `WM_CHAR`, supported `WM_KEYDOWN` keys, and explicit `WM_PASTE`. Setting an accessibility value or injecting a background message without proper focus is not equivalent to this input sequence. The receiver turns phone control on when the video window receives the focus of its own thread, and off when it loses it. `iosctl` from 1.0.2 gives the video window that focus without changing the desktop's foreground window, posts these messages, and takes the focus away again when the batch ends. This fails on a minimized or hidden window, which Windows does not let take focus.
 
 ## Diagnose the failed layer
 
@@ -109,7 +109,9 @@ For a desktop tool that exposes message-based operations: input belongs to the *
 | Right-click reaches the phone but does not go Home | Verify this accessory's Button 2 assignment. A pulse is not evidence of the mapping. |
 | Repeated Ready=0/Ready=1 or reconnect entries | Treat as connection instability. Stop new input, wait for stable status, then re-observe. Do not spam Pair or replay clicks. |
 | Frame reader reports stale/inactive or wrong generation | Do not act on the previous PNG. Check mirroring and obtain a valid current observation. Recalculate coordinates after geometry changes. If only the screen is still, start the batch with `wake`. |
-| `Windows denied focus` from `iosctl` | The terminal is not the foreground window. Bring it forward and retry. No press was sent. |
+| `Windows denied focus` from `iosctl` | Only with `--foreground` or `--keep-focus`, or an `iosctl` from before 1.0.2: the user is working in another window. Drop the option, or ask the user to click PhonePort. No press was sent. |
+| `PhonePort is minimized` or `window is hidden` from `iosctl` | Ask the user to restore the PhonePort window. It can stay behind other windows. No press was sent. |
+| `someone is using the phone` from `iosctl` | A mouse button is held down on the PhonePort window. Stop and ask the user before continuing. |
 | Status is ready but the wrong phone responds | Bluetooth binding and mirroring are not checked against each other. Confirm the selected phone in PhonePort before sending input. In builds after 0.3.1-rc.5, choose the other phone from the phone button; the receiver remembers that choice for this mirror. |
 | Status says the selected iPhone is asleep | The selected phone is probably not the one on screen. Choose the mirroring phone from the phone button. Entries marked `(a different iPhone)` belong to another mirror. |
 | Phone button reads `Waiting for iPhone…` during mirroring | The receiver knows this mirror's phone and is waiting for its Bluetooth. Do not choose another phone. If it lasts over a minute, ask the user to open Settings > Bluetooth on that iPhone and tap the PC. |

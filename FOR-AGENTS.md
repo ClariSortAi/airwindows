@@ -161,7 +161,7 @@ Use `iosctl` where your environment permits its desktop input, or your supported
 | Invoke the mapped Home action | The Home Screen appears |
 | Click a PC text field and type | Text goes to Windows |
 
-Observe, act once, observe again. Allow roughly 600–700 ms initially; animations and longer text can take more time. Keep focus inside the video until input finishes. If the result is uncertain, inspect it before choosing the next action. Do not retry automatically or infer task success from changed pixels alone.
+Observe, act once, observe again. Allow roughly 600–700 ms initially; animations and longer text can take more time. From 1.0.2, `iosctl` input reaches PhonePort in the background, so the user can keep working in another window; the PhonePort window must only not be minimized. With another desktop tool, keep focus inside the video until input finishes. If the result is uncertain, inspect it before choosing the next action. Do not retry automatically or infer task success from changed pixels alone.
 
 Before typing, confirm the text field shows a cursor. With no field focused, iOS treats a hardware keyboard as a navigation keyboard: Space and Enter activate the focused control. Some iOS apps ignore typed digits; the iOS Calculator accepted taps on its keys but not digits typed on the keyboard.
 
@@ -197,7 +197,8 @@ An idle screen can exceed the normal one-second image limit. `iosctl --pid PID '
 | iPhone lists the PC as Connected, phone missing from the menu | The link is classic Bluetooth only. Forget the PC on the iPhone, remove the iPhone in Windows, click Pair Bluetooth and re-pair within the window |
 | Wrong phone responds while status is ready | Disconnect, choose the intended phone and confirm with the user |
 | User's first click does nothing on the phone | Known issue: the first click focuses the window. Click again |
-| `Windows denied focus` from `iosctl` | Bring the agent's terminal to the foreground and retry. No press was sent |
+| `Windows denied focus` from `iosctl` | Only with `--foreground` or `--keep-focus`, or an `iosctl` from before 1.0.2. Drop the option, or ask the user to click PhonePort. No press was sent |
+| `PhonePort is minimized` from `iosctl` | Ask the user to restore the PhonePort window; it can stay behind other windows. No press was sent |
 | Clicks miss | Recalculate picture bounds, DPI scale and overlay positions |
 | Typing stops or goes elsewhere | Restore the intended field and video focus, then inspect before continuing |
 | Home opens the PC menu | Use the toolbar or click inside the picture; verify Button 2 mapping |
