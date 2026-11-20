@@ -12,7 +12,7 @@
   - `iosctl` now posts the same mouse and keyboard window messages to PhonePort's picture area. The window does not have to be in front and may be covered. The PC's pointer and keyboard are not used. PhonePort's own checks and its Bluetooth path are unchanged, and this works with a 1.0.1 receiver.
   - The window must not be minimized or hidden; the command then says so and sends nothing. The person at the PC comes first: while PhonePort is the front window and the mouse or keyboard was used in the last minute, or a mouse button is held down on the PhonePort window, scripted input is refused. Click the PhonePort window to take the phone from an agent, and another window to hand it back.
   - `--foreground` selects the earlier behavior. `--keep-focus` implies it.
-  - Run on 2026-11-20 against an iPhone 14 Pro with the 1.0.1 Store receiver: all eight MCP tools, and a separate agent session that worked out 12 × 12 in Calculator, while another program had the keyboard and mouse. `--foreground` was not re-run that day.
+  - Run on 2026-11-20 against an iPhone 14 Pro with the 1.0.1 Store receiver: all eight MCP tools, and a separate agent session that worked out 12 × 12 in Calculator, while another program had the keyboard and mouse. The same phone then mirrored to this 1.0.2 build and the tools worked there too. `--foreground` was not re-run that day.
 - `Plan` accepts a batch already split into words, so text typed through the MCP server needs no quoting. Command batches on the command line parse as before.
 
 ## 1.0.1 (2026-11-16)
